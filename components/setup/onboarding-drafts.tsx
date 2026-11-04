@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/field"
 import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { Input, inputHints } from "@/components/ui/input"
+import { Empty } from "@/components/ui/empty"
 import { QueryError, QueryPending } from "@/components/ui/query-states"
+import { StatusPill } from "@/components/ui/status-pill"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -339,9 +341,11 @@ function DraftWorkspace({
             description={`${describeActionError(list.error)} Use Refresh drafts to try again.`}
           />
         ) : !list.data.drafts.length ? (
-          <p className="text-body text-ink-muted">
-            No saved drafts for this client and account.
-          </p>
+          <Empty
+            size="sm"
+            title="No saved drafts yet"
+            description="No saved drafts for this client and account."
+          />
         ) : (
           <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
             {list.data.drafts.map((item) => (
@@ -349,12 +353,17 @@ function DraftWorkspace({
                 key={item.id}
                 className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3"
               >
-                <div className="min-w-0">
+                <div className="flex min-w-0 flex-col gap-1">
                   <p className="text-body font-medium break-words text-ink">
                     {item.payload.title || "Untitled business"}
                   </p>
-                  <p className="text-caption text-ink-muted tabular-nums">
-                    Saved {new Date(item.updatedAt).toLocaleString("en-GB")}
+                  {/* A draft only ever lives here: the pill says so before
+                      the date, so a saved row never reads as a listing. */}
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-ink-muted tabular-nums">
+                    <StatusPill state="saved_locally" />
+                    <span>
+                      Saved {new Date(item.updatedAt).toLocaleString("en-GB")}
+                    </span>
                   </p>
                 </div>
                 <Button variant="secondary" onClick={() => onOpen(item.id)}>
@@ -784,7 +793,15 @@ function DraftDetails({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <h4 className="text-ui font-semibold">Business details</h4>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h4 className="text-ui font-semibold">Business details</h4>
+          {/* Saved here vs only in this tab, in the lifecycle's own words:
+              a draft is never on Google from this form. */}
+          <StatusPill
+            data-testid="onboarding-draft-state"
+            state={unsaved ? "unsaved" : "saved_locally"}
+          />
+        </div>
         <p className="text-caption text-ink-muted">
           This draft is saved in NabaPresence, not on Google. Keep this setup
           link to return to it.
@@ -1142,6 +1159,11 @@ function DraftDetails({
         <Button
           pending={search.isPending}
           pendingLabel="Searching Google…"
+          disabledReason={
+            !draft.payload.title && !pending
+              ? "Add the business name and save it before searching."
+              : undefined
+          }
           disabled={
             pending ||
             dirty ||
@@ -1159,6 +1181,13 @@ function DraftDetails({
           Search for matches
         </Button>
       </div>
+      {!draft.payload.title && !pending && !dirty ? (
+        // The visible half of Search's disabled reason; the button carries
+        // the same words as its description.
+        <p aria-hidden className="text-caption text-ink-muted">
+          Add the business name and save it before searching.
+        </p>
+      ) : null}
       {dirty && (
         <p role="status" className="text-caption text-ink-muted">
           Save your changes before searching. Earlier matches do not cover these

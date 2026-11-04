@@ -377,6 +377,99 @@ describe("ImportCard", () => {
     })
   })
 
+  it("says how far a partial Link selected got, and keeps Link for the failure", async () => {
+    const mutateAsync = vi.fn(async ({ externalLocationId }) => {
+      if (externalLocationId === "e2") throw new Error("Google timed out")
+      return { link: {} }
+    })
+    renderCard(
+      [
+        discovered({ id: "e1", title: "Riverside Rooms" }),
+        discovered({ id: "e2", title: "Canal Bar" }),
+        discovered({ id: "e3", title: "Hill Inn" }),
+      ],
+      { mutateAsync, isPending: false } as never
+    )
+    const linkSelected = screen.getByRole("button", {
+      name: "Link selected (3)",
+    })
+    linkSelected.focus()
+    fireEvent.click(linkSelected)
+    const status = await screen.findByText(/^Linked 2 of 3\./)
+    // The run unticks everything; the button stays focusable with its reason.
+    const after = screen.getByRole("button", { name: "Link selected (0)" })
+    expect(after).toHaveAttribute("aria-disabled", "true")
+    expect(after).toHaveAccessibleDescription("Tick a listing to link it.")
+    expect(document.activeElement).toBe(after)
+    expect(status).toHaveAttribute("role", "status")
+    expect(status).toHaveTextContent(
+      "1 didn’t link: the reason is on its row, and Link tries it again."
+    )
+    // The failed row keeps its reason and its own Link to retry.
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Something went wrong. Please try again."
+    )
+    expect(screen.getByRole("button", { name: "Link Canal Bar" })).toBeEnabled()
+  })
+
+  it("moves focus to the tally when every ticked listing linked", async () => {
+    const mutateAsync = vi.fn(async () => ({ link: {} }))
+    renderCard([discovered({ id: "e1", title: "Riverside Rooms" })], {
+      mutateAsync,
+      isPending: false,
+    } as never)
+    const linkSelected = screen.getByRole("button", {
+      name: "Link selected (1)",
+    })
+    linkSelected.focus()
+    fireEvent.click(linkSelected)
+    const status = await screen.findByText(/^Linked 1 of 1\./)
+    await waitFor(() => expect(document.activeElement).toBe(status))
+  })
+
+  it("switches a login with many accounts to a Select instead of a scrolling track", () => {
+    renderCard([discovered({})])
+    accountsMock.mockReturnValue({
+      query: {
+        data: {
+          accounts: Array.from({ length: 5 }, (_, index) => ({
+            id: `a${index}`,
+            googleAccountName: `accounts/${index}`,
+            accountName: `Group ${index}`,
+            isActive: true,
+            googleConnectionId: "c1",
+          })),
+        },
+      },
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const view = render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <ImportCard clientId="client-1" connectionId="c1" />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    expect(view.queryByRole("tablist")).toBeNull()
+    expect(
+      view.getByRole("combobox", { name: "Business Profile account" })
+    ).toHaveTextContent("Group 0")
+  })
+
+  it("draws Verified and Linked in ink, never success or accent", async () => {
+    vi.mocked(fetchManagementLocations).mockResolvedValue({
+      locations: [
+        directoryRow({ clientId: "client-1", clientName: "Old Crown" }),
+      ],
+    })
+    renderCard([discovered({})], undefined, "client-1")
+    const linked = await screen.findByText("Linked")
+    expect(linked.className).not.toMatch(/accent|success/)
+    expect(screen.getByText("Verified").className).not.toMatch(/accent|success/)
+  })
+
   it("never says client in business mode, and files only under the given home client", async () => {
     modeMock.mockReturnValue("business")
     vi.mocked(fetchManagementLocations).mockResolvedValue({

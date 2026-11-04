@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils"
 
 const IMPORT = {
   running: { tone: "info", label: "Running" },
-  done: { tone: "ok", label: "Complete" },
+  // Reviews read from Google, not a change confirmed there: neutral.
+  done: { tone: "neutral", label: "Complete" },
   failed: {
     tone: "bad",
     label: "Stopped",
@@ -42,13 +43,13 @@ function StepDone({
     <div className="flex flex-col items-start gap-5">
       <span
         aria-hidden
-        className="grid size-14 place-items-center rounded-2xl bg-success-tint text-success-ink"
+        className="grid size-14 place-items-center rounded-2xl bg-fill text-ink-secondary"
       >
         <CircleCheckIcon className="size-7" strokeWidth={1.75} />
       </span>
       <p className="max-w-(--np-measure-reading) text-body text-pretty text-ink">
-        {business ? "Your business" : clientName} is connected. New reviews
-        from Google appear in your inbox.
+        {business ? "Your business" : clientName} is connected. New reviews from
+        Google appear in your inbox.
       </p>
       {/* Notion Mail's settings rows: a label, an optional line under it,
           and the value on the right. Static rows, nothing here is a control.

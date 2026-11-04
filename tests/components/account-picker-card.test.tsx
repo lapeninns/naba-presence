@@ -192,6 +192,53 @@ describe("AccountPickerCard", () => {
     )
   })
 
+  it("adds a count with Select all and Clear when a login reaches many accounts", () => {
+    const save = vi.fn()
+    const many = Array.from({ length: 8 }, (_, index) =>
+      account({
+        id: `a${index}`,
+        googleAccountName: `accounts/${index}`,
+        accountName: `Account ${index}`,
+        isActive: index < 2,
+      })
+    )
+    renderCard(many, save)
+    expect(screen.getByText("2 of 8 switched on")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }))
+    expect(screen.getByText("8 of 8 switched on")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Select all" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }))
+    expect(screen.getByText("0 of 8 switched on")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Save accounts" }))
+    expect(save).toHaveBeenCalledWith([])
+  })
+
+  it("keeps a short list free of the bulk controls", () => {
+    renderCard([account({ id: "a1" }), account({ id: "a2" })])
+    expect(screen.queryByRole("button", { name: "Select all" })).toBeNull()
+    expect(screen.queryByText(/switched on/)).toBeNull()
+  })
+
+  it("names the wait while accounts load", () => {
+    workspaceMock.mockReturnValue({
+      query: { data: { connections: [] }, isPending: false, isError: false },
+    })
+    accountsMock.mockReturnValue({
+      query: { data: undefined, isPending: true, isError: false },
+      save: { mutate: vi.fn(), isPending: false },
+    })
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Toaster>
+          <AccountPickerCard />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Loading Google accounts…"
+    )
+  })
+
   it("shows an empty state when no accounts are discovered", () => {
     renderCard([])
     expect(

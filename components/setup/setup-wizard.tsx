@@ -18,7 +18,6 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { cardClassName } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { Progress } from "@/components/ui/progress"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Stepper } from "@/components/ui/stepper"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import type { SetupStep } from "@/lib/contracts/clients"
@@ -41,6 +40,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
+import { SetupStepSkeleton } from "./setup-step-skeleton"
 import type { AgencyUnsaved } from "./step-agency"
 
 // Each step is its own chunk: an operator sees one at a time, and the
@@ -395,11 +395,13 @@ function SetupWizard({ clientId }: { clientId: string }) {
     goTo(flow[Math.min(index + 1, flow.length - 1)])
   }
 
+  // The page header already says setup can be left and resumed, so the
+  // footer only speaks when it adds something: a blocker or an optional step.
   const footerHint = blocker
     ? blocker
     : definition.optional
       ? "Optional. You can skip this and come back later."
-      : "You can come back to any step later."
+      : ""
 
   return (
     <>
@@ -421,9 +423,6 @@ function SetupWizard({ clientId }: { clientId: string }) {
               aria-label="Setup steps"
               steps={steps}
             />
-            <p className="px-2.5 text-caption text-ink-muted">
-              You can come back to any step later.
-            </p>
           </nav>
 
           <section
@@ -685,31 +684,10 @@ function WizardSkeleton({
   flow: SetupStep[]
 }) {
   return (
-    <div className="@container/setup" role="status" aria-busy="true">
-      <span className="sr-only">
-        {business ? "Loading your setup" : "Loading this client’s setup"}
-      </span>
-      <div className="grid items-start gap-6 @3xl/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
-        <div className="hidden flex-col gap-2 @3xl/setup:flex">
-          {flow.map((step) => (
-            <Skeleton key={step} className="h-8" />
-          ))}
-        </div>
-        <div
-          className={cardClassName({
-            pad: true,
-            className: cn("flex flex-col gap-4", PHONE_UNCARDED, "max-md:p-0"),
-          })}
-        >
-          <div className="flex flex-col gap-2 border-b border-line-subtle pb-4">
-            <Skeleton className="h-3.5 w-24" />
-            <Skeleton className="h-6 w-56 max-w-full" />
-            <Skeleton className="h-4 w-80 max-w-full" />
-          </div>
-          <Skeleton className="h-32 w-full rounded-(--np-radius-card)" />
-        </div>
-      </div>
-    </div>
+    <SetupStepSkeleton
+      label={business ? "Loading your setup" : "Loading this client’s setup"}
+      steps={flow.length}
+    />
   )
 }
 
