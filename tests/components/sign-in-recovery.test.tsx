@@ -20,7 +20,8 @@ describe("sign-in retry", () => {
   it("clears the last answer on a new attempt, so a repeat is announced afresh", async () => {
     const user = userEvent.setup()
     let release: (error: unknown) => void = () => {}
-    vi.spyOn(authApi, "signIn")
+    const signIn = vi
+      .spyOn(authApi, "signIn")
       .mockRejectedValueOnce(
         new ApiClientError(401, "invalid_credentials", "server copy")
       )
@@ -43,6 +44,10 @@ describe("sign-in retry", () => {
     await waitFor(() =>
       expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     )
+    // The second request starts only after the lazily loaded schemas
+    // resolve, which can trail the old alert's removal under load; releasing
+    // before it is sent would reject nothing and leave the attempt pending.
+    await waitFor(() => expect(signIn).toHaveBeenCalledTimes(2))
     release(new ApiClientError(401, "invalid_credentials", "server copy"))
     const alert = await screen.findByRole("alert")
     await waitFor(() => expect(alert.parentElement).toHaveFocus())

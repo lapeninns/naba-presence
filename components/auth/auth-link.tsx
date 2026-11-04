@@ -12,7 +12,7 @@ function AuthLink({ className, ...props }: React.ComponentProps<typeof Link>) {
   return (
     <Link
       className={cn(
-        "inline-flex min-h-(--np-touch) items-center rounded-sm font-medium text-accent-ink underline decoration-1 underline-offset-3 focus-halo hover:decoration-2 focus-visible:outline-none desk:min-h-6",
+        "inline-flex min-h-(--np-touch) items-center rounded-sm font-medium text-accent-ink underline decoration-1 underline-offset-3 focus-halo focus-visible:outline-none hover-fine:hover:decoration-2 desk:min-h-6",
         className
       )}
       {...props}
