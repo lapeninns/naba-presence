@@ -116,9 +116,13 @@ describe("InvitationView", () => {
     )
     renderView()
     // Neutral about who accepted it: the link may have been forwarded.
-    expect(
-      await screen.findByText("This invitation has already been accepted.")
-    ).toBeInTheDocument()
+    const finished = await screen.findByText(
+      "This invitation has already been accepted."
+    )
+    // Neutral tone as well: nothing is in progress (blue means system work).
+    const panel = screen.getByRole("status")
+    expect(panel).toContainElement(finished)
+    expect(panel.className).not.toContain("bg-info-tint")
     expect(screen.getByText("Sign in to continue.")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Go to sign in" })).toHaveAttribute(
       "href",
