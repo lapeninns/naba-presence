@@ -439,12 +439,11 @@ describe("reviewed PIN completion", () => {
     fixture()
     await approve()
     await send()
-    expect(
-      screen.getByRole("button", { name: "Sending…" })
-    ).toHaveAttribute("aria-disabled", "true")
-    await userEvent.click(
-      screen.getByRole("button", { name: "Sending…" })
+    expect(screen.getByRole("button", { name: "Sending…" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
     )
+    await userEvent.click(screen.getByRole("button", { name: "Sending…" }))
     expect(executeGoogleVerificationCompletion).toHaveBeenCalledTimes(1)
     expect(
       screen.queryByText(/send response was unavailable/)

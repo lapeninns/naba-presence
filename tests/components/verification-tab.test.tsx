@@ -16,7 +16,13 @@ import type { VerificationStateResponse } from "@/lib/contracts/google-verificat
 import type { SessionResponse } from "@/lib/contracts/session"
 import { queryKeys } from "@/lib/queries/keys"
 import { formatInstant } from "@/components/editors/change-diff"
-import { completionLocationId as locationId, completionRequest as request, completionAttempt as attempt, completionWorkflow as workflow, completionReview as pinReview } from "../helpers/verification-completion"
+import {
+  completionLocationId as locationId,
+  completionRequest as request,
+  completionAttempt as attempt,
+  completionWorkflow as workflow,
+  completionReview as pinReview,
+} from "../helpers/verification-completion"
 
 vi.mock("@/lib/api/session")
 vi.mock("@/lib/api/locations")
@@ -26,106 +32,287 @@ vi.mock("@/lib/api/google-verification-completion-attempt")
 vi.mock("@/lib/api/google-verification-completion-reviews")
 vi.mock("@/lib/api/google-verification-reviews")
 
-const session: SessionResponse = { session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true, workspaceMode: "agency" } }
-const state: VerificationStateResponse = { locationId, googleLocationName: "locations/camden", checkedAt: "2026-09-30T01:00:00Z", verifications: [request], merchant: { hasVoiceOfMerchant: false, hasBusinessAuthority: true, action: "verify", hasPendingVerification: true }, merchantError: null }
+const session: SessionResponse = {
+  session: {
+    userId: "manager",
+    organisationId: "org",
+    organisationName: "Agency",
+    displayName: "Manager",
+    email: "manager@example.test",
+    role: "owner",
+    canPublish: true,
+    workspaceMode: "agency",
+  },
+}
+const state: VerificationStateResponse = {
+  locationId,
+  googleLocationName: "locations/camden",
+  checkedAt: "2026-09-30T01:00:00Z",
+  verifications: [request],
+  merchant: {
+    hasVoiceOfMerchant: false,
+    hasBusinessAuthority: true,
+    action: "verify",
+    hasPendingVerification: true,
+  },
+  merchantError: null,
+}
 beforeEach(() => {
   vi.mocked(fetchSession).mockResolvedValue(session)
-  vi.mocked(fetchLocationCapabilities).mockResolvedValue({ canEditCanonical: true, canPublish: true, resources: { administration: { state: "available" } } })
+  vi.mocked(fetchLocationCapabilities).mockResolvedValue({
+    canEditCanonical: true,
+    canPublish: true,
+    resources: { administration: { state: "available" } },
+  })
   vi.mocked(fetchGoogleVerificationState).mockResolvedValue(state)
-  vi.mocked(fetchGoogleVerificationWorkflows).mockResolvedValue({ workflows: [], nextCursor: null })
+  vi.mocked(fetchGoogleVerificationWorkflows).mockResolvedValue({
+    workflows: [],
+    nextCursor: null,
+  })
   vi.mocked(fetchGoogleVerificationCompletionAttempt).mockResolvedValue(attempt)
 })
 afterEach(() => vi.resetAllMocks())
 
 function fixture() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const view = render(<QueryClientProvider client={client}><VerificationTab locationId={locationId} locationName="Camden Hotel" /></QueryClientProvider>)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const view = render(
+    <QueryClientProvider client={client}>
+      <VerificationTab locationId={locationId} locationName="Camden Hotel" />
+    </QueryClientProvider>
+  )
   return { client, view }
 }
 
 /** Saved-work rows at `stage`, each checked to name its operation. */
-async function savedRows(region: HTMLElement, operation: string, stage: string) {
-  const rows = (await within(region).findAllByText(new RegExp(`· ${stage}$`))).map((element) => element.closest("li"))
+async function savedRows(
+  region: HTMLElement,
+  operation: string,
+  stage: string
+) {
+  const rows = (
+    await within(region).findAllByText(new RegExp(`· ${stage}$`))
+  ).map((element) => element.closest("li"))
   for (const row of rows) expect(row).toHaveTextContent(operation)
   return rows
 }
-const precedes = (first: HTMLElement, second: HTMLElement) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+const precedes = (first: HTMLElement, second: HTMLElement) =>
+  Boolean(
+    first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING
+  )
 
 describe("independent verification workspace", () => {
   it("leads with PIN entry, ahead of the standing card, while Google waits for a PIN", async () => {
     fixture()
     const pin = await screen.findByLabelText("PIN from Google")
-    const pinSection = screen.getByRole("region", { name: "Enter the PIN from Google" })
-    const status = screen.getByRole("region", { name: "How Google sees this listing" })
+    const pinSection = screen.getByRole("region", {
+      name: "Enter the PIN from Google",
+    })
+    const status = screen.getByRole("region", {
+      name: "How Google sees this listing",
+    })
     expect(pinSection).toContainElement(pin)
     expect(precedes(pinSection, status)).toBe(true)
-    expect(precedes(status, screen.getByRole("region", { name: "Start a new verification" }))).toBe(true)
-    expect(precedes(screen.getByRole("region", { name: "Start a new verification" }), screen.getByRole("region", { name: "History" }))).toBe(true)
+    expect(
+      precedes(
+        status,
+        screen.getByRole("region", { name: "Start a new verification" })
+      )
+    ).toBe(true)
+    expect(
+      precedes(
+        screen.getByRole("region", { name: "Start a new verification" }),
+        screen.getByRole("region", { name: "History" })
+      )
+    ).toBe(true)
     // The standing's secondary signals are one tap away, not five paragraphs.
-    expect(screen.getByText("Business authority reported").closest("details")).not.toHaveAttribute("open")
+    expect(
+      screen.getByText("Business authority reported").closest("details")
+    ).not.toHaveAttribute("open")
   })
   it("keeps the standing card first when no pending request takes a PIN", async () => {
-    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [{ ...request, phase: "completed", providerState: "COMPLETED" }] })
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({
+      ...state,
+      verifications: [
+        { ...request, phase: "completed", providerState: "COMPLETED" },
+      ],
+    })
     fixture()
     await screen.findByText("Request completed")
-    const pinSection = screen.getByRole("region", { name: "PINs and saved reviews" })
-    expect(precedes(screen.getByRole("region", { name: "How Google sees this listing" }), pinSection)).toBe(true)
+    const pinSection = screen.getByRole("region", {
+      name: "PINs and saved reviews",
+    })
+    expect(
+      precedes(
+        screen.getByRole("region", { name: "How Google sees this listing" }),
+        pinSection
+      )
+    ).toBe(true)
   })
   it("answers in one line when the listing is verified and nothing is pending", async () => {
-    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [{ ...request, phase: "completed", providerState: "COMPLETED" }], merchant: { hasVoiceOfMerchant: true, hasBusinessAuthority: true, action: "none", hasPendingVerification: false } })
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({
+      ...state,
+      verifications: [
+        { ...request, phase: "completed", providerState: "COMPLETED" },
+      ],
+      merchant: {
+        hasVoiceOfMerchant: true,
+        hasBusinessAuthority: true,
+        action: "none",
+        hasPendingVerification: false,
+      },
+    })
     fixture()
-    expect(await screen.findByText("Verified. Google confirms you manage this listing.")).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        "Verified. Google confirms you manage this listing."
+      )
+    ).toBeInTheDocument()
     const tools = screen.getByText("Verification tools").closest("details")
     expect(tools).not.toBeNull()
     expect(tools).not.toHaveAttribute("open")
-    expect(tools).toContainElement(screen.getByRole("region", { name: "Start a new verification" }))
-    expect(tools).toContainElement(screen.getByRole("region", { name: "History" }))
+    expect(tools).toContainElement(
+      screen.getByRole("region", { name: "Start a new verification" })
+    )
+    expect(tools).toContainElement(
+      screen.getByRole("region", { name: "History" })
+    )
   })
   it("keeps the verification tools open on the page while a request is pending", async () => {
-    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, merchant: { hasVoiceOfMerchant: true, hasBusinessAuthority: true, action: "none", hasPendingVerification: true } })
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({
+      ...state,
+      merchant: {
+        hasVoiceOfMerchant: true,
+        hasBusinessAuthority: true,
+        action: "none",
+        hasPendingVerification: true,
+      },
+    })
     fixture()
     await screen.findByLabelText("PIN from Google")
     expect(screen.queryByText("Verification tools")).not.toBeInTheDocument()
   })
   it("retains both saved reviews with one active Google action bar", async () => {
-    const startReview: VerificationReview = { changeSet: { ...pinReview.changeSet, id: "00000000-0000-4000-8000-000000000003", approvedBy: locationId }, payload: { method: "EMAIL", languageCode: "en-GB", emailAddress: "owner@example.test" }, choice: { id: pinReview.changeSet.payloadHash, kind: "email", method: "EMAIL", user: "owner", domain: "example.test", userNameEditable: true } }
+    const startReview: VerificationReview = {
+      changeSet: {
+        ...pinReview.changeSet,
+        id: "00000000-0000-4000-8000-000000000003",
+        approvedBy: locationId,
+      },
+      payload: {
+        method: "EMAIL",
+        languageCode: "en-GB",
+        emailAddress: "owner@example.test",
+      },
+      choice: {
+        id: pinReview.changeSet.payloadHash,
+        kind: "email",
+        method: "EMAIL",
+        user: "owner",
+        domain: "example.test",
+        userNameEditable: true,
+      },
+    }
     vi.mocked(fetchGoogleVerificationReview).mockResolvedValue(startReview)
-    vi.mocked(fetchGoogleVerificationCompletionReview).mockResolvedValue({ ...pinReview, changeSet: { ...pinReview.changeSet, approvedBy: locationId } })
-    vi.mocked(fetchGoogleVerificationWorkflows).mockImplementation(async (_id, query) => ({ workflows: [{ ...workflow, operation: query?.operation === "complete" ? "complete_verification" : "start_verification", reviewId: query?.operation === "complete" ? workflow.reviewId : startReview.changeSet.id, approvedBy: locationId }], nextCursor: null }))
+    vi.mocked(fetchGoogleVerificationCompletionReview).mockResolvedValue({
+      ...pinReview,
+      changeSet: { ...pinReview.changeSet, approvedBy: locationId },
+    })
+    vi.mocked(fetchGoogleVerificationWorkflows).mockImplementation(
+      async (_id, query) => ({
+        workflows: [
+          {
+            ...workflow,
+            operation:
+              query?.operation === "complete"
+                ? "complete_verification"
+                : "start_verification",
+            reviewId:
+              query?.operation === "complete"
+                ? workflow.reviewId
+                : startReview.changeSet.id,
+            approvedBy: locationId,
+          },
+        ],
+        nextCursor: null,
+      })
+    )
     const { view } = fixture()
-    await userEvent.click(await within(await screen.findByRole("region", { name: "Saved PIN completions" })).findByRole("button", { name: "Open saved review" }))
-    await userEvent.type(await screen.findByLabelText("Re-enter reviewed PIN"), "001234")
-    await userEvent.click(await within(screen.getByRole("region", { name: "Saved verification requests" })).findByRole("button", { name: "Open saved review" }))
-    await screen.findByRole("button", { name: "Send approved verification request" })
-    expect(view.container.querySelectorAll('[data-slot="action-bar"]')).toHaveLength(1)
-    expect(screen.queryByLabelText("Re-enter reviewed PIN")).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "Continue approved PIN completion" }))
+    await userEvent.click(
+      await within(
+        await screen.findByRole("region", { name: "Saved PIN completions" })
+      ).findByRole("button", { name: "Open saved review" })
+    )
+    await userEvent.type(
+      await screen.findByLabelText("Re-enter reviewed PIN"),
+      "001234"
+    )
+    await userEvent.click(
+      await within(
+        screen.getByRole("region", { name: "Saved verification requests" })
+      ).findByRole("button", { name: "Open saved review" })
+    )
+    await screen.findByRole("button", {
+      name: "Send approved verification request",
+    })
+    expect(
+      view.container.querySelectorAll('[data-slot="action-bar"]')
+    ).toHaveLength(1)
+    expect(
+      screen.queryByLabelText("Re-enter reviewed PIN")
+    ).not.toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Continue approved PIN completion" })
+    )
     expect(screen.getByLabelText("Re-enter reviewed PIN")).toHaveValue("")
-    expect(view.container.querySelectorAll('[data-slot="action-bar"]')).toHaveLength(1)
+    expect(
+      view.container.querySelectorAll('[data-slot="action-bar"]')
+    ).toHaveLength(1)
     expect(screen.getByText("owner@example.test")).toBeInTheDocument()
   })
   it("loads typed request and merchant observations without the legacy bundle", async () => {
-    const fetchMock = vi.fn<typeof fetch>(); vi.stubGlobal("fetch", fetchMock)
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetchMock)
     try {
       fixture()
-      expect(await screen.findByText("Google hasn't yet confirmed you can manage this listing")).toBeInTheDocument()
-      expect(screen.getByRole("heading", { name: "Start a new verification" })).toBeInTheDocument()
+      expect(
+        await screen.findByText(
+          "Google hasn't yet confirmed you can manage this listing"
+        )
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole("heading", { name: "Start a new verification" })
+      ).toBeInTheDocument()
       expect(screen.getByLabelText("PIN from Google")).toBeEnabled()
-      expect(screen.queryByText(/Edits publish normally/)).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(/Edits publish normally/)
+      ).not.toBeInTheDocument()
       expect(fetchMock).not.toHaveBeenCalled()
-    } finally { vi.unstubAllGlobals() }
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
-  it.each(["member", "viewer"] as const)("does not issue privileged reads for a %s", async (role) => {
-    vi.mocked(fetchSession).mockResolvedValue({ session: session.session && { ...session.session, role } })
-    fixture()
-    await screen.findByText("Only owners and admins can manage verification")
-    expect(fetchGoogleVerificationState).not.toHaveBeenCalled()
-    expect(fetchGoogleVerificationWorkflows).not.toHaveBeenCalled()
-    expect(fetchLocationCapabilities).not.toHaveBeenCalled()
-  })
+  it.each(["member", "viewer"] as const)(
+    "does not issue privileged reads for a %s",
+    async (role) => {
+      vi.mocked(fetchSession).mockResolvedValue({
+        session: session.session && { ...session.session, role },
+      })
+      fixture()
+      await screen.findByText("Only owners and admins can manage verification")
+      expect(fetchGoogleVerificationState).not.toHaveBeenCalled()
+      expect(fetchGoogleVerificationWorkflows).not.toHaveBeenCalled()
+      expect(fetchLocationCapabilities).not.toHaveBeenCalled()
+    }
+  )
   it("waits for a known session before privileged reads", async () => {
     let resolveSession: ((value: SessionResponse) => void) | undefined
-    vi.mocked(fetchSession).mockReturnValue(new Promise((resolve) => { resolveSession = resolve }))
+    vi.mocked(fetchSession).mockReturnValue(
+      new Promise((resolve) => {
+        resolveSession = resolve
+      })
+    )
     fixture()
     expect(fetchGoogleVerificationState).not.toHaveBeenCalled()
     expect(fetchGoogleVerificationWorkflows).not.toHaveBeenCalled()
@@ -133,41 +320,95 @@ describe("independent verification workspace", () => {
     await screen.findByLabelText("PIN from Google")
   })
   it("does not use a stale role after the session refresh fails", async () => {
-    const { client } = fixture(); await screen.findByLabelText("PIN from Google")
-    vi.mocked(fetchSession).mockRejectedValue(new Error("private provider echo"))
+    const { client } = fixture()
+    await screen.findByLabelText("PIN from Google")
+    vi.mocked(fetchSession).mockRejectedValue(
+      new Error("private provider echo")
+    )
     await client.refetchQueries({ queryKey: queryKeys.session })
     await screen.findByText("Your access could not be checked")
     expect(screen.queryByLabelText("PIN from Google")).not.toBeInTheDocument()
     expect(screen.queryByText("private provider echo")).not.toBeInTheDocument()
   })
   it("keeps saved outcomes accessible when Google is disconnected", async () => {
-    vi.mocked(fetchGoogleVerificationState).mockRejectedValue(new ApiClientError(409, "google_reconnect_required", "private provider echo"))
-    vi.mocked(fetchGoogleVerificationWorkflows).mockImplementation(async (_id, query) => ({ workflows: query?.operation === "complete" ? [{ ...workflow, attempt: { id: attempt.id, status: attempt.status, executionState: attempt.executionState, confirmationState: attempt.confirmationState, observedAt: attempt.observedAt } }] : [], nextCursor: null }))
+    vi.mocked(fetchGoogleVerificationState).mockRejectedValue(
+      new ApiClientError(
+        409,
+        "google_reconnect_required",
+        "private provider echo"
+      )
+    )
+    vi.mocked(fetchGoogleVerificationWorkflows).mockImplementation(
+      async (_id, query) => ({
+        workflows:
+          query?.operation === "complete"
+            ? [
+                {
+                  ...workflow,
+                  attempt: {
+                    id: attempt.id,
+                    status: attempt.status,
+                    executionState: attempt.executionState,
+                    confirmationState: attempt.confirmationState,
+                    observedAt: attempt.observedAt,
+                  },
+                },
+              ]
+            : [],
+        nextCursor: null,
+      })
+    )
     fixture()
     await screen.findByText("Current Google state could not be read")
-    expect(screen.getByText(/This does not mean the listing is unverified/)).toBeInTheDocument()
-    await userEvent.click(await screen.findByRole("button", { name: "Open saved outcome" }))
+    expect(
+      screen.getByText(/This does not mean the listing is unverified/)
+    ).toBeInTheDocument()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open saved outcome" })
+    )
     expect(await screen.findByText("Accepted by Google")).toBeInTheDocument()
-    expect(screen.getByText("Independent confirmation unresolved")).toBeInTheDocument()
+    expect(
+      screen.getByText("Independent confirmation unresolved")
+    ).toBeInTheDocument()
     expect(fetchGoogleVerificationCompletionAttempt).toHaveBeenCalled()
     expect(screen.queryByText("private provider echo")).not.toBeInTheDocument()
   })
   it("keeps recovery mounted and blocks sends when capabilities fail", async () => {
-    vi.mocked(fetchLocationCapabilities).mockRejectedValue(new Error("private echo"))
+    vi.mocked(fetchLocationCapabilities).mockRejectedValue(
+      new Error("private echo")
+    )
     fixture()
-    await screen.findByRole("button", { name: "Check publishing permissions again" })
+    await screen.findByRole("button", {
+      name: "Check publishing permissions again",
+    })
     expect(await screen.findByLabelText("PIN from Google")).toBeDisabled()
-    expect(screen.getByRole("heading", { name: "Saved verification requests" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "Saved PIN completions" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Saved verification requests" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Saved PIN completions" })
+    ).toBeInTheDocument()
   })
   it("fails closed when per-resource availability is missing", async () => {
-    vi.mocked(fetchLocationCapabilities).mockResolvedValue({ canEditCanonical: true, canPublish: true })
+    vi.mocked(fetchLocationCapabilities).mockResolvedValue({
+      canEditCanonical: true,
+      canPublish: true,
+    })
     fixture()
-    await screen.findAllByText(/Verification publishing availability has not been confirmed/)
+    await screen.findAllByText(
+      /Verification publishing availability has not been confirmed/
+    )
     expect(await screen.findByLabelText("PIN from Google")).toBeDisabled()
   })
   it("shows completed requests without turning unknown standing into success", async () => {
-    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [{ ...request, phase: "completed", providerState: "COMPLETED" }], merchant: null, merchantError: "verification_merchant_state_unavailable" })
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({
+      ...state,
+      verifications: [
+        { ...request, phase: "completed", providerState: "COMPLETED" },
+      ],
+      merchant: null,
+      merchantError: "verification_merchant_state_unavailable",
+    })
     fixture()
     await screen.findByText("Verification status is unknown")
     expect(screen.getByText("Request completed")).toBeInTheDocument()
@@ -175,64 +416,155 @@ describe("independent verification workspace", () => {
     expect(screen.queryByLabelText("PIN from Google")).not.toBeInTheDocument()
   })
   it("retains dated observations after a failed refresh and blocks new sends", async () => {
-    fixture(); await screen.findByLabelText("PIN from Google")
-    vi.mocked(fetchGoogleVerificationState).mockRejectedValue(new Error("private echo"))
-    await userEvent.click(screen.getByRole("button", { name: "Check current Google verification state" }))
+    fixture()
+    await screen.findByLabelText("PIN from Google")
+    vi.mocked(fetchGoogleVerificationState).mockRejectedValue(
+      new Error("private echo")
+    )
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Check current Google verification state",
+      })
+    )
     await screen.findByText(/The details below are earlier observations/)
     expect(screen.getByLabelText("PIN from Google")).toBeDisabled()
     expect(screen.getAllByText("Pending with Google")).toHaveLength(2)
   })
   it("shows pending verification in amber, never the with-Google blue", async () => {
-    fixture(); await screen.findByLabelText("PIN from Google")
+    fixture()
+    await screen.findByLabelText("PIN from Google")
     for (const pill of screen.getAllByText("Pending with Google"))
-      expect(pill.closest('[data-slot="status-pill"]')).toHaveAttribute("data-tone", "attention")
+      expect(pill.closest('[data-slot="status-pill"]')).toHaveAttribute(
+        "data-tone",
+        "attention"
+      )
   })
   it("dates History so an empty list never reads as contradicting a newer saved outcome", async () => {
-    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [] })
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({
+      ...state,
+      verifications: [],
+    })
     fixture()
     const checked = formatInstant(state.checkedAt)
-    expect(await screen.findByText(new RegExp(`Google returned no verification requests when this list was checked at ${checked}`))).toBeInTheDocument()
-    expect(screen.getByText(/A saved outcome above may have been observed after that check/)).toBeInTheDocument()
-    expect(screen.getByText(`Requests Google returned when checked at ${checked}. Saved results above can be newer than this check. Finishing a request does not by itself mean the listing is verified.`)).toBeInTheDocument()
-    expect(screen.queryByText(/at the last successful check/)).not.toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        new RegExp(
+          `Google returned no verification requests when this list was checked at ${checked}`
+        )
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /A saved outcome above may have been observed after that check/
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        `Requests Google returned when checked at ${checked}. Saved results above can be newer than this check. Finishing a request does not by itself mean the listing is verified.`
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/at the last successful check/)
+    ).not.toBeInTheDocument()
   })
   it("labels each saved list's reload control once, with no duplicate generic control", async () => {
-    fixture(); await screen.findByLabelText("PIN from Google")
-    expect(screen.getAllByRole("button", { name: "Reload saved start requests" })).toHaveLength(1)
-    expect(screen.getAllByRole("button", { name: "Reload saved PIN completions" })).toHaveLength(1)
-    expect(screen.queryByRole("button", { name: "Reload saved requests" })).not.toBeInTheDocument()
+    fixture()
+    await screen.findByLabelText("PIN from Google")
+    expect(
+      screen.getAllByRole("button", { name: "Reload saved start requests" })
+    ).toHaveLength(1)
+    expect(
+      screen.getAllByRole("button", { name: "Reload saved PIN completions" })
+    ).toHaveLength(1)
+    expect(
+      screen.queryByRole("button", { name: "Reload saved requests" })
+    ).not.toBeInTheDocument()
   })
   it("humanises an unknown verification method and keeps its code as secondary detail", async () => {
-    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [{ ...request, method: "FUTURE_METHOD", phase: "completed", providerState: "COMPLETED" }] })
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({
+      ...state,
+      verifications: [
+        {
+          ...request,
+          method: "FUTURE_METHOD",
+          phase: "completed",
+          providerState: "COMPLETED",
+        },
+      ],
+    })
     fixture()
     expect(await screen.findByText("Another Google method")).toBeInTheDocument()
-    expect(screen.getByText("Google method code: FUTURE_METHOD")).toBeInTheDocument()
+    expect(
+      screen.getByText("Google method code: FUTURE_METHOD")
+    ).toBeInTheDocument()
     expect(screen.queryByText("FUTURE METHOD")).not.toBeInTheDocument()
-    const history = screen.getByRole("list", { name: "Google verification request history" })
+    const history = screen.getByRole("list", {
+      name: "Google verification request history",
+    })
     const reference = within(history).getByText(request.name)
-    expect(reference.closest("details")).toHaveTextContent(`Google reference${request.name}`)
+    expect(reference.closest("details")).toHaveTextContent(
+      `Google reference${request.name}`
+    )
     expect(reference.closest("details")).not.toHaveAttribute("open")
     // A list of records, not a scrolling table that adds a tab stop.
     expect(screen.queryByRole("table")).not.toBeInTheDocument()
   })
   it("never lists an expired approved review as approved", async () => {
-    vi.mocked(fetchGoogleVerificationWorkflows).mockImplementation(async (_id, query) => ({ workflows: query?.operation === "complete" ? [
-      { ...workflow, approvedBy: locationId, expiresAt: "2020-01-01T00:00:00Z" },
-      { ...workflow, reviewId: "00000000-0000-4000-8000-000000000009", approvedBy: locationId, expiresAt: "2099-01-01T00:00:00Z", reviewReason: "expired" },
-      { ...workflow, reviewId: "00000000-0000-4000-8000-000000000010", expiresAt: "2020-01-01T00:00:00Z" },
-    ] : [], nextCursor: null }))
+    vi.mocked(fetchGoogleVerificationWorkflows).mockImplementation(
+      async (_id, query) => ({
+        workflows:
+          query?.operation === "complete"
+            ? [
+                {
+                  ...workflow,
+                  approvedBy: locationId,
+                  expiresAt: "2020-01-01T00:00:00Z",
+                },
+                {
+                  ...workflow,
+                  reviewId: "00000000-0000-4000-8000-000000000009",
+                  approvedBy: locationId,
+                  expiresAt: "2099-01-01T00:00:00Z",
+                  reviewReason: "expired",
+                },
+                {
+                  ...workflow,
+                  reviewId: "00000000-0000-4000-8000-000000000010",
+                  expiresAt: "2020-01-01T00:00:00Z",
+                },
+              ]
+            : [],
+        nextCursor: null,
+      })
+    )
     fixture()
-    const saved = await screen.findByRole("region", { name: "Saved PIN completions" })
-    expect(await savedRows(saved, "Text message", "Approval expired")).toHaveLength(2)
-    expect(await savedRows(saved, "Text message", "Review expired")).toHaveLength(1)
+    const saved = await screen.findByRole("region", {
+      name: "Saved PIN completions",
+    })
+    expect(
+      await savedRows(saved, "Text message", "Approval expired")
+    ).toHaveLength(2)
+    expect(
+      await savedRows(saved, "Text message", "Review expired")
+    ).toHaveLength(1)
     expect(within(saved).queryByText(/Approved review/)).not.toBeInTheDocument()
   })
   it("removes transient PIN controls on role revocation", async () => {
-    const { client } = fixture(); await screen.findByLabelText("PIN from Google")
+    const { client } = fixture()
+    await screen.findByLabelText("PIN from Google")
     await userEvent.type(screen.getByLabelText("PIN from Google"), "001234")
-    client.setQueryData(queryKeys.session, { session: session.session && { ...session.session, role: "viewer" } })
+    client.setQueryData(queryKeys.session, {
+      session: session.session && { ...session.session, role: "viewer" },
+    })
     await screen.findByText("Only owners and admins can manage verification")
     expect(screen.queryByLabelText("PIN from Google")).not.toBeInTheDocument()
-    expect(JSON.stringify(client.getQueryCache().getAll().map((entry) => entry.state.data))).not.toContain("001234")
+    expect(
+      JSON.stringify(
+        client
+          .getQueryCache()
+          .getAll()
+          .map((entry) => entry.state.data)
+      )
+    ).not.toContain("001234")
   })
 })
