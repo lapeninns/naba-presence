@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, render, screen, waitFor, within } from "@testing-library/react"
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -684,6 +691,36 @@ describe("MembersTable on a phone", () => {
     expect(
       (await screen.findAllByRole("menuitem")).map((item) => item.textContent)
     ).toEqual(["Client access", "Remove"])
+  })
+
+  it("reveals the same actions on a swipe, and Remove still asks first", async () => {
+    stubWidth(false)
+    const remove = vi.spyOn(membersApi, "removeMember")
+    renderTable("owner", "owner-1", team())
+    const row = screen
+      .getByRole("list", { name: "Members" })
+      .querySelectorAll<HTMLElement>("[data-slot=list-row-swipe]")
+    // Only Ben's row has a swipe: the current owner has neither action.
+    expect(row).toHaveLength(1)
+    const actions = row[0].querySelectorAll<HTMLButtonElement>(
+      "[data-slot=list-row-swipe-action]"
+    )
+    expect([...actions].map((action) => action.textContent)).toEqual([
+      "Client access",
+      "Remove",
+    ])
+    // Closed, they are out of the tab order; the ⋯ button is the way in.
+    expect(
+      row[0].querySelector("[data-slot=list-row-swipe-actions]")
+    ).toHaveAttribute("inert")
+    expect(actions[1]).toHaveAttribute("data-tone", "danger")
+    fireEvent.click(actions[1])
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "Remove Ben Member from the team?",
+      })
+    ).toBeInTheDocument()
+    expect(remove).not.toHaveBeenCalled()
   })
 })
 
