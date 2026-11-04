@@ -727,7 +727,8 @@ describe("BillingCard recovery, outcomes and notices", () => {
     )
     expect(add).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "success",
+        // A Stripe change, not a Google one: neutral, never the green.
+        type: "info",
         title: "Subscription cancelled",
         description: "Full access continues until 14 November 2026.",
       })
@@ -793,7 +794,7 @@ describe("BillingCard recovery, outcomes and notices", () => {
       screen.getByRole("button", { name: "Resume subscription" })
     )
     expect(add).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Subscription resumed" })
+      expect.objectContaining({ type: "info", title: "Subscription resumed" })
     )
   })
 

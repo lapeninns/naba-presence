@@ -6,7 +6,6 @@ import {
   BillingCard,
   CheckoutCanceledNotice,
 } from "@/components/settings/billing-card"
-import { SettingsNav } from "@/components/settings/settings-nav"
 import { getSession } from "@/lib/server/session"
 
 import {
@@ -50,7 +49,6 @@ export default async function SettingsBillingPage({
       <PageHeader
         title="Billing"
         description="Your plan, its limits and renewal, payment details and invoices. Only the workspace owner can change billing."
-        tabs={<SettingsNav role={session.role} />}
       />
       <div className="flex flex-col gap-(--np-gap-section)">
         {checkout === "canceled" ? <CheckoutCanceledNotice /> : null}

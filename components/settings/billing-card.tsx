@@ -370,7 +370,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
                     onSuccess: (result) => {
                       if (!result.cancelAtPeriodEnd) {
                         toast.add({
-                          type: "success",
+                          type: "info",
                           title: "Subscription resumed",
                         })
                       }
@@ -458,7 +458,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
                     setConfirmCancel(false)
                     if (result.cancelAtPeriodEnd) {
                       toast.add({
-                        type: "success",
+                        type: "info",
                         title: "Subscription cancelled",
                         description:
                           [
