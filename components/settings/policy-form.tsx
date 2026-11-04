@@ -468,7 +468,7 @@ export function PolicyForm({ role }: { role: string | null }) {
           : "Turning approval off needs an owner."
         : null
 
-  // One press saves whatever changed: the policy (PUT /api/settings) and
+  // One press saves whatever changed: the policy (PATCH /api/settings) and
   // the name (PATCH /api/organisations), each with its own unchanged body.
   // Each half reports its own refusal; the toast only says "saved" when
   // everything that was sent was saved.
