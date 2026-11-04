@@ -41,11 +41,17 @@ function workflow(
 
 function sheet(flow: ReviewedChangeWorkflow) {
   return render(
-    <ReviewedChangeSheet workflow={flow} noun="lodging" rows={[]} disabled={false} />
+    <ReviewedChangeSheet
+      workflow={flow}
+      noun="lodging"
+      rows={[]}
+      disabled={false}
+    />
   )
 }
 
-const steps = () => screen.getByRole("list", { name: "Steps to send this change" })
+const steps = () =>
+  screen.getByRole("list", { name: "Steps to send this change" })
 
 describe("ReviewedChangeSheet", () => {
   it("says why Approve is off when this person can't approve", () => {
@@ -54,25 +60,35 @@ describe("ReviewedChangeSheet", () => {
       screen.getByRole("button", { name: "Approve lodging changes" })
     ).toBeDisabled()
     expect(
-      screen.getByText("Your current permissions don’t allow approving these changes.")
+      screen.getByText(
+        "Your current permissions don’t allow approving these changes."
+      )
     ).toBeInTheDocument()
   })
 
   it("leaves a two-person review to its second-approver line", () => {
     sheet(workflow({ canApprove: false, requiresSecondApprover: true }))
     expect(
-      screen.getByText(/A different current owner or administrator must approve/)
+      screen.getByText(
+        /A different current owner or administrator must approve/
+      )
     ).toBeInTheDocument()
     expect(within(steps()).getByText("Another person")).toBeInTheDocument()
-    expect(screen.queryByText(/permissions don’t allow/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/permissions don’t allow/)
+    ).not.toBeInTheDocument()
   })
 
   it("asks for the consent tick before the green send, and drops the note once ticked", async () => {
     sheet(workflow({ approvedBy: "user-2" }))
-    const send = screen.getByRole("button", { name: "Send approved lodging changes" })
+    const send = screen.getByRole("button", {
+      name: "Send approved lodging changes",
+    })
     expect(send).toBeDisabled()
     expect(send).toHaveAttribute("data-variant", "send")
-    expect(screen.getByText("Tick the box to send these exact lodging changes.")).toBeInTheDocument()
+    expect(
+      screen.getByText("Tick the box to send these exact lodging changes.")
+    ).toBeInTheDocument()
     await userEvent.click(screen.getByRole("checkbox"))
     expect(send).toBeEnabled()
     expect(screen.queryByText(/Tick the box/)).not.toBeInTheDocument()
@@ -81,7 +97,9 @@ describe("ReviewedChangeSheet", () => {
   it("says sending is paused while another change is unresolved", () => {
     sheet(workflow({ approvedBy: "user-2" }, { unresolved: true }))
     expect(
-      screen.getByText("Sending is paused while another Google change is unresolved.")
+      screen.getByText(
+        "Sending is paused while another Google change is unresolved."
+      )
     ).toBeInTheDocument()
   })
 
@@ -89,12 +107,18 @@ describe("ReviewedChangeSheet", () => {
     sheet(
       workflow(
         { approvedBy: "user-2" },
-        { outcome: { executionState: "accepted", confirmationState: "pending" } }
+        {
+          outcome: { executionState: "accepted", confirmationState: "pending" },
+        }
       )
     )
-    expect(within(steps()).getByText("Sent, waiting for Google")).toBeInTheDocument()
+    expect(
+      within(steps()).getByText("Sent, waiting for Google")
+    ).toBeInTheDocument()
     expect(within(steps()).queryByText("On Google")).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /Send approved/ })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Send approved/ })
+    ).not.toBeInTheDocument()
   })
 
   it("ticks the outcome step as On Google once Google is confirmed", () => {

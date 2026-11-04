@@ -37,7 +37,11 @@ export type ReviewedWriteStepsOptions = {
  */
 export function reviewedWriteSteps(
   stage: ReviewedWriteStage,
-  { secondApprover = false, sending = false, outcome }: ReviewedWriteStepsOptions = {}
+  {
+    secondApprover = false,
+    sending = false,
+    outcome,
+  }: ReviewedWriteStepsOptions = {}
 ): Step[] {
   const at = ORDER.indexOf(stage)
   const state = (step: ReviewedWriteStage): Step["state"] => {
@@ -60,9 +64,7 @@ export function reviewedWriteSteps(
       label: "Send",
       state: state("send"),
       meta:
-        sending && stage === "send"
-          ? describeOutcome("sent").label
-          : undefined,
+        sending && stage === "send" ? describeOutcome("sent").label : undefined,
     },
     {
       id: "outcome",

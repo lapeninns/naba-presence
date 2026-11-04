@@ -65,7 +65,9 @@ export function ReviewedWriteSheet({
       >
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
-          {description ? <SheetDescription>{description}</SheetDescription> : null}
+          {description ? (
+            <SheetDescription>{description}</SheetDescription>
+          ) : null}
           {stage ? (
             <ReviewedWriteSteps
               stage={stage}

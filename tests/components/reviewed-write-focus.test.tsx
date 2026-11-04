@@ -99,7 +99,9 @@ async function closeWith(key: "{Escape}" | "Keep editing") {
 describe("useOpenerFocus", () => {
   it("returns focus to the button that started the review", async () => {
     render(<HookOpened />)
-    const opener = screen.getByRole("button", { name: "Review lodging changes" })
+    const opener = screen.getByRole("button", {
+      name: "Review lodging changes",
+    })
     await userEvent.click(opener)
     await closeWith("Keep editing")
     await waitFor(() => expect(opener).toHaveFocus())

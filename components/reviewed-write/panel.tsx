@@ -44,7 +44,8 @@ export function useClaimFocus(
       if (interacted || !element.isConnected) return
       const active = document.activeElement
       const panel = element.closest("[data-slot=reviewed-write-panel]")
-      if (!active || active === document.body || !panel?.contains(active)) element.focus()
+      if (!active || active === document.body || !panel?.contains(active))
+        element.focus()
     }, OVERLAY_SETTLE_MS)
     return () => {
       window.clearTimeout(timer)
@@ -118,7 +119,9 @@ export function ReviewedWritePanel({
         >
           {title}
         </Heading>
-        {description ? <p className="text-ui text-ink-muted">{description}</p> : null}
+        {description ? (
+          <p className="text-ui text-ink-muted">{description}</p>
+        ) : null}
         {stage ? (
           <ReviewedWriteSteps
             stage={stage}
