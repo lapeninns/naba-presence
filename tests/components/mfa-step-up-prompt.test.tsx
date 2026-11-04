@@ -117,6 +117,23 @@ describe("MfaStepUpPrompt", () => {
     expect(await screen.findByText(/That code did not match/)).toBeTruthy()
   })
 
+  it("puts focus back in the password after a wrong password", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(mfaApi, "stepUpMfa").mockRejectedValue(
+      new ApiClientError(401, "invalid_credentials", "x")
+    )
+    render(<MfaStepUpPrompt />)
+    raise("mfa_step_up_required")
+    await user.type(await screen.findByLabelText("Password"), "pw")
+    await user.type(
+      screen.getByRole("textbox", { name: "6-digit code" }),
+      "123456"
+    )
+    await user.click(screen.getByRole("button", { name: "Verify" }))
+    expect(await screen.findByText("That password is incorrect.")).toBeTruthy()
+    await waitFor(() => expect(screen.getByLabelText("Password")).toHaveFocus())
+  })
+
   it("does not send an empty form", async () => {
     const user = userEvent.setup()
     const stepUp = vi.spyOn(mfaApi, "stepUpMfa")

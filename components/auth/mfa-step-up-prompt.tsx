@@ -115,6 +115,12 @@ function MfaStepUpPrompt({
     return () => window.removeEventListener(MFA_STEP_UP_EVENT, onStepUp)
   }, [queryClient])
 
+  function focusPassword() {
+    document
+      .querySelector<HTMLInputElement>('[role="dialog"] [name="password"]')
+      ?.focus()
+  }
+
   function close() {
     setMode("closed")
     setPassword("")
@@ -133,10 +139,7 @@ function MfaStepUpPrompt({
     )
     if (!password || !parsed.success) {
       // Same as the sign-in form: focus goes to the first field to fix.
-      if (!password)
-        document
-          .querySelector<HTMLInputElement>('[role="dialog"] [name="password"]')
-          ?.focus()
+      if (!password) focusPassword()
       else focusFirstCodeBox(codeRef.current)
       return
     }
@@ -167,10 +170,12 @@ function MfaStepUpPrompt({
           }
           if (error.code === "mfa_factor_unknown") {
             setCodeError("You have no backup authenticator app.")
+            focusFirstCodeBox(codeRef.current)
             return
           }
           if (error.code === "invalid_credentials") {
             setPasswordError("That password is incorrect.")
+            focusPassword()
             return
           }
         }
