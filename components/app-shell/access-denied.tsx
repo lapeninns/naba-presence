@@ -169,7 +169,8 @@ function AccessActionButtons({
       toast.add({
         title: "Request copied",
         description: `It includes the link to this page. Paste it to ${whoCanHelp}. Nothing was sent.`,
-        type: "success",
+        // Copied here, sent to nobody: neutral, not the green of a result.
+        type: "neutral",
       })
     } else if (outcome === "failed") {
       toast.add({
