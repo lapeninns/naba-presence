@@ -527,6 +527,10 @@ describe("PrivacyRequestsPanel", () => {
       })
     )
     const dialog = await screen.findByRole("dialog")
+    // What is erased, when, and that it is final, before the danger button.
+    expect(dialog).toHaveAccessibleDescription(
+      /content, photos, drafts and reply text here as soon as you confirm.*This can’t be undone\./
+    )
     const summary = await within(dialog).findByTestId("erasure-preview")
     expect(summary).toHaveTextContent("This erasure matches 3 reviews")
     expect(summary).toHaveTextContent(
@@ -544,6 +548,7 @@ describe("PrivacyRequestsPanel", () => {
       name: "Erase 3 reviews",
     })
     expect(erase).toBeDisabled()
+    expect(erase).toHaveAttribute("data-variant", "danger")
     await user.click(
       within(dialog).getByRole("checkbox", {
         name: "I’ve checked that all 3 reviews belong to this person.",
@@ -564,6 +569,12 @@ describe("PrivacyRequestsPanel", () => {
       resolutionNote: "Verified identity",
       confirmation: "token-3",
     })
+    // Recorded here, not confirmed on Google: a neutral toast, never green.
+    expect(await screen.findByText("Request fulfilled")).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+      "data-type",
+      "info"
+    )
   })
 
   it("counts again and erases nothing when the matches changed before the fulfil", async () => {
@@ -693,6 +704,11 @@ describe("LegalHoldsPanel", () => {
     expect(JSON.parse(String(init!.body))).toEqual({
       reviewId: "00000000-0000-4000-8000-0000000000bb",
     })
+    expect(await screen.findByText("Legal hold released")).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+      "data-type",
+      "info"
+    )
   })
 
   it("is read-only for an admin", async () => {
@@ -817,6 +833,11 @@ describe("subject export", () => {
     expect(
       await screen.findByText("Export ready: 3 reviews")
     ).toBeInTheDocument()
+    // A file made here: a neutral note, not success green.
+    expect(
+      screen.getByText("Export ready: 3 reviews").closest('[data-slot="alert"]')
+        ?.className
+    ).not.toMatch(/success/)
     // The next step, not how many pages it took.
     expect(
       screen.getByText("Download the file and send it to the person who asked.")

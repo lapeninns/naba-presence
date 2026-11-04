@@ -108,7 +108,7 @@ function CreateRequestDialog({
       await client.invalidateQueries({ queryKey: queryKeys.privacyRequests })
       toast.add({
         title: `${requestTypeLabel(result.request.requestType)} request logged`,
-        type: "success",
+        type: "info",
       })
       reset()
       onOpenChange(false)
@@ -304,7 +304,9 @@ function ResolveDialog({
             : result.request.status === "completed"
               ? "Request fulfilled"
               : "Request in progress",
-        type: "success",
+        // Info, not success green: green is kept for changes confirmed on
+        // Google, and resolving a request is recorded here.
+        type: "info",
       })
       close()
     },
