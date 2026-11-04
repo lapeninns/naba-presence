@@ -23,8 +23,8 @@ function SetupStepSkeleton({
       <p role="status" className="sr-only">
         {label}
       </p>
-      <div className="grid items-start gap-6 @3xl/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
-        <div aria-hidden className="hidden flex-col gap-2 @3xl/setup:flex">
+      <div className="flex flex-col items-start gap-6 @3xl/setup:flex-row">
+        <div aria-hidden className="hidden w-55 shrink-0 flex-col gap-2 @3xl/setup:flex">
           {Array.from({ length: steps }, (_, index) => (
             <Skeleton key={index} className="h-8" />
           ))}
@@ -34,7 +34,7 @@ function SetupStepSkeleton({
           className={cardClassName({
             pad: true,
             className: cn(
-              "flex flex-col gap-4",
+              "flex w-full min-w-0 flex-1 flex-col gap-4",
               "max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0"
             ),
           })}
