@@ -224,6 +224,25 @@ describe("TwoStepVerificationCard status and outcomes", () => {
     expect(screen.queryByText("Two-step verification is on.")).toBeNull()
   })
 
+  it("says it is on in a neutral note, since nothing went to Google", async () => {
+    window.sessionStorage.setItem(ENROLLED_FLAG, "1")
+    card({ factorCount: 1, verifiedThisSession: true })
+    const note = await screen.findByRole("status")
+    expect(note).toHaveAttribute("data-slot", "alert")
+    expect(note.className).not.toMatch(/success/)
+  })
+
+  it("ends the setup ticket on Cancel and goes back to the start", async () => {
+    const user = await openScanStep()
+    const cancel = vi.spyOn(mfaApi, "cancelMfa").mockResolvedValue(undefined)
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole("img", { name: /QR code/ })).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Set up an authenticator app" })
+    ).toBeInTheDocument()
+  })
+
   it("says a backup was added after the second app", async () => {
     window.sessionStorage.setItem(ENROLLED_FLAG, "2")
     card({ factorCount: 2, verifiedThisSession: true })
