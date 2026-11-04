@@ -1,6 +1,11 @@
+import Link from "next/link"
+
 import { AuthCard } from "@/components/auth/auth-card"
 import { AuthLink } from "@/components/auth/auth-link"
 import { ConfirmEmailForm } from "@/components/auth/confirm-email-form"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
+import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 export const metadata = { title: "Confirm your email · NabaPresence" }
 
@@ -26,7 +31,13 @@ export default async function ConfirmEmailPage({
         eyebrow="Email confirmation"
         title="This confirmation link is incomplete"
         description="Part of the link is missing, so it can’t confirm your email."
-        footer={<AuthLink href="/sign-in">Back to sign in</AuthLink>}
+        // Without an invitation the way on is sign in, so it is the card's
+        // one primary action rather than a footer link repeating it.
+        footer={
+          invited ? (
+            <AuthLink href="/sign-in">Back to sign in</AuthLink>
+          ) : undefined
+        }
       >
         {/* An invitee's new link has to come from the invitation, which
             carries the token; the sign-in resend has none to send. */}
@@ -35,6 +46,17 @@ export default async function ConfirmEmailPage({
             ? "Open the link from your email again. If that doesn’t work, open the invitation email and follow its link."
             : "Open the link from your email again. If that doesn’t work, go to sign in and choose “Didn’t receive a confirmation email?” to get a new one."}
         </p>
+        {invited ? null : (
+          <Link
+            href="/sign-in"
+            className={cn(
+              buttonVariants({ size: "lg", block: true }),
+              WRAPPING_BLOCK_BUTTON
+            )}
+          >
+            Go to sign in
+          </Link>
+        )}
       </AuthCard>
     )
   }
