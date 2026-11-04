@@ -124,7 +124,7 @@ describe("PostsActionBar", () => {
       within(confirm).getByRole("button", { name: "Publish to Google" })
     )
 
-    const sent = await screen.findByText("Post sent to Google")
+    const sent = await screen.findByText("Sent, waiting for Google to confirm")
     // A Google write's toast: no Undo (D5).
     expect(sent.closest("[data-kind]")).toHaveAttribute("data-kind", "google")
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull()
@@ -167,14 +167,14 @@ describe("PostsActionBar", () => {
     renderBar({ post: post({ status: "failed" }) })
 
     // A failed post's publish reads as a retry; it is the same mutation.
-    await userEvent.click(screen.getByRole("button", { name: "Retry publish" }))
+    await userEvent.click(screen.getByRole("button", { name: "Retry sending" }))
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", {
         name: "Publish to Google",
       })
     )
 
-    const queued = await screen.findByText("Post submitted for approval.")
+    const queued = await screen.findByText("Awaiting approval")
     // Nothing reached Google, so it is not a Google-write toast.
     expect(queued.closest("[data-kind]")).toHaveAttribute("data-kind", "local")
   })
@@ -230,7 +230,9 @@ describe("PostsActionBar", () => {
       within(dialog).getByRole("button", { name: "Approve and publish" })
     )
     expect(
-      (await screen.findByText("Post sent to Google")).closest("[data-kind]")
+      (await screen.findByText("Sent, waiting for Google to confirm")).closest(
+        "[data-kind]"
+      )
     ).toHaveAttribute("data-kind", "google")
     expect(api.decidePostApproval).toHaveBeenCalledWith(
       "loc-1",
@@ -481,9 +483,7 @@ describe("PostsActionBar", () => {
     ).not.toBeInTheDocument()
 
     await userEvent.click(button)
-    expect(
-      await screen.findByText("Post submitted for approval.")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Awaiting approval")).toBeInTheDocument()
     expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1", {
       intentId: expect.any(String),
     })
@@ -570,9 +570,7 @@ describe("PostsActionBar", () => {
       })
       renderBar()
       await publishFromDialog()
-      expect(
-        await screen.findByText("Post confirmed on Google")
-      ).toBeInTheDocument()
+      expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
     })
 
     it("does not say live while Google is still reviewing the post", async () => {
@@ -584,7 +582,9 @@ describe("PostsActionBar", () => {
       })
       renderBar()
       await publishFromDialog()
-      expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
+      expect(
+        await screen.findByText("Sent, waiting for Google to confirm")
+      ).toBeInTheDocument()
       expect(screen.queryByText(/^On Google$|confirmed on Google/i)).toBeNull()
     })
 

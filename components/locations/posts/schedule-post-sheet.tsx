@@ -376,8 +376,8 @@ export function SchedulePostSheet({
       // Said once the server has saved it: nothing is published yet.
       showToast({
         title: existing
-          ? "Changed schedule sent for approval"
-          : "Schedule sent for approval",
+          ? "Changed schedule saved, awaiting approval"
+          : "Schedule saved, awaiting approval",
       })
       void client.invalidateQueries({
         queryKey: queryKeys.postSchedules(locationId),

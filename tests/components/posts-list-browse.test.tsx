@@ -218,7 +218,7 @@ describe("Posts list: what a row says", () => {
     ])
     expect(
       screen.getByRole("list", { name: "Post history", hidden: true })
-    ).toHaveTextContent("Drafted, done")
+    ).toHaveTextContent("Saved here, done")
   })
 
   it("names each History disclosure by its post", () => {

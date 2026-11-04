@@ -56,11 +56,14 @@ import { useSessionRole } from "@/lib/queries/use-session"
 
 type ScheduleAction = "pause" | "resume" | "cancel"
 
-/** A row's occurrence counts in words: "1 planned · 2 published". */
+/**
+ * A row's occurrence counts in words: "1 planned · 2 sent". An occurrence
+ * that went out is "sent", not "published": only Google confirms a post.
+ */
 const OCCURRENCE_LABEL: Record<string, string> = {
   scheduled: "planned",
-  publishing: "publishing",
-  published: "published",
+  publishing: "sending",
+  published: "sent",
   rejected: "not accepted",
   ambiguous: "being checked",
   missed: "missed",

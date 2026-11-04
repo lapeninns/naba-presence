@@ -401,7 +401,7 @@ export function PostsActionBar({
   const publishLabel = offerRequestApproval
     ? "Request approval"
     : post.status === "failed"
-      ? "Retry publish"
+      ? "Retry sending"
       : scheduling
         ? "Publish now"
         : "Publish"
@@ -428,7 +428,7 @@ export function PostsActionBar({
           }
           disabled={Boolean(primaryReason)}
           pending={publish.isPending}
-          pendingLabel={offerRequestApproval ? "Requesting…" : "Publishing…"}
+          pendingLabel={offerRequestApproval ? "Requesting…" : "Sending…"}
         >
           {post.status === "failed" && !offerRequestApproval ? (
             <RefreshCwIcon aria-hidden />
@@ -639,7 +639,7 @@ export function PostsActionBar({
               variant="send"
               onClick={() => publish.mutate()}
               pending={publish.isPending}
-              pendingLabel="Publishing…"
+              pendingLabel="Sending…"
             >
               <UploadIcon aria-hidden />
               Publish to Google
@@ -690,7 +690,7 @@ export function PostsActionBar({
                   : undefined
               }
               pending={decide.isPending && decide.variables === "approve"}
-              pendingLabel="Publishing…"
+              pendingLabel="Sending…"
             >
               <UploadIcon aria-hidden />
               Approve and publish
