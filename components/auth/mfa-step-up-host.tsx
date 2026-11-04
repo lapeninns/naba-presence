@@ -3,10 +3,7 @@
 import dynamic from "next/dynamic"
 import { useEffect, useState } from "react"
 
-import {
-  MFA_STEP_UP_EVENT,
-  type MfaStepUpEventDetail,
-} from "@/lib/api/client"
+import { MFA_STEP_UP_EVENT, type MfaStepUpEventDetail } from "@/lib/api/client"
 
 const MfaStepUpPrompt = dynamic(
   () =>

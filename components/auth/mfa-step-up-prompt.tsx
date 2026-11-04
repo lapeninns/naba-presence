@@ -90,6 +90,13 @@ function MfaStepUpPrompt({
   const queryClient = useContext(QueryClientContext)
   const [username, setUsername] = useState("")
   const codeRef = useRef<HTMLDivElement>(null)
+  const alertRef = useRef<HTMLDivElement>(null)
+
+  // A failure with no field to blame lands on its banner, as on sign-in,
+  // so the answer is read out where focus is.
+  useEffect(() => {
+    if (message) alertRef.current?.focus()
+  }, [message])
 
   useEffect(() => {
     function onStepUp(event: Event) {
@@ -124,7 +131,15 @@ function MfaStepUpPrompt({
         ? undefined
         : "Enter the 6-digit code from your authenticator app."
     )
-    if (!password || !parsed.success) return
+    if (!password || !parsed.success) {
+      // Same as the sign-in form: focus goes to the first field to fix.
+      if (!password)
+        document
+          .querySelector<HTMLInputElement>('[role="dialog"] [name="password"]')
+          ?.focus()
+      else focusFirstCodeBox(codeRef.current)
+      return
+    }
     setMessage(null)
     startTransition(async () => {
       try {
@@ -222,7 +237,15 @@ function MfaStepUpPrompt({
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="flex flex-col gap-5">
-              {message ? <AuthErrorAlert message={message} /> : null}
+              {message ? (
+                <div
+                  ref={alertRef}
+                  tabIndex={-1}
+                  className="rounded-(--np-radius-card) focus-halo outline-none"
+                >
+                  <AuthErrorAlert message={message} />
+                </div>
+              ) : null}
               {/* Which account the password belongs to, for password
                   managers: they pair a current-password field with the
                   username beside it. Never shown, never submitted. */}
@@ -266,8 +289,10 @@ function MfaStepUpPrompt({
               />
             </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={pending}>
-                {pending ? "Checking…" : "Verify"}
+              {/* pending, not disabled: a disabled button drops the focus
+                  it holds, and Enter in a field would land nowhere. */}
+              <Button type="submit" pending={pending} pendingLabel="Checking…">
+                Verify
               </Button>
             </DialogFooter>
           </form>
