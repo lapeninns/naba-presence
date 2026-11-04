@@ -97,3 +97,26 @@ describe("R07 /photos", async () => {
     )
   })
 })
+
+describe("R08 /posts", async () => {
+  const { default: page } = await import("@/app/posts/page")
+  const posts = page as unknown as FlatPage
+
+  it("goes to the one listing's posts with the query", async () => {
+    primary.current = ONE
+    expect(await landing(posts, QUERY)).toBe(
+      `/listings/loc-1/posts?${FORWARDED}`
+    )
+  })
+
+  it("lands several listings on Clients with moved=posts", async () => {
+    expect(await landing(posts, QUERY)).toBe(
+      `/clients?${FORWARDED}&moved=posts`
+    )
+  })
+
+  it("asks a signed-out visitor to sign in and come back", async () => {
+    signedOutInProduction("/posts")
+    expect(await landing(posts)).toBe("/sign-in?next=%2Fposts")
+  })
+})
