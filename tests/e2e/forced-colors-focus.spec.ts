@@ -172,7 +172,7 @@ for (const width of [390, 1280]) {
       )
     }
     const showUndo = page.getByRole("button", {
-      name: "Local · Undo",
+      name: "Neutral · Undo",
       exact: true,
     })
     await showUndo.focus()
@@ -188,7 +188,7 @@ for (const width of [390, 1280]) {
     await focusOutline(close, 2)
     await close.click()
     await page
-      .getByRole("button", { name: "Google write · phases", exact: true })
+      .getByRole("button", { name: "Success · Google phases", exact: true })
       .focus()
     await page.keyboard.press("Enter")
     const link = page.locator('[data-slot="toast-link"]')
