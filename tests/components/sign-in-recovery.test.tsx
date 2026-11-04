@@ -117,6 +117,33 @@ describe("resend confirmation", () => {
     expect(resend).not.toHaveBeenCalled()
   })
 
+  it("describes the button with its last result", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "resendConfirmation")
+      .mockRejectedValueOnce(
+        new ApiClientError(503, "auth_provider_unavailable", "x")
+      )
+      .mockResolvedValueOnce(undefined)
+    render(<ResendConfirmationButton email="sam@example.test" />)
+    const button = screen.getByRole("button")
+    expect(button).not.toHaveAttribute("aria-describedby")
+    await user.click(button)
+    const alert = await screen.findByRole("alert")
+    expect(button).toHaveAccessibleDescription(alert.textContent ?? "")
+    await user.click(button)
+    await screen.findByRole("button", { name: "Send another link" })
+    expect(button).toHaveAccessibleDescription(
+      "A new confirmation link is on its way to sam@example.test if it still needs confirming."
+    )
+  })
+
+  it("changes its underline on hover only for a fine pointer", () => {
+    render(<ResendConfirmationButton email="sam@example.test" />)
+    const button = screen.getByRole("button")
+    expect(button.className).toContain("hover-fine:hover:decoration-2")
+    expect(button.className).not.toMatch(/(?:^|\s)hover:/)
+  })
+
   it("sends the invitation along and titles an outage for its surface", async () => {
     const user = userEvent.setup()
     const resend = vi
