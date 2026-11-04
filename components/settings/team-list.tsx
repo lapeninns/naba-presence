@@ -23,11 +23,15 @@ export const TEAM_LIST_CONTAINER_CLASS =
  * (`ps-10.5`). The row's own border is replaced by a hairline drawn from
  * that column (`start-11.5` with the row's `px-1`) to the edge, and the last
  * row has none. Team rows are never `data-interactive`, so `::after` is free.
+ * The record card pulls its actions cell out by `-me-1.5`; with only `px-1`
+ * that puts the ⋯ button 1px from the scrolling container, which clips the
+ * 4px focus halo, so the cell keeps its own edge here.
  */
 export const TEAM_LIST_TABLE_CLASS = [
   "@max-3xl/table:[&_tbody>tr]:border-0 @max-3xl/table:[&_tbody>tr]:px-1",
   "@max-3xl/table:[&_tbody>tr:not(:last-child)]:after:absolute @max-3xl/table:[&_tbody>tr:not(:last-child)]:after:start-11.5 @max-3xl/table:[&_tbody>tr:not(:last-child)]:after:end-0 @max-3xl/table:[&_tbody>tr:not(:last-child)]:after:bottom-0 @max-3xl/table:[&_tbody>tr:not(:last-child)]:after:h-px @max-3xl/table:[&_tbody>tr:not(:last-child)]:after:bg-line @max-3xl/table:[&_tbody>tr:not(:last-child)]:after:content-['']",
   "@max-3xl/table:[&_tbody>tr>td:not([data-priority=primary]):not([data-priority=trailing]):not([data-actions])]:ps-10.5",
+  "@max-3xl/table:[&_tbody>tr>td[data-priority=actions]]:me-0!",
 ].join(" ")
 
 /**

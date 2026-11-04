@@ -742,6 +742,20 @@ describe("MembersTable from md", () => {
       await screen.findByRole("dialog", { name: "Change role" })
     ).toBeInTheDocument()
   })
+
+  it("keeps the ⋯ cell off the scroll edge so its focus halo is not clipped", () => {
+    stubWidth(true)
+    renderTable("owner", "owner-1", team())
+    const table = screen.getByRole("table", { name: "Members" })
+    expect(table.className).toContain(
+      "@max-3xl/table:[&_tbody>tr>td[data-priority=actions]]:me-0!"
+    )
+    expect(
+      screen
+        .getByRole("button", { name: "Actions for Ben Member" })
+        .closest("td")
+    ).toHaveAttribute("data-priority", "actions")
+  })
 })
 
 // p6-F13 A: the one access state an owner must act on stands out.
