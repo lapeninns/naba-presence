@@ -78,9 +78,9 @@ function SettingsIndexGroups({
  * The phone's settings home: every area the signed-in person may open, as
  * grouped rows (their own preferences, then the workspace's), so nobody
  * lands inside a form they can't change. Reads the same area list and rules
- * as the tab row (settings-areas.tsx). Desks never see it: /settings shows
- * Reply policy with the tab row there, chosen in CSS (app/(dashboard)/
- * settings/page.tsx). Members and viewers see Reply policy marked "View
+ * as the desk's section list (settings-areas.tsx). Desks never see it:
+ * /settings shows Reply policy beside the section list there, chosen in CSS
+ * (app/(dashboard)/settings/page.tsx). Members and viewers see Reply policy marked "View
  * only", so they know before opening it that it can't be changed.
  */
 export type SettingsProfile = {

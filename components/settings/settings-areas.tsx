@@ -42,7 +42,7 @@ import {
 
 export type { SettingsAreaCapability } from "@/lib/settings/areas"
 
-/** A settings area as the tab row and the phone's index draw it. */
+/** A settings area as the section list and the phone's index draw it. */
 export type SettingsArea = SettingsAreaDefinition & { icon: React.ReactNode }
 
 const AREA_ICONS: Record<SettingsAreaDefinition["id"], React.ReactNode> = {
@@ -60,8 +60,8 @@ const AREA_ICONS: Record<SettingsAreaDefinition["id"], React.ReactNode> = {
 /**
  * Every settings area, in tab order, with the rule that decides who sees it
  * and its icon. The names, addresses and rules live in lib/settings/areas.ts
- * (plain data, so the breadcrumb trail reads the same names); the tab row
- * (SettingsNav) and the phone's index (SettingsIndex) both read this one
+ * (plain data, so the breadcrumb trail reads the same names); the section list
+ * (SettingsSectionList) and the phone's index (SettingsIndex) both read this one
  * list, so they can never disagree. Each page enforces the same rule
  * server-side (AccessDenied / notFound); this only mirrors it.
  */

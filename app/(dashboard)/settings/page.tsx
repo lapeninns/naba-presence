@@ -11,8 +11,8 @@ export const metadata = { title: "Settings · NabaPresence" }
  * The settings home. Below md it is an index of the areas this person may
  * open, grouped You / Workspace (settings-setup-auth-03), so a member or
  * viewer never lands inside a form they can't change. From md it is Reply
- * policy under the persistent settings tab row, which already shows every
- * area, so a desk keeps its one-click landing (and /settings deep links keep
+ * policy beside the layout's section list, which already shows every area,
+ * so a desk keeps its one-click landing (and /settings deep links keep
  * working at every width). The first paint chooses in CSS, so nothing
  * flashes on hydration; once the client knows its width SettingsHome drops
  * the hidden face, so the document has exactly one h1 at any width. A
