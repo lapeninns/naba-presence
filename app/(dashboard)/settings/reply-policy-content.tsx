@@ -2,7 +2,6 @@ import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { PolicyForm } from "@/components/settings/policy-form"
-import { SettingsNav } from "@/components/settings/settings-nav"
 import { UsageCard } from "@/components/settings/usage-card"
 import { WorkspaceModeCard } from "@/components/settings/workspace-mode-card"
 import { withTenant } from "@/lib/server/db"
@@ -50,7 +49,6 @@ export async function ReplyPolicyContent({
       <PageHeader
         title="Reply policy"
         description={`Your ${terms.orgLower}’s name, how replies are approved, how long review text is kept, and the defaults new work starts from.`}
-        tabs={<SettingsNav role={role} />}
       />
       <div className="flex flex-col gap-(--np-gap-section)">
         <HydrationBoundary state={state}>

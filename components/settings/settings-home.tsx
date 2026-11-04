@@ -22,9 +22,9 @@ import { cn } from "@/lib/utils"
  * above md) back to portrait, or a window dragged narrow, keeps Reply policy
  * on screen, so unsaved edits survive (no navigation happens, so the leave
  * guard never asks), its docked save bar stays visible and reachable, and
- * the document still has exactly one face and one h1. Reply policy carries
- * the settings tabs, so every other section stays one tap away; the phone's
- * index is what /settings shows to someone who arrived narrow.
+ * the document still has exactly one face and one h1. From md the
+ * layout's section list keeps every other section one tap away; the
+ * phone's index is what /settings shows to someone who arrived narrow.
  *
  * Never keep a face mounted but hidden: its h1 would be a second one, and a
  * hidden dirty form's docked bar would still match the chrome contract's

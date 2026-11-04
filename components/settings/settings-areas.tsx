@@ -42,7 +42,7 @@ import {
 
 export type { SettingsAreaCapability } from "@/lib/settings/areas"
 
-/** A settings area as the tab row and the phone's index draw it. */
+/** A settings area as the section list and the phone's index draw it. */
 export type SettingsArea = SettingsAreaDefinition & { icon: React.ReactNode }
 
 const AREA_ICONS: Record<SettingsAreaDefinition["id"], React.ReactNode> = {
@@ -60,8 +60,8 @@ const AREA_ICONS: Record<SettingsAreaDefinition["id"], React.ReactNode> = {
 /**
  * Every settings area, in tab order, with the rule that decides who sees it
  * and its icon. The names, addresses and rules live in lib/settings/areas.ts
- * (plain data, so the breadcrumb trail reads the same names); the tab row
- * (SettingsNav) and the phone's index (SettingsIndex) both read this one
+ * (plain data, so the breadcrumb trail reads the same names); the section list
+ * (SettingsSectionList) and the phone's index (SettingsIndex) both read this one
  * list, so they can never disagree. Each page enforces the same rule
  * server-side (AccessDenied / notFound); this only mirrors it.
  */
@@ -70,6 +70,28 @@ export const SETTINGS_AREAS: readonly SettingsArea[] =
     ...area,
     icon: AREA_ICONS[area.id],
   }))
+
+// "You" is reserved for the signed-in person's own settings
+// (settings-setup-auth-24): today Notifications, Sign-in security and
+// Appearance (the theme, also in More; SET-26). A signed-in account area
+// (name, change password) belongs here once the API has one; nothing is
+// offered before it exists.
+export const SETTINGS_GROUPS: readonly {
+  id: SettingsArea["group"]
+  header: string
+  footer: string
+}[] = [
+  {
+    id: "personal",
+    header: "You",
+    footer: "Only you. Your choices here don’t change anyone else’s.",
+  },
+  {
+    id: "workspace",
+    header: "Workspace",
+    footer: "Shared by everyone in the workspace.",
+  },
+]
 
 /**
  * Whether `pathname` is inside `area`. Reply policy has two addresses:

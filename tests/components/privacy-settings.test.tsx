@@ -7,7 +7,7 @@ import { LegalHoldsPanel } from "@/components/settings/legal-holds-panel"
 import { PrivacyExportForm } from "@/components/settings/privacy-export-form"
 import { PrivacyRequestsPanel } from "@/components/settings/privacy-requests-panel"
 import { PrivacySettings } from "@/components/settings/privacy-settings"
-import { SettingsNav } from "@/components/settings/settings-nav"
+import { SettingsSectionList } from "@/components/settings/settings-section-list"
 import type {
   PrivacyErasurePreview,
   PrivacyExportResponse,
@@ -970,7 +970,7 @@ describe("PrivacySettings", () => {
   })
 })
 
-describe("SettingsNav privacy area", () => {
+describe("Settings section list privacy area", () => {
   function renderNav(role: string, privacy: "none" | "read" | "manage") {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -983,7 +983,7 @@ describe("SettingsNav privacy area", () => {
     })
     return render(
       <QueryClientProvider client={client}>
-        <SettingsNav role={role} />
+        <SettingsSectionList role={role} />
       </QueryClientProvider>
     )
   }

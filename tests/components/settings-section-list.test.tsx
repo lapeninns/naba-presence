@@ -5,6 +5,7 @@ import { BillingScreensProvider } from "@/components/settings/billing-screens"
 import { SettingsFeaturesProvider } from "@/components/settings/settings-features"
 import { SettingsIndex } from "@/components/settings/settings-index"
 import { SettingsNav } from "@/components/settings/settings-nav"
+import { SettingsSectionList } from "@/components/settings/settings-section-list"
 
 let pathname = "/settings/connections"
 vi.mock("next/navigation", () => ({
@@ -20,9 +21,9 @@ function tabs() {
   return screen.getByRole("navigation", { name: "Settings sections" })
 }
 
-describe("SettingsNav", () => {
+describe("SettingsSectionList", () => {
   it("shows every area to an owner and marks the active one", () => {
-    render(<SettingsNav role="owner" />)
+    render(<SettingsSectionList role="owner" />)
     for (const label of ["Reply policy", "Google connections"]) {
       expect(
         within(tabs()).getByRole("link", { name: label })
@@ -35,7 +36,7 @@ describe("SettingsNav", () => {
 
   it("names each area once, the same as its page's h1", () => {
     // settings-setup-auth-m4: the tab says "Reply policy", as the page does.
-    render(<SettingsNav role="owner" />)
+    render(<SettingsSectionList role="owner" />)
     expect(
       within(tabs()).getByRole("link", { name: "Reply policy" })
     ).toHaveAttribute("href", "/settings/policy")
@@ -47,7 +48,7 @@ describe("SettingsNav", () => {
   it("marks Reply policy current at both its addresses", () => {
     for (const path of ["/settings", "/settings/policy"]) {
       pathname = path
-      render(<SettingsNav role="viewer" />)
+      render(<SettingsSectionList role="viewer" />)
       expect(
         within(tabs()).getByRole("link", { name: "Reply policy" })
       ).toHaveAttribute("aria-current", "page")
@@ -55,44 +56,46 @@ describe("SettingsNav", () => {
     }
   })
 
-  it("scrolls the current tab into view, moving the row only as far as needed", () => {
-    // settings-setup-auth-02: every page re-mounts the row, which used to
-    // open scrolled to its start with the current tab off-screen.
-    const scrollIntoView = vi.fn()
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    })
-    render(<SettingsNav role="owner" />)
-    expect(scrollIntoView).toHaveBeenCalledTimes(1)
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      behavior: "instant",
-      block: "nearest",
-      inline: "nearest",
-    })
-    expect(scrollIntoView.mock.contexts[0]).toHaveTextContent(
-      "Google connections"
-    )
-    delete (HTMLElement.prototype as { scrollIntoView?: unknown })
-      .scrollIntoView
-  })
-
-  it("leaves a phone's way back to the app bar, with no second link", () => {
+  it("is drawn from md only, leaving a phone's way back to the app bar", () => {
     // SET-04: the app bar already shows "‹ Settings"; a page link that did
     // the same cost a row above the fold.
-    const { container } = render(<SettingsNav role="owner" />)
+    render(<SettingsSectionList role="owner" />)
     expect(
       screen.queryByRole("link", { name: "All settings" })
     ).not.toBeInTheDocument()
-    // Below md the tab row is hidden in CSS; the index is the way round.
-    expect(container.firstElementChild).toHaveClass("max-md:hidden")
-    expect(container.firstElementChild).toContainElement(tabs())
+    expect(tabs()).toHaveClass("max-md:hidden")
   })
 
-  it("no longer hides Team and Listing inside Settings", () => {
+  it("groups the areas under You and Workspace, as the phone's index does", () => {
+    render(
+      <SettingsFeaturesProvider value={{ mfa: true }}>
+        <SettingsSectionList role="owner" />
+      </SettingsFeaturesProvider>
+    )
+    const you = within(tabs()).getByRole("list", { name: "You" })
+    expect(
+      within(you).getByRole("link", { name: "Notifications" })
+    ).toBeInTheDocument()
+    expect(
+      within(you).getByRole("link", { name: "Sign-in security" })
+    ).toBeInTheDocument()
+    const workspace = within(tabs()).getByRole("list", { name: "Workspace" })
+    expect(
+      within(workspace).getByRole("link", { name: "Reply policy" })
+    ).toBeInTheDocument()
+    // "Settings" labels the column without becoming a heading above the h1.
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument()
+  })
+
+  it("leaves the old per-page tab row empty", () => {
+    const { container } = render(<SettingsNav role="owner" />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it("leaves Team to the shell and has no Listing area", () => {
     // Team became a primary destination; Listing administered a location from
     // a page nowhere near it and moved into that location's Access section.
-    render(<SettingsNav role="owner" />)
+    render(<SettingsSectionList role="owner" />)
     expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()
     expect(
       screen.queryByRole("link", { name: "Listing" })
@@ -103,13 +106,13 @@ describe("SettingsNav", () => {
     // Data-subject requests and legal holds are served by their gated API
     // routes. Operations returned as the owner/admin recovery view the GBP
     // operations brief requires (WP8).
-    render(<SettingsNav role="owner" />)
+    render(<SettingsSectionList role="owner" />)
     expect(
       screen.queryByRole("link", { name: "Compliance" })
     ).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Operations" })).toBeInTheDocument()
     cleanup()
-    render(<SettingsNav role="member" />)
+    render(<SettingsSectionList role="member" />)
     expect(
       screen.queryByRole("link", { name: "Operations" })
     ).not.toBeInTheDocument()
@@ -119,14 +122,14 @@ describe("SettingsNav", () => {
   })
 
   it("shows every area to an admin too", () => {
-    render(<SettingsNav role="admin" />)
+    render(<SettingsSectionList role="admin" />)
     for (const label of ["Reply policy", "Google connections"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }
   })
 
   it("shows a member Reply policy and Notifications, nothing managerial", () => {
-    render(<SettingsNav role="member" />)
+    render(<SettingsSectionList role="member" />)
     expect(
       screen.getByRole("link", { name: "Reply policy" })
     ).toBeInTheDocument()
@@ -140,14 +143,14 @@ describe("SettingsNav", () => {
   })
 
   it("shows Sign-in security to every role only while MFA is on", () => {
-    render(<SettingsNav role="viewer" />)
+    render(<SettingsSectionList role="viewer" />)
     expect(
       screen.queryByRole("link", { name: "Sign-in security" })
     ).not.toBeInTheDocument()
     cleanup()
     render(
       <SettingsFeaturesProvider value={{ mfa: true }}>
-        <SettingsNav role="viewer" />
+        <SettingsSectionList role="viewer" />
       </SettingsFeaturesProvider>
     )
     expect(
@@ -156,7 +159,7 @@ describe("SettingsNav", () => {
   })
 
   it("adds Usage for everyone and Billing for the owner only while billing is on", () => {
-    render(<SettingsNav role="owner" />)
+    render(<SettingsSectionList role="owner" />)
     expect(
       screen.queryByRole("link", { name: "Billing" })
     ).not.toBeInTheDocument()
@@ -166,7 +169,7 @@ describe("SettingsNav", () => {
     cleanup()
     render(
       <BillingScreensProvider enabled>
-        <SettingsNav role="owner" />
+        <SettingsSectionList role="owner" />
       </BillingScreensProvider>
     )
     expect(screen.getByRole("link", { name: "Billing" })).toHaveAttribute(
@@ -178,7 +181,7 @@ describe("SettingsNav", () => {
       cleanup()
       render(
         <BillingScreensProvider enabled>
-          <SettingsNav role={role} />
+          <SettingsSectionList role={role} />
         </BillingScreensProvider>
       )
       expect(

@@ -35,9 +35,6 @@ describe("settings error boundary", () => {
       screen.getByRole("link", { name: "Back to Settings" })
     ).toHaveAttribute("href", "/settings")
     expect(screen.queryByRole("link", { name: "Go to Inbox" })).toBeNull()
-    expect(
-      screen.getByText(/Try again, or go back to Settings\.$/)
-    ).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(reset).toHaveBeenCalledTimes(1)
   })
@@ -49,9 +46,20 @@ describe("settings error boundary", () => {
       "/inbox"
     )
     expect(screen.queryByRole("link", { name: "Back to Settings" })).toBeNull()
-    expect(
-      screen.getByText(/Try again, or go back to the Inbox\.$/)
-    ).toBeInTheDocument()
+  })
+
+  it("is the shared error state: one alert, one short sentence, Try again outside it", () => {
+    renderAt("/settings/policy")
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveTextContent("This settings page hit an error")
+    const sentence = "Nothing was changed. Your settings are safe."
+    expect(alert).toHaveTextContent(sentence)
+    expect(sentence.length).toBeLessThanOrEqual(44)
+    expect(alert).not.toContainElement(
+      screen.getByRole("button", { name: "Try again" })
+    )
+    // The layout's frame is kept; the boundary draws no second one.
+    expect(document.querySelector("[data-slot='page-frame']")).toBeNull()
   })
 
   it("keeps the Inbox when the path is not known", () => {
