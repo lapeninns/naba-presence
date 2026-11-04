@@ -256,7 +256,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
           <div
             ref={alertRef}
             tabIndex={-1}
-            className="flex flex-col gap-3 outline-none"
+            className="flex flex-col gap-3 rounded-(--np-radius-card) focus-halo outline-none"
           >
             <AuthErrorAlert message={message} />
             {/* Only a failed factors load leaves no factors behind; without

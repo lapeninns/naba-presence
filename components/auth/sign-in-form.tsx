@@ -351,7 +351,11 @@ function SignInForm({
       className="flex flex-col gap-5"
     >
       {message ? (
-        <div ref={alertRef} tabIndex={-1} className="outline-none">
+        <div
+          ref={alertRef}
+          tabIndex={-1}
+          className="rounded-(--np-radius-card) focus-halo outline-none"
+        >
           <AuthErrorAlert
             message={message}
             email={email}

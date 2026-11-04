@@ -51,6 +51,8 @@ describe("sign-in retry", () => {
     release(new ApiClientError(401, "invalid_credentials", "server copy"))
     const alert = await screen.findByRole("alert")
     await waitFor(() => expect(alert.parentElement).toHaveFocus())
+    // Focus moved by keyboard draws the same halo as every other control.
+    expect(alert.parentElement).toHaveClass("focus-halo")
   })
 })
 

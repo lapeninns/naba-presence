@@ -290,6 +290,7 @@ describe("MfaVerifyForm", () => {
     render(<MfaVerifyForm />)
     const alert = await screen.findByRole("alert")
     await waitFor(() => expect(alert.parentElement).toHaveFocus())
+    expect(alert.parentElement).toHaveClass("focus-halo")
     const submit = screen.getByRole("button", { name: "Verify and sign in" })
     expect(submit).toHaveAttribute("aria-disabled", "true")
     expect(submit).toHaveAccessibleDescription("Choose Try again first.")
