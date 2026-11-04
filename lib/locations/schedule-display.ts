@@ -77,7 +77,7 @@ export const SCHEDULE_REASON: Record<string, string> = {
 /** A subset of the status pill's tones (components/ui/status-pill.tsx). */
 export type ScheduleBadge = {
   label: string
-  tone: "ok" | "warn" | "bad" | "info" | "outline"
+  tone: "warn" | "bad" | "info" | "outline"
 }
 
 export function scheduleBadge(
@@ -89,7 +89,9 @@ export function scheduleBadge(
       // Amber: a person approves next, the same tone on every surface.
       return { label: "Awaiting approval", tone: "warn" }
     case "active":
-      return { label: "Active", tone: "ok" }
+      // Waiting for its time: the system acts next, nothing is on Google yet.
+      // Green is only for confirmed on Google.
+      return { label: "Active", tone: "info" }
     case "paused":
       return { label: "Paused", tone: "outline" }
     case "blocked":

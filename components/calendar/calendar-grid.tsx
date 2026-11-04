@@ -2,7 +2,7 @@
 
 import { CircleAlertIcon } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, type KeyboardEvent } from "react"
 
 import { longDay, utcDay } from "@/components/calendar/calendar-dates"
 import { Card } from "@/components/ui/card"
@@ -53,10 +53,9 @@ export const OCCURRENCE_STATUS: Record<
 }
 
 /**
- * Runs that did not go out as planned, named in the grid in their tone's ink
- * (the word, not the colour, carries it) so a problem is seen in the month
- * without opening the agenda. Scheduled, publishing and published stay one
- * line.
+ * Runs that did not go out as planned take their tone's ink on the status
+ * line, so a problem is seen in the month without opening the agenda. The
+ * word carries the state; every other run's word is muted.
  */
 const FLAGGED_INK: Partial<Record<ScheduleOccurrence["status"], string>> = {
   missed: toneClasses("attention").text,
@@ -86,10 +85,84 @@ const dayListLabel = (count: number) =>
 
 type ByDate = Map<string, ScheduleOccurrence[]>
 
+/** Days an arrow key moves by: a day sideways, a week up or down. */
+const ARROW_STEPS: Record<string, number> = {
+  ArrowLeft: -1,
+  ArrowRight: 1,
+  ArrowUp: -7,
+  ArrowDown: 7,
+}
+
 /**
- * One publication in a grid cell: the one-line form inside a wide cell, with
- * the status for screen readers, and shown as a second line only for a run
- * that did not go out as planned. Lists use `DayEntries` (mail rows).
+ * The first control in a cell's compact or wide form. Both forms are in the
+ * DOM (a container query shows one), so the form is the one focus left.
+ */
+const focusableIn = (cell: Element | undefined, form: string) =>
+  cell?.querySelector<HTMLElement>(
+    `[data-cell-form="${form}"] :is(a[href], button:not(:disabled))`
+  ) ?? null
+
+/**
+ * Arrow keys move between days that hold something to focus; Home and End
+ * go to the first and last such day of the week. A day with nothing is
+ * skipped; up or down into a week whose column is empty lands on that
+ * week's nearest day instead.
+ */
+function moveBetweenDays(event: KeyboardEvent<HTMLElement>, days: string[]) {
+  const from = event.target as HTMLElement
+  const cell = from.closest<HTMLElement>("[data-day]")
+  const form = from.closest<HTMLElement>("[data-cell-form]")?.dataset.cellForm
+  if (!cell || !form) return
+  const cells = new Map(
+    Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>("[data-day]"),
+      (element) => [element.dataset.day!, element]
+    )
+  )
+  const at = (index: number) => focusableIn(cells.get(days[index]!), form)
+  const index = days.indexOf(cell.dataset.day!)
+  const weekStart = index - (index % 7)
+  let target: HTMLElement | null = null
+  if (event.key === "Home" || event.key === "End") {
+    const order = Array.from({ length: 7 }, (_, offset) => weekStart + offset)
+    if (event.key === "End") order.reverse()
+    for (const candidate of order) {
+      target = candidate === index ? null : at(candidate)
+      if (target || candidate === index) break
+    }
+  } else {
+    const step = ARROW_STEPS[event.key]
+    if (step === undefined) return
+    if (Math.abs(step) === 1) {
+      for (
+        let next = index + step;
+        next >= 0 && next < days.length;
+        next += step
+      )
+        if ((target = at(next))) break
+    } else {
+      for (
+        let row = weekStart + step;
+        row >= 0 && row < days.length && !target;
+        row += step
+      ) {
+        const column = index - weekStart
+        const byDistance = Array.from(
+          { length: 7 },
+          (_, offset) => offset
+        ).sort((a, b) => Math.abs(a - column) - Math.abs(b - column) || a - b)
+        for (const offset of byDistance) if ((target = at(row + offset))) break
+      }
+    }
+  }
+  if (!target) return
+  event.preventDefault()
+  target.focus()
+}
+
+/**
+ * One publication in a wide grid cell: the time and listing, then its status
+ * in words. Lists use `DayEntries` (mail rows).
  */
 function CompactEntry({ occurrence }: { occurrence: ScheduleOccurrence }) {
   const status = OCCURRENCE_STATUS[occurrence.status]
@@ -103,11 +176,12 @@ function CompactEntry({ occurrence }: { occurrence: ScheduleOccurrence }) {
         <span className="tabular-nums">{occurrence.localTime}</span>{" "}
         {occurrence.locationName}
       </span>
-      {flagged ? (
-        <span aria-hidden className={cn("truncate text-caption", flagged)}>
-          {status.label}
-        </span>
-      ) : null}
+      <span
+        aria-hidden
+        className={cn("truncate text-caption", flagged ?? "text-ink-muted")}
+      >
+        {status.label}
+      </span>
       <span className="sr-only">
         {status.label}: {occurrence.summary}
       </span>
@@ -281,6 +355,7 @@ export function CalendarGrid({
         aria-label="Calendar grid"
         data-slot="calendar-grid"
         className="min-w-0"
+        onKeyDown={(event) => moveBetweenDays(event, days)}
       >
         {/* Compact (under 36rem of its own width) draws Notion Mail's month
             grid: no header fill, no column or row hairlines, the numeral
@@ -291,8 +366,8 @@ export function CalendarGrid({
           className="table-fixed text-caption"
         >
           <caption className="sr-only">
-            Scheduled publications by day. The agenda view lists the same
-            publications.
+            Scheduled publications by day. Arrow keys move between days with
+            publications. The agenda view lists the same publications.
           </caption>
           <TableHeader className="@max-xl/cal:[&_th]:border-b-0 @max-xl/cal:[&_th]:bg-transparent">
             <TableRow>
@@ -327,6 +402,7 @@ export function CalendarGrid({
                   return (
                     <TableCell
                       key={day}
+                      data-day={day}
                       aria-current={isToday ? "date" : undefined}
                       className={cn(
                         "h-14 border-line p-0.5 align-top @xl/cal:h-28 @xl/cal:border-l @xl/cal:p-1 @xl/cal:first:border-l-0",
@@ -335,7 +411,7 @@ export function CalendarGrid({
                     >
                       {/* Compact: the whole cell is the day. A day with
                           publications is a button that opens its list. */}
-                      <div className="@xl/cal:hidden">
+                      <div data-cell-form="compact" className="@xl/cal:hidden">
                         {entries.length ? (
                           <button
                             type="button"
@@ -389,7 +465,10 @@ export function CalendarGrid({
                         )}
                       </div>
                       {/* Wide: the date, then up to three publications. */}
-                      <div className="hidden @xl/cal:block">
+                      <div
+                        data-cell-form="wide"
+                        className="hidden @xl/cal:block"
+                      >
                         <p
                           className={cn(
                             "px-1.5 text-caption tabular-nums",
@@ -397,8 +476,11 @@ export function CalendarGrid({
                           )}
                         >
                           <DayNumber day={day} isToday={isToday} />
+                          {/* A word as well as the filled disc. */}
                           {isToday ? (
-                            <span className="sr-only"> (today)</span>
+                            <span className="ml-1 font-semibold text-ink">
+                              Today
+                            </span>
                           ) : null}
                           {entries.length ? (
                             <span className="sr-only">
@@ -534,7 +616,7 @@ export function CalendarAgenda({
           <h3 className="flex items-baseline gap-2 text-ui font-semibold text-ink">
             <time dateTime={day}>{longDay(day)}</time>
             {day === today ? (
-              <span className="text-caption font-semibold text-accent-ink">
+              <span className="text-caption font-semibold text-ink-secondary">
                 Today
               </span>
             ) : null}

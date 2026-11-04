@@ -578,6 +578,11 @@ describe("PublicationCalendar period summary", () => {
     expect(
       await screen.findByText(/^Nothing scheduled in 15 Oct\s?–\s?14 Nov 2026$/)
     ).toBeInTheDocument()
+    // One short sentence under an empty state's title (SYSTEM §12).
+    const sentence = screen.getByText(
+      "Schedule posts from a listing’s Posts tab."
+    )
+    expect(sentence.textContent!.length).toBeLessThanOrEqual(44)
     expect(
       screen.getByRole("link", { name: "Go to Listings" })
     ).toBeInTheDocument()
@@ -635,10 +640,80 @@ describe("PublicationCalendar busy and problem days", () => {
     expect(within(grid).getByText("Missed")).toBeInTheDocument()
   })
 
-  it("keeps a scheduled run to one line in the grid", async () => {
+  it("says every run's state in words in the grid, never 'Published' before Google confirms", async () => {
+    stubFetch({
+      occurrences: () =>
+        jsonResponse({
+          occurrences: [
+            OCCURRENCES[0],
+            { ...OCCURRENCES[1], status: "published" },
+          ],
+        }),
+    })
     renderWithProviders(<PublicationCalendar />)
     const grid = await screen.findByRole("region", { name: "Calendar grid" })
-    expect(within(grid).queryByText("Scheduled")).not.toBeInTheDocument()
+    await within(grid).findByText("Scheduled")
+    expect(
+      within(grid).getAllByText("Sent, waiting for Google").length
+    ).toBeGreaterThan(0)
+    expect(within(grid).queryByText(/^Published/)).not.toBeInTheDocument()
+  })
+})
+
+describe("PublicationCalendar keyboard", () => {
+  const on = (id: string, localDate: string) =>
+    occurrence(
+      `00000000-0000-4000-8000-0000000000${id}`,
+      localDate,
+      "09:00",
+      "none",
+      "Lunch menu"
+    )
+
+  it("moves between days with publications by arrow key, Home and End", async () => {
+    stubFetch({
+      occurrences: () =>
+        jsonResponse({
+          occurrences: [
+            on("c1", "2026-10-20"),
+            on("c2", "2026-10-23"),
+            on("c3", "2026-10-25"),
+            on("c4", "2026-10-29"),
+          ],
+        }),
+    })
+    renderWithProviders(<PublicationCalendar />)
+    const day = (name: string) =>
+      screen.getByRole("button", { name: new RegExp(`^${name}, `) })
+    const tuesday = await screen.findByRole("button", {
+      name: /^Tuesday 20 October, /,
+    })
+    tuesday.focus()
+    // Sideways skips days with nothing to open.
+    await userEvent.keyboard("{ArrowRight}")
+    expect(day("Friday 23 October")).toHaveFocus()
+    await userEvent.keyboard("{End}")
+    expect(day("Sunday 25 October")).toHaveFocus()
+    await userEvent.keyboard("{Home}")
+    expect(tuesday).toHaveFocus()
+    // Down a week: Tuesday the 27th is empty, so the nearest day that week.
+    await userEvent.keyboard("{ArrowDown}")
+    expect(day("Thursday 29 October")).toHaveFocus()
+    await userEvent.keyboard("{ArrowUp}")
+    expect(day("Friday 23 October")).toHaveFocus()
+    // Nothing earlier than the first: focus stays.
+    tuesday.focus()
+    await userEvent.keyboard("{ArrowLeft}")
+    expect(tuesday).toHaveFocus()
+  })
+
+  it("names today in words in a wide cell, not by its disc alone", async () => {
+    renderWithProviders(<PublicationCalendar />)
+    await screen.findByRole("region", { name: "Calendar grid" })
+    const current = document.querySelector('[aria-current="date"]')!
+    expect(current.querySelector('[data-cell-form="wide"]')).toHaveTextContent(
+      /^15\s*Today/
+    )
   })
 })
 
