@@ -2,6 +2,7 @@ import { requestHasCapability } from "@/lib/contracts/client-capabilities"
 import type { ShellStatusResponse } from "@/lib/contracts/shell-status"
 import { listConnections } from "@/lib/server/connections"
 import { listNotifications } from "@/lib/server/notifications/inbox"
+import { readOutboxCounts } from "@/lib/server/outbox"
 import { readReviewCounts } from "@/lib/server/review-counts"
 import { route } from "@/lib/server/route"
 
@@ -9,9 +10,9 @@ export const runtime = "nodejs"
 
 /**
  * The shell's poll (R2-X1 multiplier M4): the needs-reply count, the
- * connections and the unread notifications in one request, where the shell
- * used to poll three routes once a minute each. Read-only; each part is the
- * same read its own route makes for this session.
+ * connections, the unread notifications and the Outbox failures badge in one
+ * request, where the shell used to poll each route on its own. Read-only;
+ * each part is the same read its own route makes for this session.
  */
 export const GET = route({
   handler: async ({
@@ -31,6 +32,14 @@ export const GET = route({
         kinds3: requestHasCapability(request, "notification-kinds-3"),
       }
     )
-    return { counts, connections, notifications }
+    // A badge: a failed Outbox read leaves it off rather than failing the
+    // poll that carries every other badge.
+    const outbox =
+      session.role === "viewer"
+        ? undefined
+        : await tenant((sql) => readOutboxCounts(sql, session, {})).catch(
+            () => undefined
+          )
+    return { counts, connections, notifications, outbox }
   },
 })
