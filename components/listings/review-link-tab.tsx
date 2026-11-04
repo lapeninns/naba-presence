@@ -218,7 +218,7 @@ function NoLinkYet({
         </CardHeader>
         <CardContent>
           {state.canManage ? (
-            <CheckGoogleButton locationId={locationId} variant="default" />
+            <CheckGoogleButton locationId={locationId} />
           ) : (
             <p className="text-ui text-ink-muted">
               Someone who can edit this listing can check Google for it.
@@ -352,7 +352,9 @@ function LinkCard({
           >
             Your review link
           </CardTitle>
-          <StatusPill tone={live ? "healthy" : "neutral"}>
+          {/* Neutral either way: the link is ours, and green is kept for
+              what Google has confirmed. */}
+          <StatusPill tone="neutral">
             {live ? "Live" : "Switched off"}
           </StatusPill>
         </div>
