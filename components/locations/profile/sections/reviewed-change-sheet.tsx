@@ -119,6 +119,21 @@ export function ReviewedChangeSheet({
     work()
   }
   const Noun = noun.charAt(0).toUpperCase() + noun.slice(1)
+  // Why the primary can't be used, for the cases nothing else on the sheet
+  // already explains (expiry, staleness and a second approver have their
+  // own lines).
+  const primaryNote =
+    recorded || workflow.busy || expired || workflow.stale
+      ? null
+      : workflow.unresolved
+        ? "Sending is paused while another Google change is unresolved."
+        : !review.approvedBy
+          ? !review.canApprove && !review.requiresSecondApprover
+            ? "Your current permissions don’t allow approving these changes."
+            : null
+          : !disabled && review.targetResourceName && !consent
+            ? `Tick the box to send these exact ${noun} changes.`
+            : null
   return (
     <ReviewedWriteSheet
       open={workflow.open}
@@ -287,6 +302,9 @@ export function ReviewedChangeSheet({
             onCheckedChange={setConsent}
             disabled={blocked}
           />
+        ) : null}
+        {primaryNote ? (
+          <p className="text-ui text-ink-muted">{primaryNote}</p>
         ) : null}
       </div>
     </ReviewedWriteSheet>
