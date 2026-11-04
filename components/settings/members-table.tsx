@@ -317,7 +317,7 @@ function MemberRows({
           terms,
           before?.locations.length ?? 0
         ),
-        type: "success",
+        type: "info",
       })
     },
   })
@@ -363,7 +363,7 @@ function MemberRows({
           ? `${name} was removed from the team`
           : "Removed from the team",
         description: "Send a new invitation to bring them back.",
-        type: "success",
+        type: "info",
       })
     },
   })

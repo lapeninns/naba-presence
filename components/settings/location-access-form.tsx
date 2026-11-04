@@ -83,7 +83,7 @@ export function LocationAccessForm({
           : result.noAccess
             ? `${member.displayName} can’t see any location until you give them access.`
             : undefined,
-        type: "success",
+        type: "info",
       })
       onDone()
     },
