@@ -395,11 +395,13 @@ function SetupWizard({ clientId }: { clientId: string }) {
     goTo(flow[Math.min(index + 1, flow.length - 1)])
   }
 
+  // The page header already says setup can be left and resumed, so the
+  // footer only speaks when it adds something: a blocker or an optional step.
   const footerHint = blocker
     ? blocker
     : definition.optional
       ? "Optional. You can skip this and come back later."
-      : "You can come back to any step later."
+      : ""
 
   return (
     <>
@@ -421,9 +423,6 @@ function SetupWizard({ clientId }: { clientId: string }) {
               aria-label="Setup steps"
               steps={steps}
             />
-            <p className="px-2.5 text-caption text-ink-muted">
-              You can come back to any step later.
-            </p>
           </nav>
 
           <section

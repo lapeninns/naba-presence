@@ -49,6 +49,26 @@ describe("StepDone", () => {
     expect(rows[5]).toHaveTextContent("Only you so far")
   })
 
+  it("draws the finish mark and a finished import in ink, not success green", () => {
+    const { container } = render(
+      <StepDone
+        clientId="c1"
+        clientName="Old Crown Group"
+        business={false}
+        facts={{ ...facts, backfill: "done" } as SetupFacts}
+      />
+    )
+    // Green is kept for what Google confirmed; finishing setup is local.
+    const mark = container.querySelector("span.size-14")
+    expect(mark).toHaveClass("bg-fill")
+    expect(mark).not.toHaveClass("bg-success-tint")
+    const rows = within(screen.getByTestId("setup-summary")).getAllByRole(
+      "listitem"
+    )
+    expect(rows[3]).toHaveTextContent("Complete")
+    expect(rows[3].querySelector(".text-success-ink")).toBeNull()
+  })
+
   it("offers the client, its inbox and its listings for an agency", () => {
     render(
       <StepDone
