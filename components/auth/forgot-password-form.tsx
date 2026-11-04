@@ -3,6 +3,7 @@
 import { Mail } from "lucide-react"
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
@@ -75,6 +76,7 @@ function ForgotPasswordForm() {
   // Set by "Use a different email", so the form that comes back puts the
   // visitor in the field, ready to correct the address.
   const returnToForm = useRef(false)
+  const noteId = useId()
 
   // role="alert" is already an assertive live region, so this is a belt and
   // braces enhancement: move keyboard/screen-reader focus to the banner
@@ -219,15 +221,26 @@ function ForgotPasswordForm() {
               className={WRAPPING_BLOCK_BUTTON}
               pending={pending}
               pendingLabel="Sending…"
+              // The last answer also describes the button, so coming back
+              // to it repeats what happened.
+              aria-describedby={note ? noteId : undefined}
               onClick={() => resend(sentTo)}
             >
               Send another link
             </Button>
-            <span aria-live="polite" className="text-caption text-ink-muted">
+            <span
+              id={note?.tone === "sent" ? noteId : undefined}
+              aria-live="polite"
+              className="text-caption text-ink-muted"
+            >
               {note?.tone === "sent" ? note.text : null}
             </span>
             {note?.tone === "failed" ? (
-              <span role="alert" className="text-caption text-danger-ink">
+              <span
+                id={noteId}
+                role="alert"
+                className="text-caption text-danger-ink"
+              >
                 {note.text}
               </span>
             ) : null}
@@ -260,7 +273,11 @@ function ForgotPasswordForm() {
       className="flex flex-col gap-5"
     >
       {message ? (
-        <div ref={alertRef} tabIndex={-1} className="outline-none">
+        <div
+          ref={alertRef}
+          tabIndex={-1}
+          className="rounded-(--np-radius-card) focus-halo outline-none"
+        >
           <AuthErrorAlert message={message} email={email} />
         </div>
       ) : null}

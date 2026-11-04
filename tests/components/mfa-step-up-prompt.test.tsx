@@ -87,7 +87,10 @@ describe("MfaStepUpPrompt", () => {
     raise("mfa_step_up_required")
     expect(await screen.findByText("Confirm it’s you")).toBeTruthy()
     await user.type(screen.getByLabelText("Password"), "secret-password")
-    await user.type(screen.getByRole("textbox", { name: "6-digit code" }), "123 456")
+    await user.type(
+      screen.getByRole("textbox", { name: "6-digit code" }),
+      "123 456"
+    )
     await user.click(screen.getByText("The code is from my backup app"))
     await user.click(screen.getByRole("button", { name: "Verify" }))
     expect(await screen.findByText("You’re verified")).toBeTruthy()
@@ -106,9 +109,29 @@ describe("MfaStepUpPrompt", () => {
     render(<MfaStepUpPrompt />)
     raise("mfa_step_up_required")
     await user.type(await screen.findByLabelText("Password"), "pw")
-    await user.type(screen.getByRole("textbox", { name: "6-digit code" }), "000000")
+    await user.type(
+      screen.getByRole("textbox", { name: "6-digit code" }),
+      "000000"
+    )
     await user.click(screen.getByRole("button", { name: "Verify" }))
     expect(await screen.findByText(/That code did not match/)).toBeTruthy()
+  })
+
+  it("puts focus back in the password after a wrong password", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(mfaApi, "stepUpMfa").mockRejectedValue(
+      new ApiClientError(401, "invalid_credentials", "x")
+    )
+    render(<MfaStepUpPrompt />)
+    raise("mfa_step_up_required")
+    await user.type(await screen.findByLabelText("Password"), "pw")
+    await user.type(
+      screen.getByRole("textbox", { name: "6-digit code" }),
+      "123456"
+    )
+    await user.click(screen.getByRole("button", { name: "Verify" }))
+    expect(await screen.findByText("That password is incorrect.")).toBeTruthy()
+    await waitFor(() => expect(screen.getByLabelText("Password")).toHaveFocus())
   })
 
   it("does not send an empty form", async () => {
@@ -119,6 +142,42 @@ describe("MfaStepUpPrompt", () => {
     await user.click(await screen.findByRole("button", { name: "Verify" }))
     expect(await screen.findByText("Enter your password.")).toBeTruthy()
     expect(stepUp).not.toHaveBeenCalled()
+    // Focus goes to the first field to fix.
+    expect(screen.getByLabelText("Password")).toHaveFocus()
+  })
+
+  it("stays busy, keeping focus, while it checks", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(mfaApi, "stepUpMfa").mockReturnValue(new Promise(() => {}))
+    render(<MfaStepUpPrompt />)
+    raise("mfa_step_up_required")
+    await user.type(await screen.findByLabelText("Password"), "pw")
+    await user.type(
+      screen.getByRole("textbox", { name: "6-digit code" }),
+      "123456"
+    )
+    await user.click(screen.getByRole("button", { name: "Verify" }))
+    const busy = await screen.findByRole("button", { name: "Checking…" })
+    expect(busy).toHaveAttribute("aria-busy", "true")
+    expect(busy).not.toBeDisabled()
+  })
+
+  it("moves focus to a failure banner that draws the halo", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(mfaApi, "stepUpMfa").mockRejectedValue(
+      new ApiClientError(429, "auth_rate_limited", "x")
+    )
+    render(<MfaStepUpPrompt />)
+    raise("mfa_step_up_required")
+    await user.type(await screen.findByLabelText("Password"), "pw")
+    await user.type(
+      screen.getByRole("textbox", { name: "6-digit code" }),
+      "123456"
+    )
+    await user.click(screen.getByRole("button", { name: "Verify" }))
+    const alert = await screen.findByRole("alert")
+    await waitFor(() => expect(alert.parentElement).toHaveFocus())
+    expect(alert.parentElement).toHaveClass("focus-halo")
   })
 
   it("sends an unenrolled owner to the enrollment screen", async () => {
@@ -161,7 +220,9 @@ describe("MfaStepUpPrompt", () => {
     expect(stepUp).not.toHaveBeenCalled()
     await user.click(screen.getByRole("button", { name: "Verify" }))
     const busy = await screen.findByRole("button", { name: "Checking…" })
-    expect(busy).toBeDisabled()
+    // Busy, not natively disabled, so it keeps focus; a second press still
+    // sends nothing.
+    expect(busy).toHaveAttribute("aria-disabled", "true")
     await user.click(busy)
     expect(stepUp).toHaveBeenCalledTimes(1)
     expect(stepUp).toHaveBeenCalledWith({

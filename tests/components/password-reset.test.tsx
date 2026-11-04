@@ -127,6 +127,7 @@ describe("ResetPasswordForm", () => {
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("That link is invalid or has expired.")
     await waitFor(() => expect(alert.parentElement).toHaveFocus())
+    expect(alert.parentElement).toHaveClass("focus-halo")
     expect(screen.queryByLabelText("New password")).not.toBeInTheDocument()
     // One way on, the same block button as the missing-token state; the
     // alert's own inline link is dropped so it isn't offered twice.
@@ -144,9 +145,10 @@ describe("ResetPasswordForm", () => {
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
     await user.click(screen.getByRole("button", { name: "Update password" }))
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Too many attempts."
-    )
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent("Too many attempts.")
+    await waitFor(() => expect(alert.parentElement).toHaveFocus())
+    expect(alert.parentElement).toHaveClass("focus-halo")
     // The token may still be good, so the form stays — unlike the dead-token case.
     expect(screen.getByLabelText("New password")).toBeInTheDocument()
     expect(

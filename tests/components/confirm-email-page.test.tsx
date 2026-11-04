@@ -56,6 +56,24 @@ describe("email confirmation interstitial (W6-05)", () => {
     expect(
       screen.getByText(/Didn’t receive a confirmation email\?/)
     ).toBeInTheDocument()
+    // That way on is the card's one primary, not a second footer link.
+    const links = screen.getAllByRole("link", { name: /sign in/i })
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveTextContent("Go to sign in")
+    expect(links[0]).toHaveAttribute("href", "/sign-in")
+  })
+
+  it("sends an invitee without a token back to the invitation email", async () => {
+    await renderPage({ inviteToken: "inv-1" })
+    expect(
+      screen.getByText(/open the invitation email and follow its link/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Go to sign in" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Back to sign in" })
+    ).toHaveAttribute("href", "/sign-in")
   })
 
   it("lets only the first press post, and shows it is under way", async () => {
