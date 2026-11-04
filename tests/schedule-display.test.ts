@@ -46,6 +46,23 @@ describe("schedule display (P08-R5)", () => {
     ).toBeNull()
   })
 
+  it("never draws a schedule green: an active one has sent nothing yet", () => {
+    expect(scheduleBadge({ status: "active", statusReason: null })).toEqual({
+      label: "Active",
+      tone: "info",
+    })
+    for (const status of [
+      "awaiting_approval",
+      "active",
+      "paused",
+      "blocked",
+      "needs_review",
+      "cancelled",
+      "completed",
+    ] as const)
+      expect(scheduleBadge({ status, statusReason: null }).tone).not.toBe("ok")
+  })
+
   it("badges blocked and needs-review distinctly", () => {
     expect(
       scheduleBadge({ status: "blocked", statusReason: "connection_changed" })
