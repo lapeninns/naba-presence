@@ -742,7 +742,9 @@ describe("AccessTab (roster truthfulness)", () => {
       )
     ).toBeInTheDocument()
     expect(
-      screen.getByText("Invitation pending").closest('[data-slot="status-pill"]')
+      screen
+        .getByText("Invitation pending")
+        .closest('[data-slot="status-pill"]')
     ).toHaveAttribute("data-tone", "attention")
     for (const pill of screen.getAllByText("Has access"))
       expect(pill.closest('[data-slot="status-pill"]')).toHaveAttribute(
