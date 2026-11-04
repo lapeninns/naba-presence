@@ -74,8 +74,17 @@ const CHILD: Record<BulkChild["status"], { label: string; tone: PillTone }> = {
  * confirmed; one parked for an approver says so (DIRECTION §6.3 #4).
  */
 export function childPill(
-  child: Pick<BulkChild, "status" | "confirmationState" | "resultCode">
+  child: Pick<
+    BulkChild,
+    "status" | "confirmationState" | "resultCode" | "operation"
+  >
 ): { label: string; tone: PillTone } {
+  if (child.operation === "post_draft") {
+    if (child.status === "succeeded")
+      return { label: "Draft saved", tone: "ok" }
+    if (child.status === "queued" || child.status === "running")
+      return { label: "Saving draft", tone: "info" }
+  }
   if (child.status !== "succeeded") return CHILD[child.status]
   if (child.resultCode === "submitted_for_approval")
     return { label: describeOutcome("awaiting_approval").label, tone: "warn" }

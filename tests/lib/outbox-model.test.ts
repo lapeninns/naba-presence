@@ -63,6 +63,7 @@ const reply = (overrides: Partial<ReplyRow> = {}): ReplyRow => ({
   publishStatus: null,
   googleReplyState: null,
   attemptStatus: null,
+  attemptOperation: null,
   nextAttemptAt: null,
   sentBackAt: null,
   at: new Date("2026-11-02T10:00:00Z"),
@@ -150,6 +151,28 @@ describe("Outbox vocabulary", () => {
 })
 
 describe("reply mapping", () => {
+  it.each([
+    ["started", "sending"],
+    ["retryable", "retrying"],
+    ["ambiguous", "uncertain"],
+    ["failed", "live"],
+  ])(
+    "maps the latest delete attempt %s over a confirmed reply",
+    (attemptStatus, expected) => {
+      expect(
+        replyState(
+          reply({
+            workflowStatus: "published",
+            publishStatus: "published",
+            googleReplyState: "APPROVED",
+            attemptOperation: "delete",
+            attemptStatus,
+          })
+        )
+      ).toBe(expected)
+    }
+  )
+
   it.each<[Partial<ReplyRow>, OutboxState | null]>([
     [{ workflowStatus: "awaiting_approval" }, "approval"],
     [{ workflowStatus: "publish_requested" }, "sending"],

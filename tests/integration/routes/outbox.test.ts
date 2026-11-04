@@ -547,6 +547,47 @@ describeDatabase("GET /api/outbox", () => {
     }
   })
 
+  it("shows an ambiguous deletion even when the previous confirmation is too old for the Outbox", async () => {
+    const tenant = await createTestTenant(admin)
+    organisations.push(tenant.organisationId)
+    const review = await seedReview(admin, {
+      organisationId: tenant.organisationId,
+    })
+    for (const step of [
+      "drafted",
+      "verified",
+      "publish_requested",
+      "published",
+    ])
+      await admin`update review set workflow_status = ${step} where id = ${review.reviewId}`
+    const [reply] = await admin`
+      insert into review_reply (
+        organisation_id, review_id, current_body, publish_status,
+        google_reply_state, google_reply_updated_at, published_by
+      )
+      values (${tenant.organisationId}, ${review.reviewId}, 'Previous reply',
+        'published', 'APPROVED', now() - interval '2 days', ${tenant.userId})
+      returning id
+    `
+    expect(
+      byId(await readAll(tenant.cookie)).has(`reply:${review.reviewId}`)
+    ).toBe(false)
+    await admin`
+      insert into publish_attempt (
+        organisation_id, review_reply_id, idempotency_key, request_body_hash,
+        operation, status, attempt_no
+      )
+      values (${tenant.organisationId}, ${reply.id}, ${randomUUID()}, 'delete',
+        'delete', 'ambiguous', 1)
+    `
+    expect(
+      byId(await readAll(tenant.cookie)).get(`reply:${review.reviewId}`)
+    ).toMatchObject({
+      state: "uncertain",
+      title: expect.stringMatching(/^Delete reply to /),
+    })
+  })
+
   it("needs a session", async () => {
     expect((await fetch(`${server.baseUrl}/api/outbox`)).status).toBe(401)
     expect((await fetch(`${server.baseUrl}/api/outbox/counts`)).status).toBe(

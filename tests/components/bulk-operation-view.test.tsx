@@ -544,7 +544,11 @@ describe("BulkOperationView follow-ups (P09-R9)", () => {
       dispatchExpiresAt: "2026-10-02T00:00:00.000Z",
       counts: { succeeded: 2, conflict: 1, expired: 1 },
       children: [
-        child({ ...asPost, status: "succeeded" }),
+        child({
+          ...asPost,
+          status: "succeeded",
+          confirmationState: "confirmed",
+        }),
         child({
           ...asHours,
           id: "00000000-0000-4000-8000-0000000000c2",
@@ -565,6 +569,7 @@ describe("BulkOperationView follow-ups (P09-R9)", () => {
           locationId: listingB,
           locationName: "White Horse",
           status: "succeeded",
+          confirmationState: "confirmed",
         }),
       ],
     }
@@ -585,6 +590,8 @@ describe("BulkOperationView follow-ups (P09-R9)", () => {
         /Not in the new preview: change 1 \(Post drafts\) at White Horse\. A post draft is made again/
       )
     ).toBeInTheDocument()
+    expect(screen.getByText("Draft saved")).toBeInTheDocument()
+    expect(screen.getByText("On Google")).toBeInTheDocument()
     fireEvent.click(
       screen.getByRole("button", { name: "New preview for 1 listing not sent" })
     )

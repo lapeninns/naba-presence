@@ -4,6 +4,7 @@ import { Link2OffIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
+import { ClientSelect } from "@/components/performance/client-select"
 import { LocationReport } from "@/components/performance/location-report"
 import { LocationSelect } from "@/components/performance/location-select"
 import { NotInDirectory } from "@/components/performance/report-scope"
@@ -184,6 +185,7 @@ export function PerformanceView({
   // so it is an owner/admin action; the API enforces the same.
   const canShare = role === "owner" || role === "admin"
   const items = clients.data?.items ?? []
+  const showSingleClientPicker = !business && items.length === 1
   const client = clientId
     ? items.find((entry) => entry.id === clientId)
     : undefined
@@ -312,7 +314,11 @@ export function PerformanceView({
           here; `?clientId=` still decides it. On a phone the period is the
           strip under the tabs. */}
       <ReportToolbar
-        phone={phoneScope && Boolean(client) && clientLocations.length > 1}
+        phone={
+          phoneScope &&
+          (showSingleClientPicker ||
+            (Boolean(client) && clientLocations.length > 1))
+        }
         summary={
           business
             ? [locationsPart, periodLabel]
@@ -335,6 +341,20 @@ export function PerformanceView({
                 options={RANGE_OPTIONS[active]}
                 onChange={setRange(active)}
               />
+              {showSingleClientPicker ? (
+                <ClientSelect
+                  {...field}
+                  clients={items}
+                  value={clientId}
+                  onChange={(next) =>
+                    replaceParams((params) => {
+                      if (next) params.set("clientId", next)
+                      else params.delete("clientId")
+                      params.delete("locationId")
+                    })
+                  }
+                />
+              ) : null}
               {business || client ? (
                 <LocationSelect
                   {...field}

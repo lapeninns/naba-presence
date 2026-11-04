@@ -115,7 +115,11 @@ describe("DIRECTION §6.3 vocabulary fixes", () => {
   it("#4 says a bulk listing is On Google only once it is confirmed", () => {
     const child = (
       over: Partial<BulkChild>
-    ): Pick<BulkChild, "status" | "confirmationState" | "resultCode"> => ({
+    ): Pick<
+      BulkChild,
+      "status" | "confirmationState" | "resultCode" | "operation"
+    > => ({
+      operation: "regular_hours",
       status: "succeeded",
       confirmationState: "unrecorded",
       resultCode: null,

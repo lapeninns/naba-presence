@@ -171,19 +171,33 @@ export type ReplyRow = Place & {
   publishStatus: string | null
   googleReplyState: string | null
   attemptStatus: string | null
+  attemptOperation: "publish" | "delete" | null
   nextAttemptAt: Date | null
   sentBackAt: Date | null
   at: Date
 }
 
+function pendingReplyDeletion(row: ReplyRow): OutboxState | null {
+  if (row.workflowStatus !== "published" || row.attemptOperation !== "delete")
+    return null
+  if (row.attemptStatus === "started") return "sending"
+  if (row.attemptStatus === "retryable") return "retrying"
+  if (row.attemptStatus === "ambiguous") return "uncertain"
+  return null
+}
+
 /** One reply row's Outbox state, or null when it does not belong there. */
 export function replyState(row: ReplyRow): OutboxState | null {
+  const deletion = pendingReplyDeletion(row)
+  if (deletion) return deletion
+  const publishStatus =
+    row.attemptOperation === "delete" ? null : row.attemptStatus
   switch (row.workflowStatus) {
     case "awaiting_approval":
       return "approval"
     case "publish_requested":
-      if (row.attemptStatus === "retryable") return "retrying"
-      if (row.attemptStatus === "ambiguous") return "uncertain"
+      if (publishStatus === "retryable") return "retrying"
+      if (publishStatus === "ambiguous") return "uncertain"
       return "sending"
     case "published":
       if (row.googleReplyState === "REJECTED") return "rejected"
@@ -197,7 +211,7 @@ export function replyState(row: ReplyRow): OutboxState | null {
       return "rejected"
     case "failed":
       // A timeout is never "Failed": nobody can tell whether Google took it.
-      return row.attemptStatus === "ambiguous" ? "uncertain" : "failed"
+      return publishStatus === "ambiguous" ? "uncertain" : "failed"
     case "drafted":
     case "verified":
       return row.sentBackAt ? "changes" : null
@@ -232,7 +246,9 @@ export function replyItem(row: ReplyRow): OutboxItem | null {
     id: `reply:${row.reviewId}`,
     kind: "reply",
     state,
-    title: `Reply to ${name}`,
+    title: pendingReplyDeletion(row)
+      ? `Delete reply to ${name}`
+      : `Reply to ${name}`,
     detail: row.starRating ? `${row.starRating}-star review` : null,
     ...placeOf(row),
     at: iso(state === "changes" && row.sentBackAt ? row.sentBackAt : row.at),
@@ -257,9 +273,10 @@ function readReplies(
       rr.publish_status as "publishStatus",
       rr.google_reply_state as "googleReplyState",
       pa.status as "attemptStatus",
+      pa.operation as "attemptOperation",
       pa.next_attempt_at as "nextAttemptAt",
       sent_back.created_at as "sentBackAt",
-      greatest(r.updated_at, coalesce(rr.updated_at, r.updated_at)) as at,
+      greatest(r.updated_at, rr.updated_at, pa.started_at) as at,
       l.id::text as "locationId",
       l.name as "locationName",
       c.id::text as "clientId",
@@ -270,13 +287,12 @@ function readReplies(
     left join client c on c.id = l.client_id
     left join review_reply rr on rr.review_id = r.id
     left join lateral (
-      -- The newest publish: a retry bumps attempt_no on its own row, so a
-      -- newer publish (attempt 1) must still win on started_at.
-      select a.status, a.next_attempt_at
+      -- The newest reply write: a retry bumps attempt_no on its own row, so a
+      -- newer write (attempt 1) must still win on started_at.
+      select a.status, a.operation, a.started_at, a.next_attempt_at
       from publish_attempt a
       where a.review_reply_id = rr.id
-        and a.operation = 'publish'
-      order by a.started_at desc
+      order by a.started_at desc, a.id desc
       limit 1
     ) pa on true
     left join lateral (
@@ -304,6 +320,11 @@ function readReplies(
       ${scopeFilter(sql, scope)}
       and (
         r.workflow_status in ('awaiting_approval', 'publish_requested')
+        or (
+          r.workflow_status = 'published'
+          and pa.operation = 'delete'
+          and pa.status in ('started', 'retryable', 'ambiguous')
+        )
         or (
           r.workflow_status in ('failed', 'rejected')
           and r.updated_at > now() - ${WINDOW}::interval

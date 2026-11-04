@@ -385,9 +385,25 @@ describe("PerformanceView share from All clients (CLR-10)", () => {
 })
 
 describe("PerformanceView scope on a phone (one client)", () => {
-  // The scope control has nothing to switch between with one client, so the
-  // report keeps its Listing field on a phone. The client itself is never a
-  // field here: the shell's scope control chooses it (DIRECTION §7.3).
+  it("lets an unscoped one-client agency select its client from Reports", async () => {
+    stubAgency("owner", {
+      onlyOneClient: true,
+      directory: ["Girton", "Histon"],
+    })
+    search = "tab=google&range=90d"
+    renderAgencyView()
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: /Client/ })
+    )
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Old Crown" })
+    )
+    expect(replace).toHaveBeenCalledWith(
+      "/reports?tab=google&range=90d&clientId=00000000-0000-4000-8000-000000000001",
+      { scroll: false }
+    )
+  })
+
   it("draws the report's Listing field on a phone when the scope control has nothing to switch", async () => {
     stubAgency("owner", {
       onlyOneClient: true,
@@ -402,8 +418,8 @@ describe("PerformanceView scope on a phone (one client)", () => {
       within(toolbar).getByRole("combobox", { name: /Listing/ })
     ).toBeInTheDocument()
     expect(
-      within(toolbar).queryByRole("combobox", { name: /Client/ })
-    ).not.toBeInTheDocument()
+      within(toolbar).getByRole("combobox", { name: /Client/ })
+    ).toBeInTheDocument()
     // The period is the strip's on a phone: the toolbar's own is desk-only.
     expect(
       within(toolbar)
@@ -412,7 +428,7 @@ describe("PerformanceView scope on a phone (one client)", () => {
     ).not.toBeNull()
   })
 
-  it("draws no empty scope row on a phone when there is no listing to choose", async () => {
+  it("keeps the Client field on a phone when there is no listing to choose", async () => {
     stubAgency("owner", { onlyOneClient: true, directory: ["Girton"] })
     search = "clientId=00000000-0000-4000-8000-000000000001"
     renderAgencyView()
@@ -420,7 +436,7 @@ describe("PerformanceView scope on a phone (one client)", () => {
     expect(
       await within(toolbar).findByText("Old Crown · 2 listings")
     ).toBeInTheDocument()
-    expect(toolbar).toHaveClass("hidden", "md:block")
+    expect(toolbar).toHaveClass("block")
   })
 
   it("states the scope in words and offers no Client field with several clients", async () => {
