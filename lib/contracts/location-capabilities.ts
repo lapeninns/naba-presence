@@ -46,6 +46,8 @@ export type LocationResourceKey = (typeof LOCATION_RESOURCE_KEYS)[number]
 export const resourceCapabilitySchema = z.object({
   state: z.enum(RESOURCE_CAPABILITY_STATES),
   reasonCode: z.string().optional(),
+  /** Informational evidence, independent of permission or publish availability. */
+  advisoryCode: z.literal("verification_unconfirmed").optional(),
 })
 export type ResourceCapability = z.infer<typeof resourceCapabilitySchema>
 

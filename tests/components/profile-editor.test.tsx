@@ -2033,46 +2033,75 @@ describe("ProfileTab field marks", () => {
     return document.getElementById(`${controlId}-label`)?.parentElement
   }
 
-  it("says a change came from Google until the operator edits the field", async () => {
-    const drifted = {
-      profile: {
-        ...PROFILE.profile,
-        fields: PROFILE.profile.fields.map((entry) =>
-          entry.key === "name"
-            ? { ...entry, status: "google_dirty", googleValue: "Camden Inn" }
-            : entry.key === "phone"
-              ? {
-                  ...entry,
-                  status: "core_dirty",
-                  googleValue: "+44 20 7946 0001",
-                }
-              : entry
-        ),
-      },
+  it.each([false, true])(
+    "says a change came from Google until the operator edits the field (verification advisory: %s)",
+    async (verificationAdvisory) => {
+      const drifted = {
+        profile: {
+          ...PROFILE.profile,
+          fields: PROFILE.profile.fields.map((entry) =>
+            entry.key === "name"
+              ? { ...entry, status: "google_dirty", googleValue: "Camden Inn" }
+              : entry.key === "phone"
+                ? {
+                    ...entry,
+                    status: "core_dirty",
+                    googleValue: "+44 20 7946 0001",
+                  }
+                : entry
+          ),
+        },
+      }
+      const fetchMock = stubRoutes(
+        verificationAdvisory
+          ? {
+              caps: {
+                canEditCanonical: true,
+                canPublish: true,
+                resources: {
+                  businessInformation: {
+                    state: "available",
+                    advisoryCode: "verification_unconfirmed",
+                  },
+                },
+              },
+            }
+          : undefined
+      )
+      const original = fetchMock.getMockImplementation()
+      if (!original) throw new Error("Profile fixture missing")
+      fetchMock.mockImplementation(async (...args) => {
+        const url = String(args[0])
+        return url.includes("/profile") &&
+          !url.includes("/import-review") &&
+          (args[1]?.method ?? "GET") === "GET"
+          ? jsonResponse(drifted)
+          : original(...args)
+      })
+      renderWithProviders(<ProfileTab locationId="loc-1" />)
+      const name = await screen.findByRole("textbox", { name: "Business name" })
+      await waitFor(() => expect(name).toBeEnabled())
+      if (verificationAdvisory)
+        expect(
+          screen.getByText(
+            "Google verification isn’t confirmed for this listing"
+          )
+        ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          "Google changed this profile since NabaPresence last saved it"
+        )
+      ).toBeInTheDocument()
+      expect(markOf("profile-name")).toHaveTextContent("Changed on Google")
+      expect(markOf("profile-phone")).toHaveTextContent("Not on Google yet")
+      expect(markOf("profile-website")).not.toHaveTextContent(
+        /Changed|Edited|Not on Google/
+      )
+      await userEvent.type(name, "s")
+      expect(markOf("profile-name")).toHaveTextContent("Edited")
+      expect(markOf("profile-name")).not.toHaveTextContent("Changed on Google")
     }
-    const fetchMock = stubRoutes()
-    const original = fetchMock.getMockImplementation()
-    if (!original) throw new Error("Profile fixture missing")
-    fetchMock.mockImplementation(async (...args) => {
-      const url = String(args[0])
-      return url.includes("/profile") &&
-        !url.includes("/import-review") &&
-        (args[1]?.method ?? "GET") === "GET"
-        ? jsonResponse(drifted)
-        : original(...args)
-    })
-    renderWithProviders(<ProfileTab locationId="loc-1" />)
-    const name = await screen.findByRole("textbox", { name: "Business name" })
-    await waitFor(() => expect(name).toBeEnabled())
-    expect(markOf("profile-name")).toHaveTextContent("Changed on Google")
-    expect(markOf("profile-phone")).toHaveTextContent("Not on Google yet")
-    expect(markOf("profile-website")).not.toHaveTextContent(
-      /Changed|Edited|Not on Google/
-    )
-    await userEvent.type(name, "s")
-    expect(markOf("profile-name")).toHaveTextContent("Edited")
-    expect(markOf("profile-name")).not.toHaveTextContent("Changed on Google")
-  })
+  )
 })
 
 describe("ProfileTab description counter", () => {

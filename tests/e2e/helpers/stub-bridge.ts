@@ -5,6 +5,11 @@ import { dirname, resolve } from "node:path"
 import type { FullConfig } from "@playwright/test"
 import postgres from "postgres"
 
+import {
+  seedEditorCapabilityFixture,
+  type EditorCapabilityFixture,
+} from "./editor-capability-fixture"
+
 import { startGoogleStub } from "../../integration/helpers/google-stub"
 import {
   createTestTenant,
@@ -64,6 +69,7 @@ export type JourneyState = {
   adminCookie: string
   memberAssignedCookie: string
   memberUnassignedCookie: string
+  editorCapabilities: EditorCapabilityFixture
 }
 
 /** How long the journey tenants' sessions last: well past any plausible full serial run. */
@@ -101,6 +107,7 @@ export default async function startJourneyBridge(config: FullConfig) {
   const admin = postgres(directDatabaseUrl, { max: 1 })
   let organisationId: string | undefined
   let approvalTenant: Awaited<ReturnType<typeof createTestTenant>> | undefined
+  let editorTenant: Awaited<ReturnType<typeof createTestTenant>> | undefined
   let stub: Awaited<ReturnType<typeof startGoogleStub>> | undefined
 
   try {
@@ -944,6 +951,15 @@ export default async function startJourneyBridge(config: FullConfig) {
       where organisation_id = ${organisationId}
     `
 
+    editorTenant = await createTestTenant(admin)
+    const editorCapabilities = await seedEditorCapabilityFixture(
+      admin,
+      stub,
+      editorTenant.organisationId,
+      editorTenant.cookie,
+      baseGoogleLocation
+    )
+
     const state: JourneyState = {
       cookie: tenant.cookie,
       organisationId,
@@ -980,6 +996,7 @@ export default async function startJourneyBridge(config: FullConfig) {
       adminCookie: adminUser.cookie,
       memberAssignedCookie: memberAssigned.cookie,
       memberUnassignedCookie: memberUnassigned.cookie,
+      editorCapabilities,
     }
     // Every seeded session, and the Google connection's access token, lasts
     // one hour from here (the integration helpers' default). The journey
@@ -988,7 +1005,11 @@ export default async function startJourneyBridge(config: FullConfig) {
     // fail on auth redirects that look like product bugs. Stretch both for
     // these two tenants only; this is the harness's own database, and
     // production session lifetimes are not touched.
-    const journeyOrganisations = [organisationId, approvalTenant.organisationId]
+    const journeyOrganisations = [
+      organisationId,
+      approvalTenant.organisationId,
+      editorTenant.organisationId,
+    ]
     await admin`
       update app_session
       set expires_at = now() + make_interval(hours => ${JOURNEY_SESSION_HOURS})
@@ -1006,6 +1027,7 @@ export default async function startJourneyBridge(config: FullConfig) {
     const organisationIds = [
       organisationId,
       approvalTenant?.organisationId,
+      editorTenant?.organisationId,
     ].filter((id): id is string => Boolean(id))
     if (organisationIds.length > 0) await destroyTenants(admin, organisationIds)
     await admin.end()
@@ -1017,6 +1039,7 @@ export default async function startJourneyBridge(config: FullConfig) {
     const organisationIds = [
       organisationId,
       approvalTenant?.organisationId,
+      editorTenant?.organisationId,
     ].filter((id): id is string => Boolean(id))
     if (organisationIds.length > 0) await destroyTenants(admin, organisationIds)
     await admin.end()

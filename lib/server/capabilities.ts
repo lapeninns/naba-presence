@@ -187,6 +187,8 @@ function buildResources(input: {
   canEditCanonical: boolean
   canPublish: boolean
   linked: boolean
+  connected: boolean
+  verified: boolean
   publishesEnabled: Record<LocationResourceKey, boolean>
   /** Billing holds the organisation read-only: every write surface reads. */
   billingReadOnly?: boolean
@@ -237,7 +239,24 @@ function buildResources(input: {
       continue
     }
 
-    resources[key] = { state: "available" }
+    if (!input.connected) {
+      resources[key] = {
+        state:
+          canEditCanonical || key === "performance" ? "readOnly" : "blocked",
+        reasonCode: "reconnect_required",
+      }
+      continue
+    }
+
+    // Verification is listing evidence, not a universal Google write gate.
+    // Exact operations still enforce their own provider eligibility. Reporting
+    // is a read surface and needs no editor warning.
+    resources[key] = {
+      state: "available",
+      ...(!input.verified && key !== "performance"
+        ? { advisoryCode: "verification_unconfirmed" as const }
+        : {}),
+    }
   }
 
   return resources
@@ -268,19 +287,33 @@ export async function locationCapabilitiesForIds(
     performance: publishesEnabled.performance,
   }
 
-  const links = await sql<{ locationId: string; connected: boolean }[]>`
+  const links = await sql<
+    { locationId: string; connected: boolean; verified: boolean }[]
+  >`
     select l.location_id::text as "locationId",
-      coalesce(a.is_active and c.status in ('active', 'expired'), false) as connected
+      coalesce(a.is_active and c.status in ('active', 'expired') and not exists (
+        select 1 from connection_task ct
+        where ct.google_connection_id = c.id
+          and ct.organisation_id = l.organisation_id
+          and ct.task_type = 'reconnect' and ct.status = 'open'
+      ), false) as connected,
+      coalesce(e.verified, false) as verified
     from location_link l
     left join external_location e on e.id = l.external_location_id
     left join google_account a on a.google_connection_id = e.google_connection_id
       and a.google_account_name = e.google_account_name
     left join google_connection c on c.id = e.google_connection_id
     where l.location_id in ${sql(unique)}
+      and l.organisation_id = ${session.organisationId}
       and l.is_active = true
   `
   const linkedIds = new Set(links.map((row) => row.locationId))
-  const connectedIds = new Set(links.filter((row) => row.connected).map((row) => row.locationId))
+  const connectedIds = new Set(
+    links.filter((row) => row.connected).map((row) => row.locationId)
+  )
+  const verifiedIds = new Set(
+    links.filter((row) => row.verified).map((row) => row.locationId)
+  )
   const canEditCanonical = isManagerialRole(session.role)
 
   const grants = await grantsFor(sql, session, unique)
@@ -300,13 +333,18 @@ export async function locationCapabilitiesForIds(
       canDecideApproval: writable && actions.canDecideApproval,
       canWrite: writable,
       resourceActions: resourceActionCapabilities({
-        connected: connectedIds.has(id), canRead: visible, canPublish,
-        managerial: canEditCanonical, writesEnabled: actionWritesEnabled,
+        connected: connectedIds.has(id),
+        canRead: visible,
+        canPublish,
+        managerial: canEditCanonical,
+        writesEnabled: actionWritesEnabled,
       }),
       resources: buildResources({
         canEditCanonical,
         canPublish,
         linked: linkedIds.has(id),
+        connected: connectedIds.has(id),
+        verified: verifiedIds.has(id),
         publishesEnabled,
         billingReadOnly: !writable,
       }),
@@ -361,6 +399,8 @@ export async function locationCapabilities(
       canEditCanonical: false,
       canPublish: false,
       linked: false,
+      connected: false,
+      verified: false,
       publishesEnabled: NO_RESOURCE_WRITES,
     }),
     ...flags,
