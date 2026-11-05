@@ -1,5 +1,10 @@
 import type { LatestVerification } from "@/lib/api/reviews"
-import { describeOutcome, type OperationOutcome } from "@/lib/editors/outcome"
+import {
+  describeOutcome,
+  NEEDS_REPLY_LABEL,
+  type OperationOutcome,
+  type PresentedState,
+} from "@/lib/editors/outcome"
 import {
   evaluateApproval,
   evaluatePublish,
@@ -74,6 +79,12 @@ export type ReplyStateInput = {
   isDirty: boolean
   pending?: ReplyPendingKind | null
   /**
+   * An approver sent the saved reply back (the detail's `lastRejection`):
+   * it is a draft again, waiting on its author, not a reply that merely
+   * cannot be sent. Absent on list rows.
+   */
+  sentBack?: boolean
+  /**
    * Who an `awaiting_approval` reply is waiting on, when the caller knows it
    * authoritatively — which today means the server put the row in a queue that
    * says so.
@@ -90,7 +101,7 @@ export type ReplyStateInput = {
 
 export type PrimaryAction = {
   kind: PrimaryActionKind
-  /** "Publish reply" / "Update reply" / "Approve reply" / "Submit for approval". */
+  /** "Publish reply" / "Update reply" / "Approve and publish" / "Submit for approval". */
   label: string
   enabled: boolean
   /** Why it is off. Always present when `enabled` is false. */
@@ -107,12 +118,12 @@ export type PrimaryAction = {
 const ACTION_LABELS: Record<PrimaryActionKind, string> = {
   publish: "Publish reply",
   update: "Update reply",
-  approve: "Approve reply",
+  approve: "Approve and publish",
   submit: "Submit for approval",
 }
 
 const PENDING_ACTION_LABELS: Partial<Record<ReplyPendingKind, string>> = {
-  publish: "Publishing…",
+  publish: "Sending…",
   submit: "Submitting…",
   approve: "Approving…",
   reject: "Sending back…",
@@ -297,7 +308,9 @@ function readyText(kind: PrimaryActionKind): string {
 }
 
 /** The one sentence for a reply Google has taken but not yet approved. */
-export const WAITING_FOR_GOOGLE_CHECK = "Sent · waiting for Google\u2019s check"
+export const WAITING_FOR_GOOGLE_CHECK = describeOutcome(
+  "awaiting_confirmation"
+).label
 
 /**
  * A confirmed publish that Google is still moderating. The reply is on its way
@@ -311,9 +324,10 @@ export function isAwaitingGoogleCheck(
 }
 
 const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
-  publish: ["Publishing reply", "Publishing"],
+  publish: [describeOutcome("sent").label, "Sending"],
   submit: ["Submitting for approval", "Submitting"],
-  approve: ["Recording your approval", "Approving"],
+  // Approving publishes in the same request, so it reads as a send.
+  approve: [describeOutcome("sent").label, "Sending"],
   reject: ["Sending the reply back", "Sending back"],
   save: ["Saving and checking the draft", "Saving draft"],
   generate: ["Generating a draft", "Generating"],
@@ -325,7 +339,7 @@ const PENDING_STATUS: Record<ReplyPendingKind, [string, string]> = {
  * The ordering is "what stops me acting, soonest first". Two rules are load
  * bearing and neither may be relaxed for a tidier ladder:
  *
- *  1. "Live on Google" is reachable ONLY from `publish_status = 'published'`
+ *  1. "On Google" is reachable ONLY from `publish_status = 'published'`
  *     (via `replyWork`'s stricter sibling below). A queued or `accepted`
  *     provider request is in flight, not confirmed, and says so.
  *  2. Nothing here infers a state from the availability of an action. Being
@@ -344,7 +358,7 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   // In-flight state outranks everything: whatever the composer holds, nobody
   // can act while a publish is on its way to Google.
   if (input.workflowStatus === "publish_requested") {
-    return status("Publishing reply", "Publishing", "neutral", "cloud")
+    return status(describeOutcome("sent").label, "Sending", "neutral", "cloud")
   }
 
   // Approval outranks unsaved edits, because the action on offer is Approve and
@@ -355,7 +369,7 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
     const scope = resolveApprovalScope(input)
     if (scope === "unknown") {
       return status(
-        "Waiting for approval",
+        describeOutcome("awaiting_approval").label,
         "Awaiting approval",
         "caution",
         "clock"
@@ -399,10 +413,29 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   }
 
   if (input.workflowStatus === "failed") {
-    return status("Publish failed", "Publish failed", "attention", "alert")
+    return {
+      ...status(
+        describeOutcome("failed").label,
+        "Failed",
+        "attention",
+        "alert"
+      ),
+      outcome: "failed",
+    }
   }
+  // `rejected` is Google refusing the reply (publishing/settle.ts). An
+  // approver's send-back returns the review to `drafted` instead
+  // (review-approval.ts), so it never reaches this branch.
   if (input.workflowStatus === "rejected") {
-    return status("Sent back for changes", "Sent back", "caution", "pen")
+    return {
+      ...status(
+        describeOutcome("rejected").label,
+        "Rejected",
+        "attention",
+        "alert"
+      ),
+      outcome: "rejected",
+    }
   }
 
   // Confirmed publication only. `accepted` means Google took the request and
@@ -416,7 +449,7 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
       // the docked bar clipped it to "Sent · waiting…" behind a longer line.
       return {
         ...status(WAITING_FOR_GOOGLE_CHECK, "Sent", "neutral", "cloud"),
-        outcome: "sent",
+        outcome: "awaiting_confirmation",
       }
     }
     return publishStatus === "published"
@@ -431,25 +464,36 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
         }
       : {
           ...status(
-            describeOutcome("sent").label,
+            describeOutcome("awaiting_confirmation").label,
             "Sent",
             "neutral",
-            "cloud",
-            "not live until Google confirms"
+            "cloud"
           ),
-          outcome: "sent",
+          outcome: "awaiting_confirmation",
         }
   }
 
   if (work.draftBody === null && work.liveBody === null) {
-    return status("No reply yet", "Needs reply")
+    return status("No reply yet", NEEDS_REPLY_LABEL)
+  }
+
+  // Unsaved edits returned earlier: once the author is editing, the line
+  // speaks about the edit instead.
+  if (input.sentBack) {
+    return status(
+      describeOutcome("changes").label,
+      describeOutcome("changes").label,
+      "caution",
+      "pen",
+      "edit the reply, then send it again"
+    )
   }
 
   const verdict = input.verification?.verdict
   if (verdict === "fail") {
     return status(
-      "Draft needs a correction",
-      "Check needed",
+      describeOutcome("blocked").title,
+      describeOutcome("blocked").label,
       "attention",
       "alert"
     )
@@ -505,6 +549,61 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
     "neutral",
     "check"
   )
+}
+
+/**
+ * Where the saved reply sits on the change track (DIRECTION §6.1), read from
+ * the same inputs and in the same order as `deriveReplyStatus`, so the track
+ * and the status line beside it cannot disagree. Unsaved typing does not move
+ * it: the track says where the saved reply is. Null while there is no reply.
+ */
+export function replyTrackState(input: ReplyStateInput): PresentedState | null {
+  const saved = { ...input, isDirty: false, pending: null }
+  if (saved.workflowStatus === "publish_requested") return "sent"
+  if (saved.workflowStatus === "awaiting_approval") return "awaiting_approval"
+  if (saved.workflowStatus === "failed") return "failed"
+  // Google refusing the reply; an approver's send-back is a draft again.
+  if (saved.workflowStatus === "rejected") return "rejected"
+  const publishStatus = saved.reply?.publishStatus ?? null
+  if (derivePrimaryAction(saved).settled) {
+    return publishStatus === "published" &&
+      !isAwaitingGoogleCheck(publishStatus, saved.reply?.googleReplyState)
+      ? "confirmed_applied"
+      : "awaiting_confirmation"
+  }
+  const work = replyWork({ reply: saved.reply, drafts: saved.drafts })
+  if (work.draftBody === null && work.liveBody === null) return null
+  // Before the verdict, as in the status line: a sent-back reply that also
+  // fails its checks reads Sent back on both.
+  if (saved.sentBack) return "changes"
+  return saved.verification?.verdict === "fail" ? "blocked" : "saved_locally"
+}
+
+/**
+ * Whether the reply that was last sent went through an approval, read from
+ * the review's history (newest first): an approval newer than the edit that
+ * wrote the sent text. An approval and its send are written together and
+ * can share a timestamp, so their order is not relied on. A send with no
+ * approval says "Not needed" on the track rather than ticking one nobody gave.
+ */
+export function replyApprovalStop(
+  timeline: readonly { action: string }[]
+): "needed" | "skipped" {
+  const sent = timeline.findIndex(
+    (event) => event.action === "review.reply.publish_requested"
+  )
+  if (sent === -1) return "needed"
+  const written = timeline.findIndex(
+    (event, index) =>
+      index > sent &&
+      (event.action === "review.draft.edited" ||
+        event.action === "review.draft.generated")
+  )
+  return timeline
+    .slice(0, written === -1 ? undefined : written)
+    .some((event) => event.action === "review.approval.approved")
+    ? "needed"
+    : "skipped"
 }
 
 // --- List rows --------------------------------------------------------------

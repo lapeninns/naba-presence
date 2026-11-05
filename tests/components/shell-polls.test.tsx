@@ -230,6 +230,8 @@ describe("the shell's polling", () => {
     expect(tally["/api/reviews/counts"]).toBeUndefined()
     expect(tally["/api/notifications"]).toBeUndefined()
     expect(tally["/api/google/connections"]).toBeUndefined()
+    // The Outbox failures badge rides on the shell's poll too.
+    expect(tally["/api/outbox/counts"]).toBeUndefined()
     expect(tally["/api/clients"]).toBe(2)
   })
 

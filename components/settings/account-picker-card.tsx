@@ -23,6 +23,9 @@ const ROLE_LABEL: Record<string, string> = {
   SITE_MANAGER: "Site manager",
 }
 
+/** Above this many accounts the picker adds a count and Select all / Clear. */
+const MANY_ACCOUNTS = 5
+
 function roleLabel(role: string | null | undefined): string | undefined {
   if (!role) return undefined
   const known = ROLE_LABEL[role]
@@ -94,6 +97,9 @@ export function AccountPickerCard({
   if (accounts.query.isPending) {
     return (
       <div className="flex flex-col gap-3" aria-busy="true">
+        <p role="status" className="sr-only">
+          Loading Google accounts…
+        </p>
         <Skeleton className="h-5 w-36" />
         <Skeleton className="h-[calc(var(--np-row-h)*2)] w-full rounded-(--np-radius-card)" />
       </div>
@@ -218,9 +224,41 @@ function AccountPickerTable({
       return next
     })
   }
+  // An agency login can reach dozens of accounts; past a handful, ticking
+  // each one is the slow path, and the count says where the selection stands
+  // without scrolling the whole list.
+  const many = rows.length > MANY_ACCOUNTS
+  const allChecked = rows.every((account) => checked.has(account.id))
 
   return (
     <>
+      {many ? (
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <p className="text-ui text-ink-muted tabular-nums" aria-live="polite">
+            {checked.size} of {rows.length} switched on
+          </p>
+          <div className="-mr-2 flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={allChecked || save.isPending}
+              onClick={() =>
+                setChecked(new Set(rows.map((account) => account.id)))
+              }
+            >
+              Select all
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={checked.size === 0 || save.isPending}
+              onClick={() => setChecked(new Set())}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <ul
         aria-label="Business Profile accounts"
         className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-card) bg-surface"
@@ -254,11 +292,12 @@ function AccountPickerTable({
         ) : null}
         <Button
           variant={saveBeforeContinueRef ? "secondary" : undefined}
-          disabled={save.isPending}
+          pending={save.isPending}
+          pendingLabel="Saving…"
           aria-describedby={save.isError ? errorId : undefined}
           onClick={() => save.mutate([...checked])}
         >
-          {save.isPending ? "Saving…" : "Save accounts"}
+          Save accounts
         </Button>
       </div>
     </>

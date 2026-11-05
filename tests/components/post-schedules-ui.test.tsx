@@ -270,6 +270,20 @@ describe("Posts tab scheduling (P08-R5)", () => {
     expect(within(sheet).getByLabelText("Times")).toBeInTheDocument()
   })
 
+  it("counts an occurrence that went out as sent, never as published", async () => {
+    schedules = [
+      schedule({ counts: { scheduled: 1, publishing: 1, published: 2 } }),
+    ]
+    renderTab([post()], { postScheduling: true })
+    const list = await screen.findByRole("region", {
+      name: "Publication schedules",
+    })
+    expect(
+      await within(list).findByText(/1 planned · 1 sending · 2 sent/)
+    ).toBeInTheDocument()
+    expect(within(list).queryByText(/published|publishing/)).toBeNull()
+  })
+
   it("shows a missed slot as missed, with a new time instead of resume or retry", async () => {
     schedules = [
       schedule({ status: "needs_review", statusReason: "paused_when_due" }),

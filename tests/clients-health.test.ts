@@ -259,6 +259,15 @@ describe("health vocabulary", () => {
     }
   })
 
+  it("keeps blue for Google's work: edits only saved here are neutral", () => {
+    expect(healthTone("unpublished")).toBe("neutral")
+    expect(healthTone("syncing")).toBe("pending")
+    expect(summariseHealth(["healthy", "unpublished"])).toEqual({
+      tone: "neutral",
+      label: "Changes to publish",
+    })
+  })
+
   it("never describes a state in provider or internal vocabulary", () => {
     for (const state of all) {
       expect(healthDescription(state)).not.toMatch(
@@ -280,6 +289,20 @@ describe("summariseHealth", () => {
       tone: "attention",
       label: "1 client needs attention",
     })
+  })
+
+  it("counts the clients still to check, never 'some' for one", () => {
+    expect(summariseHealth(["healthy", "partially_checked"])).toEqual({
+      tone: "neutral",
+      label: "1 client needs checking",
+    })
+    expect(
+      summariseHealth(["unchecked", "partially_checked", "healthy"]).label
+    ).toBe("2 clients need checking")
+    // A business has no client layer to count.
+    expect(summariseHealth(["partially_checked"], "business").label).toBe(
+      "Some listings need checking"
+    )
   })
 
   it("reports the calm states plainly", () => {

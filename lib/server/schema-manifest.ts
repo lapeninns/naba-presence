@@ -165,5 +165,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0154_review_topic_notification_kind",
   "0155_listing_google_watch",
   "0156_review_topic_restricted",
+  "0157_post_google_live_observation",
   "20260729000400_remove_local_demo_data",
 ]

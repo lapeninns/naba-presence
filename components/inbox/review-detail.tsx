@@ -32,6 +32,7 @@ import { ReviewAvatar } from "@/components/inbox/review-avatar"
 import { ActionBar } from "@/components/ui/action-bar"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { ChangeTrack } from "@/components/ui/change-track"
 import { QueryError } from "@/components/ui/query-states"
 import {
   Dialog,
@@ -82,6 +83,8 @@ import {
   derivePrimaryAction,
   deriveReplyStatus,
   isAwaitingGoogleCheck,
+  replyApprovalStop,
+  replyTrackState,
   WAITING_FOR_GOOGLE_CHECK,
   type ReplyPendingKind,
   type ReplyStateInput,
@@ -148,6 +151,7 @@ function replyStateFor(
     verification: review.latestVerification,
     isDirty,
     pending,
+    sentBack: Boolean(review.lastRejection),
     approvalScope: review.capabilities.canPublish ? "me" : "others",
   }
 }
@@ -785,7 +789,7 @@ function ReviewMedia({
                 aria-label={`Open ${label}`}
                 aria-describedby={unavailableText}
                 onClick={() => setActiveIndex(index)}
-                className="relative block w-full overflow-hidden rounded-(--np-radius-control) bg-fill focus-halo hairline transition duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] active:scale-[0.98]"
+                className="relative block w-full overflow-hidden rounded-(--np-radius-control) bg-fill focus-halo hairline transition duration-(--np-duration-fast) ease-press focus-visible:[box-shadow:var(--np-focus-halo),var(--np-shadow-hairline)] active:scale-[0.98]"
               >
                 {item.thumbnailUrl && !unavailable ? (
                   // Remote Google CDN thumbnails, not project assets — next/image
@@ -969,7 +973,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
   if (!reply?.body || reply.body === inComposer) return null
 
   const state = describeReplyState(reply.publishStatus)
-  // Google is still moderating it: say so, not "Live on Google".
+  // Google is still moderating it: say so, not "On Google".
   const checking = isAwaitingGoogleCheck(
     reply.publishStatus,
     reply.googleReplyState
@@ -985,13 +989,13 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-control) px-3 py-2 text-left text-caption focus-halo transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill focus-visible:outline-none pointer-coarse:min-h-(--np-touch)"
+          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-control) px-3 py-2 text-left text-caption focus-halo transition duration-(--np-duration-fast) ease-press hover:bg-fill focus-visible:outline-none pointer-coarse:min-h-(--np-touch)"
         >
           <ChevronRightIcon
             aria-hidden
             strokeWidth={1.75}
             className={cn(
-              "size-3.5 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) ease-spring-snappy",
+              "size-3.5 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) ease-press",
               open && "rotate-90"
             )}
           />
@@ -1177,7 +1181,7 @@ function ReplyStatusStrip({
       data-slot="reply-status-strip"
       data-pulse={pulse ? "true" : undefined}
       className={cn(
-        "flex min-h-8 min-w-0 items-center rounded-(--np-radius-control) transition-[box-shadow] duration-(--np-duration-deliberate) ease-spring motion-reduce:transition-none",
+        "flex min-h-8 min-w-0 items-center rounded-(--np-radius-control) transition-[box-shadow] duration-(--np-duration-deliberate) ease-emphasis motion-reduce:transition-none",
         pulse && "px-2 ring-2 ring-success-solid ring-inset"
       )}
     >
@@ -1220,6 +1224,31 @@ function replyVisibility(review: Review): string {
   return isLiveOnGoogle(status) && replyWork(review).hasUnpublishedChanges
     ? `${label} · your newer draft is not published yet`
     : label
+}
+
+/**
+ * Where the saved reply is on its way to Google (DIRECTION §1.1, principle
+ * 2), at the head of the reply for every role: the same ladder as the status
+ * line, so the two never disagree. Nothing while there is no reply yet.
+ */
+function ReplyTrack({ review }: { review: Review }) {
+  const state = replyTrackState(replyStateFor(review, false, null))
+  if (!state) return null
+  return (
+    <div data-slot="reply-track" className="flex min-w-0 flex-col gap-2 pb-1">
+      <p
+        aria-hidden
+        className="m-0 text-caption font-medium text-ink-secondary"
+      >
+        Where this reply is
+      </p>
+      <ChangeTrack
+        state={state}
+        approval={replyApprovalStop(review.timeline)}
+        aria-label="Where this reply is"
+      />
+    </div>
+  )
 }
 
 /**
@@ -1315,6 +1344,7 @@ function ReviewThread({
           </p>
         </div>
         <div className={THREAD_BODY_CLASS}>
+          <ReplyTrack review={review} />
           {viewOnly ? (
             // No publish bar for a viewer (nothing in it could be pressed),
             // so the status it would carry is said here instead.

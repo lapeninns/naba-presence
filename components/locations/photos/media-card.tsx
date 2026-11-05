@@ -156,7 +156,7 @@ export function MediaCard({
                 markFailed()
             }}
             onError={markFailed}
-            className="size-full object-cover transition-transform duration-(--np-duration-standard) ease-spring group-hover/tile:scale-[1.03] motion-reduce:transition-none"
+            className="size-full object-cover transition-transform duration-(--np-duration-standard) ease-emphasis group-hover/tile:scale-[1.03] motion-reduce:transition-none"
           />
         ) : unavailable ? (
           // The broken-image glyph said nothing; this says what happened.

@@ -126,7 +126,7 @@ export function presentPrivacyRequest(
 export function fulfilDescription(requestType: string): string {
   switch (requestType) {
     case "erasure":
-      return "Erases the matching reviews’ content, photos, drafts and reply text here, and withdraws our replies to them from Google. Reviews under a legal hold block it."
+      return "Erases the matching reviews’ content, photos, drafts and reply text here as soon as you confirm, and withdraws our replies to them from Google. This can’t be undone. Reviews under a legal hold block it."
     case "restriction":
       return "Marks the matching reviews as restricted from further processing."
     case "access":

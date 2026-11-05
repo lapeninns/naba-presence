@@ -19,12 +19,6 @@ vi.mock("next/link", () => ({
 }))
 
 import { Nav, navItemsFor } from "@/components/app-shell/nav"
-import type { NavClient } from "@/components/app-shell/nav"
-
-const clients: NavClient[] = [
-  { id: "c1", name: "Old Crown Group", health: "healthy" },
-  { id: "c2", name: "Harbour Kitchen", health: "disconnected" },
-]
 
 beforeEach(() => {
   pathname.current = "/inbox"
@@ -42,6 +36,17 @@ function currentLinks() {
 }
 
 describe("primary navigation", () => {
+  it("packs the rail's tiles on a short window and hovers only with a fine pointer", () => {
+    render(<Nav role="owner" />)
+    for (const label of ["Inbox", "Settings"]) {
+      const row = screen.getByRole("link", { name: label })
+      // 48px tiles below 640px tall: still above the 44px touch floor.
+      expect(row).toHaveClass("md:max-wide:short:min-h-12")
+      expect(row).toHaveClass("hover-fine:hover:bg-fill")
+      expect(row.className).not.toMatch(/(^|\s)hover:/)
+    }
+  })
+
   it("offers five destinations and a Workspace group, and no Home", () => {
     render(<Nav />)
     expect(navItemsFor("agency").map((item) => item.label)).toEqual([
@@ -83,7 +88,7 @@ describe("primary navigation", () => {
 
   it("carries the client in scope on Inbox, Listings and Reports", () => {
     pathname.current = "/team"
-    render(<Nav clients={clients} scopeClientId="c2" />)
+    render(<Nav scopeClientId="c2" />)
     for (const [label, href] of [
       ["Inbox", "/inbox?clientId=c2"],
       ["Listings", "/listings?clientId=c2"],
@@ -205,81 +210,40 @@ describe("primary navigation", () => {
     ["/team", "Team"],
   ])("marks exactly one row for %s", (path, name) => {
     pathname.current = path
-    render(<Nav role="owner" clients={clients} />)
+    render(<Nav role="owner" />)
     const active = currentLinks()
     expect(active).toHaveLength(1)
     expect(active[0]).toHaveAccessibleName(name)
   })
 
-  it("marks the pinned client, and only it, on a client page", () => {
-    // Both rows used to carry the tint and `aria-current` (DSK-09).
-    pathname.current = "/clients/c1"
-    render(<Nav clients={clients} />)
-    const active = currentLinks()
-    expect(active).toHaveLength(1)
-    expect(active[0]).toHaveAccessibleName(/Old Crown Group/)
-    // The parent says it contains the current page by colour alone.
-    const parent = screen.getByRole("link", { name: "Clients" })
-    expect(parent).not.toHaveAttribute("aria-current")
-    expect(parent).toHaveClass("text-accent-ink")
-  })
+  // Clients are no longer pinned beneath Clients (DIRECTION D8): the
+  // sidebar's "Working on" scope menu lists them with their health. So a
+  // client page marks Clients itself, in the sidebar and the rail alike.
+  it.each(["/clients/c1", "/clients/c2/settings"])(
+    "marks Clients on the client page %s",
+    (path) => {
+      pathname.current = path
+      render(<Nav />)
+      const active = currentLinks()
+      expect(active).toHaveLength(1)
+      expect(active[0]).toHaveAccessibleName("Clients")
+    }
+  )
 
-  it("marks the pinned client on a page beneath it", () => {
-    pathname.current = "/clients/c2/settings"
-    render(<Nav clients={clients} />)
-    const active = currentLinks()
-    expect(active).toHaveLength(1)
-    expect(active[0]).toHaveAccessibleName(/Harbour Kitchen/)
-  })
-
-  it("marks Clients on a client page in the rail, which draws no pinned rows", () => {
-    // Below `wide` the pinned clients are hidden, so a mark on one would
-    // leave the visible column with no current page.
-    vi.stubGlobal("matchMedia", () => ({
-      matches: false,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    }))
-    pathname.current = "/clients/c1"
-    render(<Nav clients={clients} />)
-    const active = currentLinks()
-    expect(active).toHaveLength(1)
-    expect(active[0]).toHaveAccessibleName("Clients")
-  })
-
-  it("marks Clients on a client that is not pinned", () => {
-    pathname.current = "/clients/c9"
-    render(<Nav clients={clients} />)
-    expect(currentLinks()).toHaveLength(1)
-    expect(screen.getByRole("link", { name: "Clients" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    )
-  })
-
-  it("pins recent clients with their health under Clients", () => {
-    render(<Nav clients={clients} />)
-    expect(
-      screen.getByRole("link", { name: /Old Crown Group/ })
-    ).toHaveAttribute("href", "/clients/c1")
-    expect(
-      screen.getByRole("link", { name: /Harbour Kitchen/ })
-    ).toBeInTheDocument()
-  })
-
-  it("shows no client sub-items before the list has loaded", () => {
+  it("lists no clients beneath Clients", () => {
     render(<Nav />)
+    const links = screen.getAllByRole("link")
     expect(
-      screen.queryByRole("link", { name: /Old Crown Group/ })
-    ).not.toBeInTheDocument()
+      links.filter((link) => link.getAttribute("href")?.startsWith("/clients/"))
+    ).toHaveLength(0)
   })
 
   it("reports a chosen destination through onNavigate", async () => {
     const onNavigate = vi.fn()
-    render(<Nav clients={clients} onNavigate={onNavigate} />)
+    render(<Nav onNavigate={onNavigate} />)
     screen.getByRole("link", { name: "Inbox" }).click()
     expect(onNavigate).toHaveBeenCalled()
-    screen.getByRole("link", { name: /Old Crown Group/ }).click()
+    screen.getByRole("link", { name: "Settings" }).click()
     expect(onNavigate).toHaveBeenCalledTimes(2)
   })
 
@@ -299,15 +263,6 @@ describe("primary navigation", () => {
     ).toHaveAccessibleDescription(
       "3 reviews need your attention: 2 to reply, 1 to approve"
     )
-  })
-
-  it("names each pinned client's health in words, not only a dot", () => {
-    render(<Nav clients={clients} />)
-    expect(
-      screen.getByRole("link", {
-        name: /Harbour Kitchen, Can’t reach Google/i,
-      })
-    ).toBeInTheDocument()
   })
 
   it("keeps rail labels as accessible names", () => {
@@ -335,6 +290,103 @@ describe("primary navigation", () => {
     render(<Nav role={role} />)
     expect(screen.getByRole("link", { name: "Team" })).toBeInTheDocument()
   })
+
+  // DIRECTION D4: one neutral current-place grammar. Fill, ink, semibold
+  // and a heavier icon stroke; no accent and no bar.
+  it("marks the current row with the neutral grammar, not the accent", () => {
+    pathname.current = "/listings"
+    render(<Nav role="owner" />)
+    const current = screen.getByRole("link", { name: "Listings" })
+    expect(current).toHaveAttribute("aria-current", "page")
+    expect(current).toHaveClass(
+      "aria-[current=page]:bg-fill",
+      "aria-[current=page]:font-semibold",
+      "aria-[current=page]:text-ink"
+    )
+    for (const link of screen.getAllByRole("link")) {
+      expect(link.className).not.toMatch(/accent/)
+    }
+    const icon = current.querySelector("[data-slot='nav-icon']")
+    expect(icon).toHaveAttribute("stroke-width", "2")
+    expect(icon).toHaveClass("text-ink")
+    const other = screen
+      .getByRole("link", { name: "Inbox" })
+      .querySelector("[data-slot='nav-icon']")
+    expect(other).toHaveAttribute("stroke-width", "1.75")
+    expect(other).toHaveClass("text-ink-muted")
+  })
+
+  it("adds Outbox after Reports once the route exists", () => {
+    render(<Nav role="member" showOutbox />)
+    const primary = screen.getByRole("navigation", { name: "Primary" })
+    const labels = within(primary)
+      .getAllByRole("link")
+      .map((link) => link.textContent)
+    expect(labels.slice(0, 6)).toEqual([
+      "Inbox",
+      "Listings",
+      "Clients",
+      "Calendar",
+      "Reports",
+      "Outbox",
+    ])
+    expect(screen.getByRole("link", { name: "Outbox" })).toHaveAttribute(
+      "href",
+      "/outbox"
+    )
+    // Outbox is daily work, not organisation admin.
+    expect(
+      within(screen.getByRole("list", { name: "Workspace" })).queryByRole(
+        "link",
+        { name: "Outbox" }
+      )
+    ).toBeNull()
+    expect(navItemsFor("agency", false, true).map((i) => i.label)).toContain(
+      "Outbox"
+    )
+  })
+
+  // SYSTEM §10: the Outbox row counts failures only, in danger ink with a
+  // warning glyph, never the ink chrome badge the Inbox uses.
+  it("marks Outbox failures in danger ink, described, not renamed", () => {
+    const { container } = render(
+      <Nav role="member" showOutbox outboxFailures={3} />
+    )
+    const outbox = screen.getByRole("link", { name: "Outbox" })
+    expect(outbox).toHaveAccessibleDescription("3 failed")
+    const figures = container.querySelector("[data-slot='nav-alert']")
+    expect(figures).toHaveTextContent("3")
+    expect(figures).toHaveClass("text-danger-ink")
+    expect(figures?.querySelector("svg")).not.toBeNull()
+    expect(container.querySelector("[data-slot='rail-alert']")).toHaveClass(
+      "text-danger-ink"
+    )
+    // The rail draws the glyph, not the ink count pill.
+    expect(outbox.querySelector("[data-slot='rail-count']")).toBeNull()
+  })
+
+  it("draws nothing on Outbox with no failures", () => {
+    const { container } = render(
+      <Nav role="member" showOutbox outboxFailures={0} />
+    )
+    expect(
+      screen.getByRole("link", { name: "Outbox" })
+    ).not.toHaveAccessibleDescription()
+    expect(container.querySelector("[data-slot='nav-alert']")).toBeNull()
+  })
+
+  it("leaves Outbox out until the route exists", () => {
+    render(<Nav role="owner" />)
+    expect(screen.queryByRole("link", { name: "Outbox" })).toBeNull()
+  })
+
+  it.each([["viewer"], [null]])(
+    "leaves Outbox out for role %s, who cannot send",
+    (role) => {
+      render(<Nav role={role} showOutbox />)
+      expect(screen.queryByRole("link", { name: "Outbox" })).toBeNull()
+    }
+  )
 })
 
 describe("command palette entries", () => {

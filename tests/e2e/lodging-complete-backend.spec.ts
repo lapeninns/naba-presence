@@ -6,6 +6,7 @@ import {
   lodgingSheet,
 } from "./helpers/lodging-capture"
 import { startLodgingBackend } from "./helpers/lodging-backend"
+import { openProfileSectionOnPhone } from "./helpers/profile-section"
 import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startLodgingBackend>>
@@ -151,7 +152,7 @@ test.describe(`Complete lodging journeys at ${JOURNEY_WIDTH}px`, () => {
       exact: true,
     })
     await expect(
-      footer.getByText("1 change not on Google", { exact: true })
+      footer.getByText("1 unsaved change", { exact: true })
     ).toBeVisible()
     // Save here can't take a lodging draft: it is left out of the bar (and the
     // phone's overflow menu) rather than greyed, and the bar's note says why.
@@ -415,6 +416,7 @@ for (const width of LAYOUT_WIDTHS)
       test.slow() // the same 19-group walk
       const fixture = await backend.lodgingFixture(page)
       await fixture.open()
+      await openProfileSectionOnPhone(page, "Lodging")
       await search(page, "Parking available")
       await capture(page, info, "unknown")
       await walkPinnedGroups(page, width)
@@ -425,6 +427,7 @@ for (const width of LAYOUT_WIDTHS)
     }, info) => {
       const fixture = await backend.lodgingFixture(page)
       await fixture.open()
+      await openProfileSectionOnPhone(page, "Lodging")
       await search(page, "Pets allowed")
       await editor(page)
         .getByRole("radiogroup", { name: "Pets allowed", exact: true })

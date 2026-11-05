@@ -225,7 +225,7 @@ export function ClientAccessForm({
           : result.noAccess
             ? `${member.displayName} can’t see any client until you give them access.`
             : undefined,
-        type: "success",
+        type: "info",
       })
       onDone()
     },

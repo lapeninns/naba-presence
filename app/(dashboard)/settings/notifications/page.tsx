@@ -2,7 +2,6 @@ import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { NotificationPreferences } from "@/components/settings/notification-preferences"
-import { SettingsNav } from "@/components/settings/settings-nav"
 import { notificationSettingsPrefetch, prefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
@@ -18,11 +17,14 @@ export default async function SettingsNotificationsPage() {
       <PageHeader
         title="Notifications"
         description="Choose what you hear about in the app and by email."
-        tabs={<SettingsNav role={session?.role ?? null} />}
       />
-      <HydrationBoundary state={state}>
-        <NotificationPreferences role={session?.role ?? null} />
-      </HydrationBoundary>
+      {/* The groups' own top margin (first:mt-0) spaces them apart; as
+          siblings of the header they would add it to the pane's gap too. */}
+      <div className="flex flex-col">
+        <HydrationBoundary state={state}>
+          <NotificationPreferences role={session?.role ?? null} />
+        </HydrationBoundary>
+      </div>
     </>
   )
 }

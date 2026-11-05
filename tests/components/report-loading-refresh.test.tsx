@@ -93,6 +93,18 @@ describe("ReportsSkeleton tab shapes", () => {
     expect(strip?.children).toHaveLength(4)
   })
 
+  it("draws the desk's filter row as the page has it, and no scope row on a phone", () => {
+    const { container } = render(<ReportsSkeleton label="Loading reports…" />)
+    const row = container.querySelector("[data-skeleton=filter-row]")
+    // The period's track and the scope's words; no labelled Client field.
+    expect(row).toHaveClass("hidden", "md:flex")
+    expect(row?.children).toHaveLength(2)
+    // The only phone-only shape is the period chips: no scope pill.
+    expect(
+      container.querySelectorAll(".md\\:hidden:not([data-skeleton])")
+    ).toHaveLength(0)
+  })
+
   it("draws the keywords' record cards and no tiles", () => {
     const { container } = render(
       <ReportsSkeleton variant="keywords" label="Loading keywords…" />

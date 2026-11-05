@@ -40,7 +40,7 @@ afterEach(() => {
 })
 
 describe("Toast look", () => {
-  it("is a charcoal 12px-radius toast at least 52px tall, in body text", () => {
+  it("is a charcoal toast on the toast radius, at least 52px tall, in body text", () => {
     const manager = setup()
     act(() => {
       showToast({ title: "Review marked done" }, manager)
@@ -49,7 +49,9 @@ describe("Toast look", () => {
     expect(root.className).toContain("rounded-toast")
     expect(root.className).toContain("bg-charcoal")
     expect(root.className).toContain("text-ink-on-charcoal")
-    expect(root.className).toContain("shadow-np-float")
+    // SYSTEM §7.3: pop is the toast's shadow; float is for menus.
+    expect(root.className).toContain("shadow-np-pop")
+    expect(root.className).not.toContain("shadow-np-float")
     expect(root).toHaveClass(
       "focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]",
       "forced-colors:focus-ring-inset"
@@ -61,6 +63,35 @@ describe("Toast look", () => {
     expect(screen.getByText("Review marked done").className).toContain(
       "text-body"
     )
+  })
+
+  it("draws a local result neutral by default; green only when asked for", () => {
+    const manager = setup()
+    act(() => {
+      showToast({ id: "tone", title: "Client updated" }, manager)
+    })
+    const icon = () =>
+      toastEl()!.querySelector('[data-slot="toast-icon"] svg') as Element
+    expect(toastEl()).toHaveAttribute("data-type", "neutral")
+    expect(icon().getAttribute("class")).toContain("text-ink-muted-on-charcoal")
+    expect(toastEl()!.querySelector(".text-success-solid")).toBeNull()
+
+    const tones = {
+      success: "text-success-solid",
+      info: "text-info-solid",
+      warning: "text-warning-solid",
+      error: "text-danger-solid",
+    } as const
+    for (const [type, colour] of Object.entries(tones)) {
+      act(() => {
+        showToast(
+          { id: "tone", title: type, type: type as keyof typeof tones },
+          manager
+        )
+      })
+      expect(toastEl()).toHaveAttribute("data-type", type)
+      expect(icon().getAttribute("class")).toContain(colour)
+    }
   })
 
   it("docks above the owning bar, inset by the page gutter on a phone", () => {
@@ -239,14 +270,15 @@ describe("Phases", () => {
     expect(isClosed(root)).toBe(false)
 
     act(() => {
-      publishing.success("Reply published", {
+      publishing.success("Confirmed on Google", {
+        type: "success",
         link: { href: "https://business.google.com/r/1" },
       })
     })
     expect(document.querySelectorAll('[data-slot="toast"]')).toHaveLength(1)
     expect(toastEl()).toBe(root)
     expect(root).toHaveAttribute("data-phase", "result")
-    expect(screen.getByText("Reply published")).toBeInTheDocument()
+    expect(screen.getByText("Confirmed on Google")).toBeInTheDocument()
     expect(screen.queryByText("Publishing reply…")).not.toBeInTheDocument()
     expect(root.querySelector(".text-success-solid")).not.toBeNull()
     expect(

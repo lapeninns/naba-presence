@@ -116,7 +116,7 @@ function AuthAside({ variant }: { variant: AsideVariant }) {
   return (
     <aside
       aria-label={aside.label}
-      className="hidden flex-col justify-between gap-8 bg-charcoal p-12 text-ink-on-charcoal lg:flex xl:p-16"
+      className="hidden min-w-0 flex-1 flex-col justify-between gap-8 bg-charcoal p-12 text-ink-on-charcoal lg:flex xl:p-16"
     >
       <Link
         href="/sign-in"
@@ -225,7 +225,7 @@ function AuthCard({
       <main
         id="main"
         tabIndex={-1}
-        className="flex min-w-0 flex-col bg-surface pt-safe px-safe pb-dock outline-none"
+        className="flex min-w-0 flex-1 flex-col bg-surface pt-safe px-safe pb-dock outline-none lg:w-130 lg:flex-none"
       >
         <div className="mx-auto flex w-full max-w-100 flex-1 flex-col gap-6 px-4 pt-6 pb-10 sm:gap-8 sm:px-0 sm:pt-12 sm:pb-12 lg:justify-center lg:py-16">
           <Link
@@ -242,7 +242,7 @@ function AuthCard({
             {mark ? (
               <span
                 aria-hidden
-                className="mb-1 grid size-11 place-items-center rounded-lg bg-accent-tint text-accent-ink [&_svg]:size-5"
+                className="mb-1 grid size-11 place-items-center rounded-lg bg-fill text-ink [&_svg]:size-5"
               >
                 {mark}
               </span>
@@ -291,7 +291,7 @@ function AuthCard({
               href="/privacy"
               className={cn(
                 TOUCH_LINK_CLASS,
-                "rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none"
+                "rounded-sm underline-offset-4 focus-halo focus-visible:outline-none hover-fine:hover:underline"
               )}
             >
               Privacy policy
@@ -300,7 +300,7 @@ function AuthCard({
               href="/terms"
               className={cn(
                 TOUCH_LINK_CLASS,
-                "rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none"
+                "rounded-sm underline-offset-4 focus-halo focus-visible:outline-none hover-fine:hover:underline"
               )}
             >
               Terms of service

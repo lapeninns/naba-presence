@@ -220,7 +220,7 @@ function SearchInput({
           aria-label="Clear search"
           data-slot="input-search-clear"
           onClick={clear}
-          className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,scale] duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-2 after:content-[''] hover:text-ink active:scale-[0.98] motion-reduce:active:scale-100 desk:after:-inset-1"
+          className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,scale] duration-(--np-duration-fast) ease-press after:absolute after:-inset-2 after:content-[''] hover:text-ink active:scale-[0.98] motion-reduce:active:scale-100 desk:after:-inset-1"
         >
           <XCircleIcon className="size-4" strokeWidth={1.75} aria-hidden />
         </button>

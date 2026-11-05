@@ -109,9 +109,25 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       await expect(
         page.getByRole("status").filter({ hasText: "2 open and unread" })
       ).toBeVisible()
-      await expect(
-        page.getByRole("link", { name: "Notifications, 2 unread" })
-      ).toBeVisible()
+      if (width === 375) {
+        await page.getByRole("button", { name: "More", exact: true }).click()
+        const more = page.getByRole("dialog", { name: "More" })
+        await expect(
+          more.getByRole("link", {
+            name: "Notifications, 2 unread",
+            exact: true,
+          })
+        ).toBeVisible()
+        await page.keyboard.press("Escape")
+        await expect(more).toBeHidden()
+      } else {
+        await expect(
+          page.getByRole("link", {
+            name: "Notifications, 2 unread",
+            exact: true,
+          })
+        ).toBeVisible()
+      }
       await capture(page, info, "notifications-unread")
       await page
         .getByRole("button", { name: "Mark read: Publishing failed" })
@@ -167,9 +183,13 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         0
       )
       await capture(page, info, "notification-preferences")
-      const [saved] =
-        await backend.admin`select mode from notification_preference where organisation_id = ${f.owner.organisationId} and event_kind = 'schedule_missed' and channel = 'in_app'`
-      expect(saved.mode).toBe("off")
+      await expect
+        .poll(async () => {
+          const [saved] =
+            await backend.admin`select mode from notification_preference where organisation_id = ${f.owner.organisationId} and event_kind = 'schedule_missed' and channel = 'in_app'`
+          return saved?.mode
+        })
+        .toBe("off")
     })
 
     test("shows operational health with guarded recovery only", async ({
@@ -283,6 +303,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
     test("schedules a post across a clock change, approves it and shows it in the calendar", async ({
       page,
     }, info) => {
+      test.slow() // After the autumn change, the next occurrence is nearly a year away.
       const f = await backend.fixture(page, 1)
       // Scheduling, and repeating schedules on top, are organisation
       // features that ship off (P08-R1).
@@ -593,7 +614,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         .getByRole("button", { name: "Preview this change", exact: true })
         .click()
       await expect(
-        page.getByText("Waiting for approval.", { exact: false })
+        page.getByRole("status").filter({ hasText: /^Awaiting approval\./ })
       ).toBeVisible()
       await expect(page.getByText(/^Approve by /)).toBeVisible()
       expect(
@@ -606,13 +627,18 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       await page
         .getByRole("button", { name: "Start bulk change", exact: true })
         .click()
-      await expect(page.getByText(/Running\./)).toBeVisible()
+      await expect(
+        page.getByText(/Sending to Google\. This page updates/)
+      ).toBeVisible()
       await backend.tick()
       await page.reload()
       await expect(
-        page.getByText("Every eligible listing is confirmed.", { exact: false })
+        page.getByRole("status").filter({
+          hasText:
+            "Every eligible listing was sent. Each one below says whether Google confirmed it.",
+        })
       ).toBeVisible()
-      await expect(page.getByText("Confirmed", { exact: true })).toHaveCount(2)
+      await expect(page.getByText("On Google", { exact: true })).toHaveCount(2)
       await capture(page, info, "bulk-confirmed")
       // One real write per listing; bulk hours publish through the hours
       // editor's path, which validates first (`validateOnly=true`).
@@ -651,7 +677,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         await date.focus()
         await tabToAndPress(page, "Preview these 2 changes")
         await expect(
-          page.getByText("Waiting for approval.", { exact: false })
+          page.getByRole("status").filter({ hasText: /^Awaiting approval\./ })
         ).toBeVisible()
         await expect(page.getByText(/^\d+:\d\d left$/)).toBeVisible()
         await capture(page, info, "bulk-preview-countdown")
@@ -668,7 +694,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         await tabToAndPress(page, "New preview for 2 listings not sent")
         await expect(page).not.toHaveURL(expiredUrl)
         await expect(
-          page.getByText("Waiting for approval.", { exact: false })
+          page.getByRole("status").filter({ hasText: /^Awaiting approval\./ })
         ).toBeVisible()
         await page.locator("body").focus()
         await tabToAndPress(page, "Approve this exact change")
@@ -677,7 +703,9 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         ).toBeVisible()
         await page.locator("body").focus()
         await tabToAndPress(page, "Start bulk change")
-        await expect(page.getByText(/Running\./)).toBeVisible()
+        await expect(
+          page.getByText(/Sending to Google\. This page updates/)
+        ).toBeVisible()
         // Each listing's two changes run in order, one at a time per listing.
         for (let tick = 0; tick < 4; tick += 1) {
           await backend.tick()
@@ -689,11 +717,12 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         }
         await page.reload()
         await expect(
-          page.getByText("Every eligible listing is confirmed.", {
-            exact: false,
+          page.getByRole("status").filter({
+            hasText:
+              "Every eligible listing was sent. Each one below says whether Google confirmed it.",
           })
         ).toBeVisible()
-        await expect(page.getByText("Confirmed", { exact: true })).toHaveCount(
+        await expect(page.getByText("On Google", { exact: true })).toHaveCount(
           4
         )
         await page.locator("body").focus()
@@ -701,7 +730,7 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
         await expect(
           page.getByText(/^Receipt [0-9a-f-]{36}$/).first()
         ).toBeVisible()
-        await expect(page.getByText("Live on Google").first()).toBeVisible()
+        await expect(page.getByText("On Google").first()).toBeVisible()
         await capture(page, info, "bulk-receipt")
       })
 

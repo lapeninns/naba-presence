@@ -433,6 +433,20 @@ describe("invitations", () => {
     expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument()
   })
 
+  it("returns focus to Invite someone when the sheet is closed with Escape", async () => {
+    stubPatch()
+    renderSection(<CreateAdminDialog />)
+    const opener = screen.getByRole("button", { name: "Invite someone" })
+    opener.focus()
+    await userEvent.keyboard("{Enter}")
+    expect(await screen.findByLabelText("Email address")).toBeInTheDocument()
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(opener).toHaveFocus())
+  })
+
   it("labels the role and scope pickers by their visible labels and gives the email field identifier keyboard hints", async () => {
     stubPatch()
     renderSection(<CreateAdminDialog />)

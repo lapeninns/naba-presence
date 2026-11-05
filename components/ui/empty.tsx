@@ -30,9 +30,9 @@ import { cn } from "@/lib/utils"
  *
  * Drawing (taste pilot P4, "a sentence in a frame, not a hero"): the glyph
  * drawn bare at 20px with a 1.75 stroke in the tone's ink (no tinted square
- * behind it), about 10px above the title, or, in its place, an
- * `illustration` (a 112px line drawing in the ink at a 1.5 stroke,
- * `EmptyIllustration`); a title in `text-title` 600 ink; one `text-ui`
+ * behind it), about 10px above the title. There is no illustration slot:
+ * an empty state is a sentence, not a picture. A title in `text-title` 600
+ * ink; one `text-ui`
  * muted sentence (at most about 44 characters wide) that says why it is
  * empty and what happens next; actions 16px below; centred. The vertical
  * padding is modest so the block reads as a sentence inside its frame.
@@ -87,7 +87,6 @@ function Empty({
   tone,
   framed = false,
   size = "default",
-  illustration,
   placement = "inline",
   titleAs: Title = "p",
   actions,
@@ -120,12 +119,6 @@ function Empty({
   size?: "default" | "sm"
   /** `h1` only when this state is the whole page (see above). */
   titleAs?: "p" | "h1" | "h2" | "h3" | "h4"
-  /**
-   * A line drawing in place of the glyph mark (`<EmptyIllustration
-   * name="inbox-zero" />`, or any SVG drawn with `currentColor`). Decorative:
-   * hidden from assistive tech, the title carries the meaning.
-   */
-  illustration?: React.ReactNode
   /** `page`: the state fills the page, centred at about 35% of the height. */
   placement?: "inline" | "page"
 }) {
@@ -134,15 +127,7 @@ function Empty({
   const glyph = icon === undefined ? defaults.icon : icon
   const message = (
     <>
-      {illustration ? (
-        <span
-          aria-hidden
-          data-slot="empty-illustration"
-          className="mb-2 grid size-28 place-items-center text-ink [&_svg]:size-full"
-        >
-          {illustration}
-        </span>
-      ) : glyph ? (
+      {glyph ? (
         <span
           aria-hidden
           data-slot="empty-icon"
@@ -226,72 +211,4 @@ function Empty({
   )
 }
 
-export type EmptyIllustrationName = "inbox-zero" | "search"
-
-/**
- * The line drawings an empty state can carry. Strokes only, in
- * `currentColor` (the ink), 1.5 wide at any drawn size; no fills, no
- * literal colours, so they follow the theme.
- */
-function EmptyIllustration({
-  name,
-  className,
-  ...props
-}: Omit<React.ComponentProps<"svg">, "children"> & {
-  name: EmptyIllustrationName
-}) {
-  return (
-    <svg
-      data-slot="empty-illustration-svg"
-      data-name={name}
-      viewBox="0 0 112 112"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      focusable="false"
-      className={cn("size-28", className)}
-      {...props}
-    >
-      {name === "inbox-zero" ? <InboxZeroDrawing /> : <SearchDrawing />}
-    </svg>
-  )
-}
-
-/** An open tray with a tick resting in it and two small sparks: all clear. */
-function InboxZeroDrawing() {
-  return (
-    <g>
-      <path
-        vectorEffect="non-scaling-stroke"
-        d="M22 62 L32 36 H80 L90 62 V82 A6 6 0 0 1 84 88 H28 A6 6 0 0 1 22 82 Z"
-      />
-      <path
-        vectorEffect="non-scaling-stroke"
-        d="M22 62 H42 A14 8 0 0 0 70 62 H90"
-      />
-      <path vectorEffect="non-scaling-stroke" d="M46 50 L53 57 L67 43" />
-      <path vectorEffect="non-scaling-stroke" d="M86 18 V26 M82 22 H90" />
-      <path vectorEffect="non-scaling-stroke" d="M24 20 V26 M21 23 H27" />
-      <path vectorEffect="non-scaling-stroke" d="M96 38 V42 M94 40 H98" />
-    </g>
-  )
-}
-
-/** A magnifier over three faint result lines: nothing matched. */
-function SearchDrawing() {
-  return (
-    <g>
-      <path vectorEffect="non-scaling-stroke" d="M18 30 H62" />
-      <path vectorEffect="non-scaling-stroke" d="M18 44 H48" />
-      <path vectorEffect="non-scaling-stroke" d="M18 58 H40" />
-      <circle vectorEffect="non-scaling-stroke" cx="66" cy="62" r="20" />
-      <path vectorEffect="non-scaling-stroke" d="M80 76 L94 90" />
-      <path vectorEffect="non-scaling-stroke" d="M59 62 H73" />
-    </g>
-  )
-}
-
-export { Empty, EmptyIllustration }
+export { Empty }

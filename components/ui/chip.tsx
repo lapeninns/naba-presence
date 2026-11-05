@@ -93,7 +93,7 @@ function RemovableChip({
         aria-label={removeLabel}
         // 28px drawn on touch with a 44px target (`-inset-2`); 20px with a
         // 32px target on a desk.
-        className="relative inline-grid size-7 place-items-center rounded-(--np-radius-pill) text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-2 after:content-[''] focus-visible:outline-none hover-fine:hover:bg-fill hover-fine:hover:text-ink desk:size-5 desk:after:-inset-1.5"
+        className="relative inline-grid size-7 place-items-center rounded-(--np-radius-pill) text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-press after:absolute after:-inset-2 after:content-[''] focus-visible:outline-none hover-fine:hover:bg-fill hover-fine:hover:text-ink desk:size-5 desk:after:-inset-1.5"
       >
         <X className="size-3.5" strokeWidth={1.75} aria-hidden />
       </button>
@@ -264,7 +264,7 @@ function filterChipClassName({
   className,
 }: { active?: boolean; className?: string } = {}) {
   return cn(
-    "group/chip relative inline-flex h-(--np-chip-h) shrink-0 items-center gap-1 rounded-(--np-radius-pill) bg-fill-secondary px-3 text-ui whitespace-nowrap text-ink no-underline focus-halo transition-[background-color,color,scale] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none motion-safe:active:scale-[0.97]",
+    "group/chip relative inline-flex h-(--np-chip-h) shrink-0 items-center gap-1 rounded-(--np-radius-pill) bg-fill-secondary px-3 text-ui whitespace-nowrap text-ink no-underline focus-halo transition-[background-color,color,scale] duration-(--np-duration-fast) ease-press select-none focus-visible:outline-none motion-safe:active:scale-[0.97]",
     // 28px drawn, 44px pressable on touch.
     "after:absolute after:inset-x-0 after:inset-y-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
     "hover-fine:hover:bg-fill",

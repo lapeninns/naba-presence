@@ -117,8 +117,9 @@ function NewClientForm({ listingId }: { listingId?: string }) {
         ...(colour ? { colour } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
       })
+      // Neutral, not the success green: green is kept for what is
+      // confirmed on Google, and creating a client only changes NabaPresence.
       toast.add({
-        type: "success",
         title: `${result.client.name} created`,
         description: returnPath
           ? "Return to the listing and choose this client to file it."
@@ -161,7 +162,8 @@ function NewClientForm({ listingId }: { listingId?: string }) {
                   if (nameError && event.target.value.trim()) setNameError(null)
                   if (nameTaken) create.reset()
                 }}
-                placeholder="Old Crown Group"
+                // No sample name: a placeholder in an empty required field
+                // reads as a value beside "Give the client a name."
                 required
                 maxLength={120}
                 // The business's name for the team, not the person's own
@@ -276,7 +278,7 @@ function NewClientForm({ listingId }: { listingId?: string }) {
                     className={cn(
                       "grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] text-caption font-semibold tabular-nums",
                       index === 0
-                        ? "border-primary bg-accent-tint text-accent-ink"
+                        ? "border-primary bg-primary text-primary-foreground"
                         : "border-line-strong text-ink-muted"
                     )}
                   >

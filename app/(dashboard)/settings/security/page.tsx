@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
-import { SettingsNav } from "@/components/settings/settings-nav"
 import { TwoStepVerificationCard } from "@/components/settings/two-step-verification-card"
 import { isMfaEnabled } from "@/lib/server/mfa"
 import { isManagerialRole } from "@/lib/server/permissions"
@@ -18,7 +17,6 @@ export default async function SettingsSecurityPage() {
       <PageHeader
         title="Sign-in security"
         description="Protect your sign-in with a code from an authenticator app, so a stolen password alone cannot open your account."
-        tabs={<SettingsNav role={session.role} />}
       />
       <TwoStepVerificationCard
         factorCount={session.mfaFactorCount ?? 0}

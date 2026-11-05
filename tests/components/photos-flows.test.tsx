@@ -221,14 +221,27 @@ describe("browsing the library (p4-F01)", () => {
     expect(screen.getByText("1 of 12 loaded · 15 in all")).toBeInTheDocument()
   })
 
+  it("steps with the arrow keys and returns focus to the photo last shown", async () => {
+    const user = userEvent.setup()
+    loaded(makeMedia())
+    const { container } = renderTab()
+    const tile = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-media-id="${id}"] > button`)!
+    await user.click(tile("m0"))
+    expect(await screen.findByText("1 of 3")).toBeInTheDocument()
+    await user.keyboard("{ArrowRight}")
+    expect(await screen.findByText("2 of 3")).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(tile("m1")))
+  })
+
   it("names the empty library’s next step only to someone who can add", () => {
     loaded(makeMedia({ items: [], total: 0 }), { canPublish: false })
     renderTab()
     expect(screen.getByText("No photos yet")).toBeInTheDocument()
     expect(
-      screen.getByText(
-        "Google has no photos for this listing yet. Refresh from Google if someone added them on Google directly."
-      )
+      screen.getByText("Google has no photos for this listing.")
     ).toBeInTheDocument()
     expect(screen.queryByText(/Use Add photos/)).toBeNull()
     expect(screen.queryByText(/above/)).toBeNull()
@@ -323,7 +336,8 @@ describe("adding photos (p4-F02)", () => {
     await openAddWith(user, [jpeg("bar.jpg")])
     await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
 
-    expect(await screen.findByText("Not confirmed")).toBeInTheDocument()
+    const unsure = await screen.findByText("Not confirmed: check Google")
+    expect(unsure.closest("[data-tone]")).toHaveAttribute("data-tone", "warn")
     // It may be on Google: the library is re-read so the page can say so.
     await waitFor(() => expect(fetchMediaMock).toHaveBeenCalled())
     expect(
@@ -346,7 +360,30 @@ describe("adding photos (p4-F02)", () => {
     expect((retryForm as FormData).get("category")).toBe(
       firstForm.get("category")
     )
-    expect(await screen.findByText("Live on Google")).toBeInTheDocument()
+    expect(await screen.findByText("On Google")).toBeInTheDocument()
+  })
+
+  it("draws an upload as Sending…, then as sent and waiting, amber when unsure", async () => {
+    const user = userEvent.setup()
+    fetchMediaMock.mockResolvedValue(makeMedia())
+    let answer: (value: unknown) => void = () => {}
+    uploadMediaFileMock.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve))
+    )
+    loaded(makeMedia())
+    renderTab()
+    await openAddWith(user, [jpeg("bar.jpg")])
+    await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(await within(dialog).findByText("Sending…")).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(/^Sending to Google \d+%$/)
+    ).toBeInTheDocument()
+    answer({ id: "a1", status: "pending", idempotent: false })
+    expect(
+      await within(dialog).findByText("Sent, waiting for Google")
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText(/Uploading/)).toBeNull()
   })
 
   it("retries a definite failure as a new upload", async () => {
@@ -364,7 +401,7 @@ describe("adding photos (p4-F02)", () => {
     renderTab()
     await openAddWith(user, [jpeg("bar.jpg")])
     await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
-    expect(await screen.findByText("Failed")).toBeInTheDocument()
+    expect(await screen.findByText("Failed: retry")).toBeInTheDocument()
     // Nothing may have landed, so nothing is re-read.
     expect(fetchMediaMock).not.toHaveBeenCalled()
 
@@ -387,7 +424,9 @@ describe("adding photos (p4-F02)", () => {
     renderTab()
     await openAddWith(user, [jpeg("bar.jpg")])
     await user.click(screen.getByRole("button", { name: "Upload 1 photo" }))
-    expect(await screen.findByText("Not confirmed")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Not confirmed: check Google")
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Try again to upload bar.jpg" })
     ).toBeNull()

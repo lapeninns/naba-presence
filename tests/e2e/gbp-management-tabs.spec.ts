@@ -4,6 +4,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { draftFromLocation } from "@/lib/locations/business-information-draft"
 import { draftKey } from "@/lib/editors/draft-key"
 import { mediaQuery } from "@/lib/ui/breakpoints"
+import { openProfileSectionOnPhone } from "./helpers/profile-section"
 
 // The sessionStorage key an editor's stash lives under: drafts are keyed by
 // the signed-in person and organisation (lib/editors/draft-key.ts), here the
@@ -482,6 +483,7 @@ for (const width of [375, 768, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Address")
     const details = page.locator("#profile-address-details")
     await details
       .getByText("Additional address details", { exact: true })
@@ -682,6 +684,7 @@ for (const width of [375, 768, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Google Ads phone")
     const section = page.locator("#section-advertising")
     const phone = section.getByLabel("Google Ads phone number", { exact: true })
     await expect(phone).toHaveValue("+44 20 7946 0123")
@@ -867,6 +870,7 @@ for (const width of [375, 768, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Chain affiliation")
     const section = page.locator("#section-chain")
     const search = section.getByLabel("Search Google chains", { exact: true })
     await search.fill("missing")
@@ -1097,6 +1101,7 @@ for (const width of [375, 768, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Related businesses")
     const section = page.locator("#section-related-businesses")
     const parent = section.getByRole("group", {
       name: "Parent business",
@@ -1596,6 +1601,7 @@ for (const width of [375, 768, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Service area")
     const section = page.locator("#section-service-area")
     await expect(
       section.getByText("ChIJ_existing", { exact: true })
@@ -1781,6 +1787,7 @@ for (const width of [375, 768, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Address")
     const address = page.locator("#section-address")
     await address
       .getByLabel("District or neighbourhood (optional)")
@@ -1902,6 +1909,7 @@ for (const width of [375, 768, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Additional phones")
     const section = page.locator("#section-additional-phones")
     await expect(
       section.getByRole("button", { name: "Add number" })
@@ -2144,6 +2152,7 @@ for (const width of [375, 768, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Services")
     const services = page.getByRole("region", { name: "Services", exact: true })
     await expect(
       services.getByRole("heading", { name: "Repair fittings" })
@@ -2555,6 +2564,7 @@ for (const width of [375, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Opening state")
     const opening = page.locator("#section-opening")
     await opening.getByLabel("Year", { exact: true }).fill("2001")
     await opening.getByLabel("Month", { exact: true }).fill("2")
@@ -2602,7 +2612,7 @@ for (const width of [375, 1280])
       .getByRole("button", { name: "Publish to Google", exact: true })
       .click()
     await expect(
-      review.getByText("Not confirmed", { exact: true })
+      review.getByText("Not confirmed: check Google", { exact: true })
     ).toBeVisible()
     await expect(
       review.getByRole("button", { name: "Try again" })
@@ -2973,6 +2983,7 @@ for (const width of [375, 1280])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Attributes")
     await expect(
       page.getByText("Google no longer accepts changes to this attribute.")
     ).toBeVisible()
@@ -3084,9 +3095,11 @@ for (const canApprove of [false, true])
       }
     )
     await page.goto("/listings/location-management/profile")
+    await openProfileSectionOnPhone(page, "Identity")
     await page
       .getByRole("textbox", { name: "Business name" })
       .fill("Unpublished local name")
+    await openProfileSectionOnPhone(page, "Saved attribute reviews")
     await page
       .getByRole("button", { name: "Review 1 saved attribute", exact: true })
       .click()
@@ -3113,6 +3126,7 @@ for (const canApprove of [false, true])
       expect(methods).toEqual([])
       await review.getByRole("button", { name: "Keep editing" }).click()
     }
+    await openProfileSectionOnPhone(page, "Identity")
     await expect(
       page.getByRole("textbox", { name: "Business name" })
     ).toHaveValue("Unpublished local name")
@@ -3199,6 +3213,7 @@ test("Repeated enum answers preserve siblings in the saved review", async ({
     }
   )
   await page.goto("/listings/location-management/profile")
+  await openProfileSectionOnPhone(page, "Attributes")
   // Each option is a Yes / No / Not set radio group (TriState).
   const answer = (option: string, value: string) =>
     page
@@ -3305,6 +3320,7 @@ test("Multiple URL attributes remove one value and review all remaining URLs", a
     }
   )
   await page.goto("/listings/location-management/profile")
+  await openProfileSectionOnPhone(page, "Attributes")
   await page.getByRole("button", { name: "Remove Menu links URL 2" }).click()
   await expect(
     page.getByRole("textbox", { name: "Menu links URL 1", exact: true })

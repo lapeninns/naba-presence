@@ -14,7 +14,7 @@ import { AuthCard } from "@/components/auth/auth-card"
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
 import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button, DisabledReason, buttonVariants } from "@/components/ui/button"
 import {
   Field,
   FieldDescription,
@@ -195,6 +195,15 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
     else focusFirstCodeBox(codeRef.current)
   }, [expired])
 
+  // Until the apps load there is nothing to check a code against, so the
+  // submit waits, and says what it is waiting for.
+  const loadReason =
+    factors !== null
+      ? undefined
+      : message
+        ? "Choose Try again first."
+        : "Getting your sign-in ready…"
+
   function startOver() {
     startLeaving(async () => {
       await mfaApi.cancelMfa().catch(() => {})
@@ -247,7 +256,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
           <div
             ref={alertRef}
             tabIndex={-1}
-            className="flex flex-col gap-3 outline-none"
+            className="flex flex-col gap-3 rounded-(--np-radius-card) focus-halo outline-none"
           >
             <AuthErrorAlert message={message} />
             {/* Only a failed factors load leaves no factors behind; without
@@ -307,17 +316,22 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
           </FieldDescription>
           <FieldError>{codeError}</FieldError>
         </Field>
-        <Button
-          type="submit"
-          size="lg"
-          block
-          className={WRAPPING_BLOCK_BUTTON}
-          pending={pending}
-          pendingLabel="Checking…"
-          disabled={factors === null}
+        <DisabledReason
+          reason={loadReason}
+          className="flex w-full flex-col items-stretch"
         >
-          Verify and sign in
-        </Button>
+          <Button
+            type="submit"
+            size="lg"
+            block
+            className={WRAPPING_BLOCK_BUTTON}
+            pending={pending}
+            pendingLabel="Checking…"
+            disabledReason={loadReason}
+          >
+            Verify and sign in
+          </Button>
+        </DisabledReason>
         <Button
           type="button"
           variant="secondary"

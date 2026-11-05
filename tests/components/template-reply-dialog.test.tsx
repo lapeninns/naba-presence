@@ -157,8 +157,33 @@ describe("TemplateReplyDialog", () => {
       expectedReviewUpdateTime: "2026-09-01T10:00:01.000Z",
     })
 
+    // Sent is not confirmed: no state in the dialog calls it published.
+    expect(screen.getByRole("dialog").textContent).not.toMatch(/published/i)
+
     await user.click(screen.getByRole("button", { name: "Done" }))
     expect(onFinished).toHaveBeenCalledWith(["a", "bb"])
+  })
+
+  it("says per review which went to Google and which did not", async () => {
+    const user = userEvent.setup()
+    publishReview.mockImplementation(async (id: string) => {
+      if (id === "bb") throw new TypeError("offline")
+      return {
+        reviewReplyId: "rr",
+        publishAttemptId: "pa",
+        status: "published",
+        googleReplyState: null,
+      }
+    })
+    renderDialog([row("a"), row("bb")])
+    await user.click(screen.getByRole("button", { name: "Create 2 drafts" }))
+    await screen.findByText(/drafts are checked and ready/)
+    await user.click(
+      screen.getByRole("button", { name: "Publish 2 to Google" })
+    )
+    const summary = await screen.findByText(/1 sent to Google/)
+    expect(summary).toHaveTextContent("1 needs a look and stays selected.")
+    expect(screen.getByRole("dialog").textContent).not.toMatch(/published/i)
   })
 
   it("resends a batch start's intent after a lost answer, and only then", async () => {

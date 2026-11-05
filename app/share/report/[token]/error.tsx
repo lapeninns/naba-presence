@@ -1,6 +1,6 @@
 "use client"
 
-import { CircleAlertIcon, RotateCw } from "lucide-react"
+import { RotateCw } from "lucide-react"
 import * as React from "react"
 
 import { boundaryButtonClass } from "@/components/app-shell/boundary"
@@ -27,9 +27,9 @@ export default function ShareReportError({
   const [pending, startTransition] = React.useTransition()
   return (
     <ShareStateCard
-      icon={<CircleAlertIcon />}
+      variant="error"
       title="This report couldn’t be loaded"
-      description="Something went wrong on our side. Try again in a moment."
+      description="Something went wrong on our side."
       action={
         <button
           type="button"

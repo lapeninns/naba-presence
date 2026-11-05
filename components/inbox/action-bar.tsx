@@ -33,7 +33,11 @@ import {
 import { useOutcomeToast, useToastManager } from "@/components/ui/toast"
 import { Textarea } from "@/components/ui/textarea"
 import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
-import { describeOutcomeToast, evaluateDelete } from "@/lib/inbox/actions"
+import {
+  describeDeleteToast,
+  describeOutcomeToast,
+  evaluateDelete,
+} from "@/lib/inbox/actions"
 import {
   derivePrimaryAction,
   publishableDraft,
@@ -99,6 +103,11 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   // A failed delete is said in the dialog that asked for it, where focus is.
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Where focus lands when the delete confirm closes: the ⋯ that opened it,
+  // or, once the reply is gone (and the ⋯ with it), the box where the next
+  // reply is written.
+  const menuTriggerRef = useRef<HTMLButtonElement>(null)
+  const deletedRef = useRef(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectNote, setRejectNote] = useState("")
 
@@ -223,7 +232,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       )
       // `pending` moves on too: Google has the reply, nothing more can be
       // done to it here, and waiting on it left the operator parked on a
-      // review whose only button read "Publishing…".
+      // review whose only button read "Sending…".
       if (isAdvancingOutcome(result.status)) {
         announceOutcome(result.status, result.googleReplyState)
       }
@@ -315,10 +324,19 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     setDeleteError(null)
     try {
       const result = await remove.mutateAsync()
-      outcomeToast.show(describeOutcomeToast(result.status))
+      outcomeToast.show(describeDeleteToast(result.status))
+      deletedRef.current = result.status !== "ambiguous"
       setDeleteOpen(false)
     } catch (error) {
-      setDeleteError(describeActionError(error))
+      // This code is only thrown once Google has answered that it did not
+      // delete; an unanswered delete resolves as `ambiguous` instead.
+      const notDeleted =
+        error instanceof ApiClientError && error.code === "google_delete_failed"
+      setDeleteError(
+        notDeleted
+          ? `${describeActionError(error)} Your reply is still on Google.`
+          : describeActionError(error)
+      )
     }
   }
 
@@ -397,6 +415,8 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   // Approve's pending words only while it is Approve that runs.
   const approving =
     approval.isPending && approval.variables?.decision === "approve"
+  const sendingBack =
+    approval.isPending && approval.variables?.decision === "reject"
 
   const shortcutHint = oneStep ? (
     // Desk only: a key hint means nothing to a thumb.
@@ -409,12 +429,13 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     <div className="flex min-w-0 items-center justify-end">
       <div className="flex items-center justify-end gap-2">
         {inFlight ? (
-          <Button variant="ghost-dark" pending pendingLabel="Publishing…">
-            Publishing…
+          <Button variant="ghost-dark" pending pendingLabel="Sending…">
+            Sending…
           </Button>
         ) : editingParked ? (
           <Button
             ref={primaryRef}
+            variant="on-dark"
             disabled={composerSave.blockedReason !== null}
             pending={checking}
             pendingLabel="Saving…"
@@ -442,9 +463,14 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Send back
             </Button>
             {offerApprove ? (
+              // Approving publishes at once (there is no separate send
+              // after it), so the button says both and runs as a send.
               <Button
                 ref={primaryRef}
-                disabled={!primary.enabled || approval.isPending}
+                variant="send"
+                disabled={!primary.enabled || sendingBack}
+                pending={approving}
+                pendingLabel="Sending…"
                 onClick={() => void onDecision("approve")}
               >
                 <CheckIcon
@@ -452,13 +478,14 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                   strokeWidth={1.75}
                   data-icon="inline-start"
                 />
-                {approving ? "Approving…" : "Approve reply"}
+                Approve and publish
               </Button>
             ) : null}
           </>
         ) : nothingToSubmit ? null : offerRequestApproval ? (
           <Button
             ref={primaryRef}
+            variant="on-dark"
             disabled={!sendEnabled}
             pending={sending}
             pendingLabel={checking ? "Checking…" : "Submitting…"}
@@ -475,9 +502,10 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : (
           <Button
             ref={primaryRef}
+            variant="send"
             disabled={!sendEnabled}
             pending={sending}
-            pendingLabel={checking ? "Checking…" : "Publishing…"}
+            pendingLabel={checking ? "Checking…" : "Sending…"}
             onClick={() => void onPublish()}
           >
             {retry ? (
@@ -493,7 +521,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                 data-icon="inline-start"
               />
             )}
-            {retry ? "Retry publish" : primary.label}
+            {retry ? "Retry sending" : primary.label}
             {shortcutHint}
           </Button>
         )}
@@ -503,6 +531,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             <DropdownMenuTrigger
               render={
                 <Button
+                  ref={menuTriggerRef}
                   variant="ghost-dark"
                   size="icon"
                   aria-label="Review actions"
@@ -576,7 +605,25 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           if (!open) setDeleteError(null)
         }}
       >
-        <AlertDialogContent aria-label="Delete published reply?">
+        <AlertDialogContent
+          aria-label="Delete published reply?"
+          finalFocus={() => {
+            if (!deletedRef.current) return menuTriggerRef.current ?? true
+            deletedRef.current = false
+            // The ⋯ trigger unmounts with the published reply, and the empty
+            // editor may only mount after the refetch; the review heading is
+            // always there, so focus never falls to the page.
+            return (
+              document.querySelector<HTMLElement>(
+                '[data-slot="reply-editor"] textarea'
+              ) ??
+              document.querySelector<HTMLElement>(
+                '[data-slot="review-heading"]'
+              ) ??
+              true
+            )
+          }}
+        >
           <AlertDialogTitle>Delete published reply?</AlertDialogTitle>
           <AlertDialogDescription>
             This removes your reply from Google. You can write a new one
@@ -595,12 +642,14 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             <AlertDialogClose render={<Button variant="secondary" />}>
               Keep reply
             </AlertDialogClose>
+            {/* Pending, not disabled, so focus stays in the dialog. */}
             <Button
               variant="danger"
-              disabled={remove.isPending}
+              pending={remove.isPending}
+              pendingLabel="Deleting…"
               onClick={() => void onDelete()}
             >
-              {remove.isPending ? "Deleting…" : "Delete reply"}
+              Delete reply
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -649,12 +698,14 @@ function ActionBar({ reviewId }: { reviewId: string }) {
               Cancel
             </AlertDialogClose>
             <Button
-              disabled={approval.isPending}
+              disabled={approving}
+              pending={sendingBack}
+              pendingLabel="Sending back…"
               onClick={() =>
                 void onDecision("reject", rejectNote.trim() || undefined)
               }
             >
-              {approval.isPending ? "Sending back…" : "Send back"}
+              Send back
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

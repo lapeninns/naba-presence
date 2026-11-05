@@ -14,6 +14,10 @@ import {
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
 import { PasswordField } from "@/components/auth/password-field"
+import {
+  stepUpFinalFocus,
+  stepUpFocusOrigin,
+} from "@/components/auth/step-up-focus"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -62,6 +66,7 @@ type Mode = "closed" | "step_up" | "enroll" | "verified"
  */
 function MfaStepUpPrompt({
   initialCode,
+  initialOrigin = null,
 }: {
   /**
    * The event that caused this prompt to load, when it was loaded on demand
@@ -69,6 +74,8 @@ function MfaStepUpPrompt({
    * of waiting for the next one.
    */
   initialCode?: MfaStepUpEventDetail["code"]
+  /** What had focus when that first event fired (see `stepUpFocusOrigin`). */
+  initialOrigin?: HTMLElement | null
 } = {}) {
   const [mode, setMode] = useState<Mode>(() =>
     initialCode === undefined
@@ -90,10 +97,19 @@ function MfaStepUpPrompt({
   const queryClient = useContext(QueryClientContext)
   const [username, setUsername] = useState("")
   const codeRef = useRef<HTMLDivElement>(null)
+  const alertRef = useRef<HTMLDivElement>(null)
+  const originRef = useRef<HTMLElement | null>(initialOrigin)
+
+  // A failure with no field to blame lands on its banner, as on sign-in,
+  // so the answer is read out where focus is.
+  useEffect(() => {
+    if (message) alertRef.current?.focus()
+  }, [message])
 
   useEffect(() => {
     function onStepUp(event: Event) {
       const detail = (event as CustomEvent<MfaStepUpEventDetail>).detail
+      originRef.current = stepUpFocusOrigin()
       setUsername(
         queryClient?.getQueryData<SessionResponse>(queryKeys.session)?.session
           ?.email ?? ""
@@ -107,6 +123,12 @@ function MfaStepUpPrompt({
     window.addEventListener(MFA_STEP_UP_EVENT, onStepUp)
     return () => window.removeEventListener(MFA_STEP_UP_EVENT, onStepUp)
   }, [queryClient])
+
+  function focusPassword() {
+    document
+      .querySelector<HTMLInputElement>('[role="dialog"] [name="password"]')
+      ?.focus()
+  }
 
   function close() {
     setMode("closed")
@@ -124,7 +146,12 @@ function MfaStepUpPrompt({
         ? undefined
         : "Enter the 6-digit code from your authenticator app."
     )
-    if (!password || !parsed.success) return
+    if (!password || !parsed.success) {
+      // Same as the sign-in form: focus goes to the first field to fix.
+      if (!password) focusPassword()
+      else focusFirstCodeBox(codeRef.current)
+      return
+    }
     setMessage(null)
     startTransition(async () => {
       try {
@@ -152,10 +179,12 @@ function MfaStepUpPrompt({
           }
           if (error.code === "mfa_factor_unknown") {
             setCodeError("You have no backup authenticator app.")
+            focusFirstCodeBox(codeRef.current)
             return
           }
           if (error.code === "invalid_credentials") {
             setPasswordError("That password is incorrect.")
+            focusPassword()
             return
           }
         }
@@ -173,7 +202,7 @@ function MfaStepUpPrompt({
       dirty={mode === "step_up" && (password !== "" || code !== "")}
       onDiscard={close}
     >
-      <DialogContent>
+      <DialogContent finalFocus={() => stepUpFinalFocus(originRef.current)}>
         {mode === "enroll" ? (
           <>
             <DialogHeader>
@@ -222,7 +251,15 @@ function MfaStepUpPrompt({
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="flex flex-col gap-5">
-              {message ? <AuthErrorAlert message={message} /> : null}
+              {message ? (
+                <div
+                  ref={alertRef}
+                  tabIndex={-1}
+                  className="rounded-(--np-radius-card) focus-halo outline-none"
+                >
+                  <AuthErrorAlert message={message} />
+                </div>
+              ) : null}
               {/* Which account the password belongs to, for password
                   managers: they pair a current-password field with the
                   username beside it. Never shown, never submitted. */}
@@ -266,8 +303,10 @@ function MfaStepUpPrompt({
               />
             </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={pending}>
-                {pending ? "Checking…" : "Verify"}
+              {/* pending, not disabled: a disabled button drops the focus
+                  it holds, and Enter in a field would land nowhere. */}
+              <Button type="submit" pending={pending} pendingLabel="Checking…">
+                Verify
               </Button>
             </DialogFooter>
           </form>

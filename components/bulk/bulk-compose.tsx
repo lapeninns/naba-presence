@@ -150,7 +150,7 @@ const OPERATIONS: Array<{
   {
     value: "post_draft",
     label: "Post draft",
-    description: "A draft post on each listing. Nothing is published.",
+    description: "A draft post on each listing. Nothing is sent to Google.",
   },
   {
     value: "photos",
@@ -752,10 +752,17 @@ export function BulkCompose() {
       (changes.length >= BULK_MAX_CHANGES
         ? `A batch holds at most ${BULK_MAX_CHANGES} changes.`
         : "Check the change."))
-  /** Why the preview can't be asked for now: the batch's limit first, then the change. */
+  /**
+   * Why the preview can't be asked for now: the batch's limit first, then
+   * the change, then warnings on screen and not yet ticked (the server would
+   * only refuse again).
+   */
   const previewBlocked =
     batchProblem ??
-    (batch.length ? undefined : (problem ?? "Nothing to preview yet"))
+    (batch.length ? undefined : (problem ?? "Nothing to preview yet")) ??
+    (shownWarning && consents[shownWarning.key] !== shownWarning.token
+      ? "Acknowledge the content warnings first"
+      : undefined)
   const batchKey = JSON.stringify({ ids, batch })
   const shownFailure = failure?.key === batchKey ? failure : null
   const move = (from: number, to: number) =>
@@ -820,7 +827,7 @@ export function BulkCompose() {
         <Empty
           framed
           title="Choose listings first"
-          description="Tick the listings to change on the Listings board, then choose Prepare bulk change."
+          description="Tick them on the Listings board first."
           action={
             <Link href="/listings" className={buttonVariants()}>
               Choose listings
@@ -1569,9 +1576,9 @@ export function BulkCompose() {
             ) : operation === "post_draft" ? (
               <Fieldset>
                 <FieldsetLegend variant="muted">
-                  Creates a separate draft on each listing. Nothing is
-                  published: each draft is published from that listing’s posts,
-                  with its own approval when two-person approval is on.
+                  Creates a separate draft on each listing. Nothing is sent to
+                  Google here: each draft is published from that listing’s
+                  posts, with its own approval when two-person approval is on.
                 </FieldsetLegend>
                 <Field>
                   <FieldLabel>Post text</FieldLabel>
@@ -1878,8 +1885,9 @@ export function BulkCompose() {
             </ol>
           ) : (
             <p className="text-ui text-ink-secondary">
-              Preview sends the change above on its own. To send more than one
-              change to each listing, add each one to the batch.
+              With nothing in the batch, the preview covers the change above on
+              its own. To make more than one change to each listing, add each
+              one to the batch.
             </p>
           )}
           <p className="text-caption text-ink-muted tabular-nums">
@@ -1912,7 +1920,9 @@ export function BulkCompose() {
             />
           ) : null}
           <FormError>{shownFailure?.text}</FormError>
-          {shownFailure?.chooseAgain ? (
+          {/* Over the listing cap nothing here can be previewed: the way on
+              is a smaller selection, made on the board. */}
+          {shownFailure?.chooseAgain || ids.length > BULK_MAX_TARGETS ? (
             <Link
               href="/listings"
               className={buttonVariants({

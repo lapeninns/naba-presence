@@ -20,7 +20,8 @@ describe("sign-in retry", () => {
   it("clears the last answer on a new attempt, so a repeat is announced afresh", async () => {
     const user = userEvent.setup()
     let release: (error: unknown) => void = () => {}
-    vi.spyOn(authApi, "signIn")
+    const signIn = vi
+      .spyOn(authApi, "signIn")
       .mockRejectedValueOnce(
         new ApiClientError(401, "invalid_credentials", "server copy")
       )
@@ -43,9 +44,15 @@ describe("sign-in retry", () => {
     await waitFor(() =>
       expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     )
+    // The second request starts only after the lazily loaded schemas
+    // resolve, which can trail the old alert's removal under load; releasing
+    // before it is sent would reject nothing and leave the attempt pending.
+    await waitFor(() => expect(signIn).toHaveBeenCalledTimes(2))
     release(new ApiClientError(401, "invalid_credentials", "server copy"))
     const alert = await screen.findByRole("alert")
     await waitFor(() => expect(alert.parentElement).toHaveFocus())
+    // Focus moved by keyboard draws the same halo as every other control.
+    expect(alert.parentElement).toHaveClass("focus-halo")
   })
 })
 
@@ -110,6 +117,33 @@ describe("resend confirmation", () => {
       "Enter your email address above first."
     )
     expect(resend).not.toHaveBeenCalled()
+  })
+
+  it("describes the button with its last result", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "resendConfirmation")
+      .mockRejectedValueOnce(
+        new ApiClientError(503, "auth_provider_unavailable", "x")
+      )
+      .mockResolvedValueOnce(undefined)
+    render(<ResendConfirmationButton email="sam@example.test" />)
+    const button = screen.getByRole("button")
+    expect(button).not.toHaveAttribute("aria-describedby")
+    await user.click(button)
+    const alert = await screen.findByRole("alert")
+    expect(button).toHaveAccessibleDescription(alert.textContent ?? "")
+    await user.click(button)
+    await screen.findByRole("button", { name: "Send another link" })
+    expect(button).toHaveAccessibleDescription(
+      "A new confirmation link is on its way to sam@example.test if it still needs confirming."
+    )
+  })
+
+  it("changes its underline on hover only for a fine pointer", () => {
+    render(<ResendConfirmationButton email="sam@example.test" />)
+    const button = screen.getByRole("button")
+    expect(button.className).toContain("hover-fine:hover:decoration-2")
+    expect(button.className).not.toMatch(/(?:^|\s)hover:/)
   })
 
   it("sends the invitation along and titles an outage for its surface", async () => {

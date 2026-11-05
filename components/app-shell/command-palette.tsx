@@ -6,6 +6,7 @@ import * as React from "react"
 
 import { Kbd } from "@/components/ui/kbd"
 import { DESTINATIONS } from "@/lib/navigation/destinations"
+import { OUTBOX_ROUTE_READY } from "@/lib/navigation/outbox"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
@@ -41,7 +42,10 @@ type PaletteEntry = {
  * registry with `visibleDestinations`, which also knows the scheduling
  * flag; this list stays for callers that use `paletteEntriesFor`.
  */
-const GO_TO: PaletteEntry[] = DESTINATIONS.map((destination) => ({
+const GO_TO: PaletteEntry[] = DESTINATIONS.filter(
+  // Outbox waits for its page (lib/navigation/outbox.ts).
+  (destination) => !destination.needsOutbox || OUTBOX_ROUTE_READY
+).map((destination) => ({
   href: destination.href,
   label: destination.label,
   icon: destination.icon,
@@ -201,11 +205,12 @@ function useSyncPlatform() {
 }
 
 /**
- * The toolbar's search trigger. It looks like a field (a bordered white box
- * with a magnifier, a label and the shortcut) but it is a button that opens
- * the palette, because the palette is where typing goes. Below 768px it is a
- * bare 44px magnifier with no box (callers need no override); the label
- * stays the accessible name.
+ * The bar's search trigger. From 1024px (`lg`) it looks like a field (a
+ * bordered box with a magnifier, a label and the shortcut) but it is a
+ * button that opens the palette, because the palette is where typing goes.
+ * Below that (the phone app bar, and the tablet top bar beside the scope
+ * pill) it is a bare magnifier, 44px on touch and 36px with a cursor, with
+ * no box; the label stays the accessible name.
  *
  * The label names its scope (clients, listings, pages and actions). Review
  * text is searched in the Inbox, in one clearly labelled field.
@@ -235,21 +240,28 @@ function CommandPaletteButton({
       }
       aria-haspopup="dialog"
       aria-keyshortcuts="Meta+K Control+K"
+      data-slot="search-button"
       className={cn(
-        "flex h-[34px] shrink-0 items-center gap-2 rounded-md border border-line bg-surface pr-2 pl-2.5 text-ui text-ink-muted md:min-w-50",
-        "transition-colors duration-(--np-duration-fast) hover:border-line-strong hover:text-ink",
+        "flex h-9 shrink-0 items-center gap-2 rounded-md border border-line bg-surface pr-2 pl-2.5 text-ui text-ink-muted lg:min-w-50 wide:min-w-72",
+        "transition-colors duration-(--np-duration-fast) hover-fine:hover:text-ink lg:hover-fine:hover:border-line-strong",
         "focus-halo focus-visible:outline-none",
-        // A phone shows a bare outline icon (like the bell beside it in the
-        // app bar): no field-like box, a 44px hit, ink on hover.
-        "max-md:size-11 max-md:justify-center max-md:rounded-full max-md:border-transparent max-md:bg-transparent max-md:p-0 max-md:hover:border-transparent max-md:hover:bg-fill",
+        // Below lg a bare outline icon (like the bell beside it): no
+        // field-like box, a 44px hit on touch, 36px with a cursor. The
+        // border hover is lg-only above: a max-lg reset loses to a
+        // hover-fine rule, which Tailwind emits later.
+        "max-lg:size-11 max-lg:justify-center max-lg:rounded-md max-lg:border-transparent max-lg:bg-transparent max-lg:p-0 max-lg:hover-fine:hover:bg-fill desk:max-lg:size-9",
         className
       )}
     >
-      <Search className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
-      <span aria-hidden className="flex-1 truncate text-left max-md:hidden">
+      <Search
+        className="size-4 shrink-0 max-md:size-5"
+        strokeWidth={1.75}
+        aria-hidden
+      />
+      <span aria-hidden className="flex-1 truncate text-left max-lg:hidden">
         {business ? "Search listings…" : "Search clients, listings…"}
       </span>
-      <Kbd aria-hidden className="ml-auto max-md:hidden">
+      <Kbd aria-hidden className="ml-auto max-lg:hidden">
         {hint}
       </Kbd>
     </button>

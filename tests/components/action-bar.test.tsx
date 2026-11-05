@@ -202,6 +202,8 @@ describe("ActionBar", () => {
     renderActionBar()
     const button = screen.getByRole("button", { name: "Publish reply" })
     expect(button).toBeEnabled()
+    // Publishing writes to Google: the green send, never the ink default.
+    expect(button).toHaveAttribute("data-variant", "send")
     await user.click(button)
     expect(publish.mutateAsync).toHaveBeenCalledWith({
       draftId: "d1",
@@ -245,7 +247,9 @@ describe("ActionBar", () => {
 
   // Sending refused words again unchanged is not a retry.
   it.each([
-    ["google_timeout", "Retry publish"],
+    ["google_timeout", "Retry sending"],
+    // A readback that did not match stays a plain failure (M07): retry.
+    ["google_readback_mismatch", "Retry sending"],
     ["INVALID_ARGUMENT", "Publish reply"],
   ])(
     "names the failed-publish button by its cause (%s)",
@@ -356,7 +360,7 @@ describe("ActionBar", () => {
     )
     renderActionBar(true, save)
     expect(
-      screen.queryByRole("button", { name: "Approve reply" })
+      screen.queryByRole("button", { name: "Approve and publish" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Send back" })
@@ -392,7 +396,7 @@ describe("ActionBar", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
     renderActionBar(false)
     expect(
-      screen.getByRole("button", { name: "Approve reply" })
+      screen.getByRole("button", { name: "Approve and publish" })
     ).toBeInTheDocument()
   })
 
@@ -403,7 +407,23 @@ describe("ActionBar", () => {
       variables: { decision: "reject" },
     } as unknown as ReturnType<typeof mutation>)
     renderActionBar()
-    expect(screen.getByRole("button", { name: "Approve reply" })).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Approve and publish" })
+    ).toBeDisabled()
+    expect(screen.queryByText("Sending…")).not.toBeInTheDocument()
+  })
+
+  it("reads Sending… while the approval publishes, and keeps focus on it", () => {
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), {
+      ...mutation(),
+      isPending: true,
+      variables: { decision: "approve" },
+    } as unknown as ReturnType<typeof mutation>)
+    renderActionBar()
+    const approve = screen.getByRole("button", { name: /Sending…/ })
+    expect(approve).toHaveAttribute("aria-busy", "true")
+    // Pending, not disabled: a disabled button would drop focus to the body.
+    expect(approve).not.toBeDisabled()
     expect(screen.queryByText("Approving…")).not.toBeInTheDocument()
   })
 
@@ -418,7 +438,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     expect(
       await screen.findByText(
         "The customer changed their review after you opened it. It has been reloaded. Read it, then approve or send back."
@@ -591,10 +613,10 @@ describe("ActionBar", () => {
       expectedReviewUpdateTime: "2026-07-30T10:00:00.000Z",
     })
     await waitFor(() => {
-      expect(screen.getByText("Submitted for approval")).toBeInTheDocument()
+      expect(screen.getByText("Awaiting approval")).toBeInTheDocument()
       expect(
         screen.getByText(
-          "It goes live once someone with publishing rights approves it."
+          "It goes to Google once someone with publishing rights approves it."
         )
       ).toBeInTheDocument()
     })
@@ -665,7 +687,7 @@ describe("ActionBar", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
     renderActionBar()
     expect(
-      screen.getByRole("button", { name: "Approve reply" })
+      screen.getByRole("button", { name: "Approve and publish" })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Send back" })
@@ -687,7 +709,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     await waitFor(() =>
       expect(
         screen.getByText("A different authorised user must approve this reply.")
@@ -709,7 +733,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     await waitFor(() => expect(approval.mutateAsync).toHaveBeenCalledTimes(1))
     expect(approval.mutateAsync).toHaveBeenCalledWith({
       decision: "approve",
@@ -739,7 +765,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     await waitFor(() => expect(approval.mutateAsync).toHaveBeenCalledTimes(1))
     expect(approval.mutateAsync).toHaveBeenCalledWith({
       decision: "approve",
@@ -763,7 +791,9 @@ describe("ActionBar", () => {
       approval
     )
     renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish" })
+    )
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -784,7 +814,9 @@ describe("ActionBar", () => {
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
     await waitFor(() =>
-      expect(screen.getByText("Google declined this reply")).toBeInTheDocument()
+      expect(
+        screen.getByText("Google refused it. Nothing changed on Google.")
+      ).toBeInTheDocument()
     )
     expect(screen.queryByText("Reply published")).not.toBeInTheDocument()
   })
@@ -792,9 +824,9 @@ describe("ActionBar", () => {
   // Google has a `pending` reply and nothing more can be done to it here, so
   // the inbox moves on exactly as it does for `published`; `rejected` stays.
   it.each([
-    ["published", true, "Reply published"],
-    ["pending", true, "Reply sent"],
-    ["rejected", false, "Google declined this reply"],
+    ["published", true, "Confirmed on Google"],
+    ["pending", true, "Sent, waiting for Google to confirm"],
+    ["rejected", false, "Google refused it. Nothing changed on Google."],
   ])(
     "announces a %s outcome to the inbox: %s",
     async (status, advances, toast) => {
@@ -948,9 +980,16 @@ describe("ActionBar", () => {
   it("draws its controls for the charcoal bar", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
     renderActionBar()
+    // Approving publishes, so it is the one green send on the bar; an ink
+    // `default` button would be 1.05:1 on charcoal.
     expect(
-      screen.getByRole("button", { name: "Approve reply" })
-    ).toHaveAttribute("data-variant", "default")
+      screen.getByRole("button", { name: "Approve and publish" })
+    ).toHaveAttribute("data-variant", "send")
+    expect(
+      document.querySelector(
+        '.on-charcoal [data-slot="button"][data-variant="default"]'
+      )
+    ).toBeNull()
     expect(screen.getByRole("button", { name: "Send back" })).toHaveAttribute(
       "data-variant",
       "ghost-dark"
@@ -971,8 +1010,8 @@ describe("ActionBar", () => {
     )
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
-    expect(await screen.findByText("Reply published")).toBeInTheDocument()
-    expect(screen.getByText("Live on Google.")).toBeInTheDocument()
+    expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
+    expect(screen.getByText("Your reply is on Google.")).toBeInTheDocument()
     // A real link into a new tab that is told nothing, not a button.
     // The primitive tells a screen reader the link opens a new tab.
     const view = screen.getByRole("link", {
@@ -1001,7 +1040,7 @@ describe("ActionBar", () => {
     stubHooks(detailWith({ googleReplyUrl: "javascript:alert(1)" }))
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Publish reply" }))
-    expect(await screen.findByText("Reply published")).toBeInTheDocument()
+    expect(await screen.findByText("Confirmed on Google")).toBeInTheDocument()
     expect(
       screen.queryByRole("link", { name: /View on Google/ })
     ).not.toBeInTheDocument()
@@ -1127,7 +1166,7 @@ describe("ActionBar", () => {
   // ("cancelled") gets honest copy distinct from an actually-live one
   // ("deleted"), and neither falls to the default "status will update
   // shortly" copy.
-  async function deleteReply(status: "deleted" | "cancelled") {
+  async function deleteReply(status: "deleted" | "cancelled" | "ambiguous") {
     const user = userEvent.setup()
     const del = mutation(vi.fn().mockResolvedValue({ status }))
     stubHooks(
@@ -1166,6 +1205,25 @@ describe("ActionBar", () => {
       screen.queryByText("Reply submitted. Its status will update shortly.")
     ).not.toBeInTheDocument()
   })
+
+  // With the editor not mounted yet, focus lands on the review heading, never
+  // on <body>.
+  it.each(["deleted", "cancelled"] as const)(
+    "returns focus to the review heading after a %s delete",
+    async (status) => {
+      const heading = document.createElement("h2")
+      heading.tabIndex = -1
+      heading.dataset.slot = "review-heading"
+      heading.textContent = "Ana P."
+      document.body.append(heading)
+      try {
+        await deleteReply(status)
+        await waitFor(() => expect(heading).toHaveFocus())
+      } finally {
+        heading.remove()
+      }
+    }
+  )
 
   // F04 C4: a failed delete is said inside the confirm that asked for it,
   // where focus is, and the dialog stays open to retry or keep the reply.
@@ -1206,6 +1264,97 @@ describe("ActionBar", () => {
     })
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Google may have applied the change. Check its status before retrying."
+    )
+  })
+
+  it("says a delete Google did not answer may have left the reply live", async () => {
+    await deleteReply("ambiguous")
+    await waitFor(() =>
+      expect(
+        screen.getByText("We can’t tell whether Google applied it")
+      ).toBeInTheDocument()
+    )
+    expect(
+      screen.getByText(/Your reply may still be on Google/)
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Reply deleted")).not.toBeInTheDocument()
+  })
+
+  const liveReply = {
+    reply: {
+      id: "reply-1",
+      body: "Thanks for the feedback!",
+      publishStatus: "published",
+      googleReplyState: "APPROVED",
+      googlePolicyViolation: null,
+      googleReplyUpdatedAt: "2026-07-30T11:00:00.000Z",
+    },
+  } as const
+
+  it("keeps focus on Deleting… inside the dialog while the delete runs", async () => {
+    const user = userEvent.setup()
+    stubHooks(detailWith(liveReply), mutation(), mutation(), {
+      ...mutation(),
+      isPending: true,
+    } as unknown as ReturnType<typeof mutation>)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Review actions" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Delete published reply" })
+    )
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Delete published reply?",
+    })
+    const pending = within(dialog).getByRole("button", { name: /Deleting…/ })
+    expect(pending).toHaveAttribute("aria-busy", "true")
+    expect(pending).not.toBeDisabled()
+  })
+
+  it("returns focus to the review actions when the delete is kept", async () => {
+    const user = userEvent.setup()
+    stubHooks(detailWith(liveReply))
+    renderActionBar()
+    const trigger = screen.getByRole("button", { name: "Review actions" })
+    await user.click(trigger)
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Delete published reply" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Keep reply" }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("alertdialog", { name: "Delete published reply?" })
+      ).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it("says a delete Google refused left the reply on Google", async () => {
+    const user = userEvent.setup()
+    const del = mutation(
+      vi
+        .fn()
+        .mockRejectedValue(
+          new ApiClientError(
+            502,
+            "google_delete_failed",
+            "Google delete failed."
+          )
+        )
+    )
+    stubHooks(detailWith(liveReply), mutation(), mutation(), del)
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Review actions" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Delete published reply" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Delete reply" })
+    )
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Delete published reply?",
+    })
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /Your reply is still on Google\.$/
     )
   })
 
@@ -1253,7 +1402,7 @@ describe("ActionBar", () => {
       await waitFor(() =>
         expect(
           screen.getByText(
-            "It goes live once another person with publishing rights approves it."
+            "It goes to Google once another person with publishing rights approves it."
           )
         ).toBeInTheDocument()
       )
@@ -1323,7 +1472,7 @@ describe("ActionBar", () => {
       )
       renderActionBar()
       expect(
-        screen.queryByRole("button", { name: "Approve reply" })
+        screen.queryByRole("button", { name: "Approve and publish" })
       ).not.toBeInTheDocument()
       expect(
         screen.queryByRole("button", { name: "Send back" })
@@ -1353,7 +1502,7 @@ describe("ActionBar", () => {
       )
       renderActionBar()
       expect(
-        screen.getByRole("button", { name: "Approve reply" })
+        screen.getByRole("button", { name: "Approve and publish" })
       ).toBeEnabled()
       expect(
         screen.getByRole("button", { name: "Send back" })
@@ -1377,7 +1526,7 @@ describe("ActionBar", () => {
       )
       renderActionBar()
       expect(
-        screen.queryByRole("button", { name: "Approve reply" })
+        screen.queryByRole("button", { name: "Approve and publish" })
       ).not.toBeInTheDocument()
       // Alone, Reject is the bar's own button at every width, not a ⋯ row.
       const reject = screen.getByRole("button", { name: "Send back" })

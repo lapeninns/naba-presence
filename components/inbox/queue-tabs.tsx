@@ -1,5 +1,6 @@
 "use client"
 
+import { TriangleAlertIcon } from "lucide-react"
 import { useEffect, useId, useRef } from "react"
 
 import { ChipRow } from "@/components/ui/chip"
@@ -46,13 +47,14 @@ function revealInStrip(strip: HTMLElement, item: HTMLElement) {
 }
 
 /**
- * The five queues as one strip of text tabs in the inbox toolbar, with a
- * non-zero Failed count in the danger ink, because that number is itself
- * the exception.
+ * The six queues as one strip of text tabs in the inbox toolbar, with a
+ * non-zero Failed count in the danger ink beside a warning glyph, because
+ * that number is itself the exception.
  *
  * Each number is drawn once. Needs reply is the "Inbox N" title's count, and
  * the current queue's is the list header's ("4 reviews"), so neither tab
- * repeats it; the other queues show theirs, and a queue with nothing in it
+ * repeats it, and All carries none (its total is not work to do); the
+ * other queues show theirs, and a queue with nothing in it
  * shows no figure (`TabCount`'s zero rule, said aloud in its name). The
  * counts cover every review in the queue and know nothing of the filters, so
  * while `filtered` is on they are not drawn rather than disagreeing with the
@@ -117,10 +119,13 @@ function QueueTabs({
           const alert = item === "failed" && count > 0
           // A filter hides the figures, but not a non-zero Failed count: it is
           // the exception (see above), and an operator should never lose sight
-          // of a failure behind a filter. The current queue and Needs reply
-          // still carry none.
+          // of a failure behind a filter. The current queue, Needs reply and
+          // All still carry none.
           const figure =
-            !active && item !== "needs_reply" && (!filtered || alert)
+            !active &&
+            item !== "needs_reply" &&
+            item !== "all" &&
+            (!filtered || alert)
           return (
             <button
               key={item}
@@ -154,9 +159,24 @@ function QueueTabs({
               ) : (
                 <TabCount
                   aria-hidden
-                  className={cn(alert && "font-semibold text-danger-ink")}
+                  className={cn(
+                    alert &&
+                      "inline-flex items-center gap-0.5 font-semibold text-danger-ink"
+                  )}
                 >
-                  {formatNumber(count)}
+                  {/* The bare figure otherwise: TabCount's zero rule reads it. */}
+                  {alert ? (
+                    <>
+                      <TriangleAlertIcon
+                        aria-hidden
+                        strokeWidth={2}
+                        className="size-3 shrink-0"
+                      />
+                      {formatNumber(count)}
+                    </>
+                  ) : (
+                    formatNumber(count)
+                  )}
                 </TabCount>
               )}
             </button>

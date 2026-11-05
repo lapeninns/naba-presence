@@ -69,20 +69,21 @@ test.describe("inbox", () => {
     await expect(
       page.getByRole("searchbox", { name: "Search reviews" })
     ).toBeVisible()
-    // The permanent left rail is gone: five queue controls and a compact
+    // The permanent left rail is gone: six queue controls and a compact
     // filter toolbar sit above the list and the detail. Located by slot rather
     // than by name, because a control's accessible name can also carry its
     // count ("Approval, 5 reviews").
     await expect(
       page.getByRole("navigation", { name: "Review queues" })
     ).toBeVisible()
-    await expect(page.locator('[data-slot="queue-tab"]')).toHaveCount(5)
+    await expect(page.locator('[data-slot="queue-tab"]')).toHaveCount(6)
     for (const queue of [
       "needs_reply",
       "approval",
       "publishing",
       "failed",
       "done",
+      "all",
     ]) {
       await expect(
         page.locator(`[data-slot="queue-tab"][data-queue="${queue}"]`)

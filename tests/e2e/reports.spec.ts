@@ -146,23 +146,20 @@ test.describe("reports", () => {
       await expect(page.getByRole("dialog")).toHaveCount(0)
     })
 
-    test("choosing a client and a period takes three taps", async ({
+    test("a client's report changes period in one tap and keeps the client", async ({
       page,
     }) => {
       const state = await readJourneyState()
+      // With one client the shell has no interactive scope switcher.
+      // Start unscoped and choose the client in the report itself.
       await page.goto("/reports?tab=google")
-      // The journey org has one client, so the app bar shows no scope chip
-      // (there is nothing to switch between) and the report keeps its own
-      // Client field on a phone. Tap 1: the field. Tap 2: the client. Tap 3: the period.
       await expect(
         page
           .locator('header[data-slot="app-bar"]')
-          .getByRole("button", { name: /^Client:/ })
+          .getByRole("button", { name: /^Working on / })
       ).toHaveCount(0)
       await page.getByRole("combobox", { name: /Client/ }).tap()
-      await page
-        .getByRole("option", { name: new RegExp(`^${state.clientName}`) })
-        .tap()
+      await page.getByRole("option", { name: state.clientName }).tap()
       await expect(page).toHaveURL(new RegExp(`[?&]clientId=${state.clientId}`))
       await page
         .getByRole("group", { name: "Period" })

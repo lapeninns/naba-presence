@@ -49,24 +49,27 @@ export function publishOutcome(result: {
 }): OutcomeMessage {
   // Waiting for an approver: nothing has gone to Google yet.
   if (result.status === "awaiting_approval")
-    return { outcome: "saved_locally", title: "Post submitted for approval." }
+    return {
+      outcome: "saved_locally",
+      title: "Awaiting approval",
+      description:
+        "Nothing has gone to Google yet. An approver needs to approve this post first.",
+    }
   const outcome = result.operation?.outcome
   // A rejected post is on Google and invisible to everyone, so the toast
   // must not say it was published.
   if (result.status === "rejected" || outcome === "rejected")
-    return { outcome: "rejected", title: "Google rejected this post." }
-  if (outcome === "confirmed_applied")
-    return { outcome, title: "Post live on Google" }
+    return { outcome: "rejected" }
+  if (outcome === "confirmed_applied") return { outcome }
   if (outcome === "awaiting_confirmation")
     return {
       outcome,
-      title: "Post sent to Google",
       description: "Google is still reviewing it, so it may not show yet.",
     }
   if (outcome === "uncertain") return { outcome }
   // "published" with no outcome: Google took the post and did not reject
   // it; it may still be processing, so this is "sent", not "live".
-  return { outcome: "sent", title: "Post sent to Google" }
+  return { outcome: "awaiting_confirmation" }
 }
 
 /**

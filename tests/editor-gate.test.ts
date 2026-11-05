@@ -118,15 +118,71 @@ describe("editorGate", () => {
     })
   })
 
-  it("reads any other publish limit as read-only, with its reason", () => {
+  it("reads a billing hold as a hold on the workspace, not a role limit", () => {
     expect(
       gate("billing_read_only", {
         publishReason: "Your plan is read-only.",
       })
     ).toMatchObject({
-      tone: "read_only",
-      title: "You can’t publish this to Google",
+      tone: "blocked",
+      title: "Publishing is on hold for this workspace",
       code: "billing_read_only",
+    })
+    const held = editorGate({
+      caps: { canEditCanonical: true, canPublish: true, canWrite: false },
+      resource: "hours",
+      editReason: "This workspace's subscription is read-only.",
+      publishReason: null,
+      noun: "these hours",
+      savesHere: true,
+    })
+    expect(held).toMatchObject({
+      tone: "blocked",
+      title: "Changes to these hours are on hold for this workspace",
+      code: "billing_read_only",
+    })
+    // Owners and admins are held too: nobody to ask.
+    expect(held?.description).not.toContain(ASK_OWNER_OR_ADMIN)
+  })
+
+  it("names the login, verification and Google's own limits plainly", () => {
+    expect(
+      gate("reconnect_required", { publishReason: "Reconnect." })
+    ).toMatchObject({
+      tone: "blocked",
+      title: "The Google login for this listing needs reconnecting",
+    })
+    expect(
+      gate("verification_required", { publishReason: "Verify." })
+    ).toMatchObject({
+      tone: "warning",
+      title: "Google needs this listing verified first",
+    })
+    expect(
+      gate("provider_capability_retired", { publishReason: "Retired." })
+    ).toMatchObject({
+      tone: "read_only",
+      title: "Google no longer accepts changes to these hours",
+    })
+    expect(gate("location_ineligible", { publishReason: "No." })).toMatchObject(
+      { tone: "read_only", title: "You can’t publish this to Google" }
+    )
+  })
+
+  it("reads the publish switch as switched off even without a resource code", () => {
+    expect(
+      editorGate({
+        caps: { canEditCanonical: true, canPublish: true },
+        resource: "hours",
+        editReason: null,
+        publishReason: "Publishing to Google is currently unavailable.",
+        noun: "these hours",
+        savesHere: false,
+      })
+    ).toMatchObject({
+      tone: "blocked",
+      title: "Publishing to Google is switched off in NabaPresence",
+      code: null,
     })
   })
 

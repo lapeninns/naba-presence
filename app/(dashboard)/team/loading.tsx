@@ -1,11 +1,12 @@
 import { MembersSkeleton } from "@/components/settings/team-list"
 import { cardClassName } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ROLE_MATRIX } from "@/lib/settings/roles"
 
 /**
  * The shape of Team while it loads: the title with its Invite action, the
  * members (the same skeleton the list shows while it fetches), the
- * invitations and the roles card. A plain `div`, not
+ * invitations and the roles card with a row per capability. A plain `div`, not
  * `PageFrame`, for the reason `app/(dashboard)/loading.tsx` gives: the page
  * that streams in owns the one `<main>`. Same paddings so nothing shifts.
  */
@@ -44,7 +45,21 @@ export default function TeamLoading() {
           </div>
         </div>
       </div>
-      <Skeleton className="h-56 rounded-(--np-radius-card)" />
+      <div
+        data-slot="team-roles-skeleton"
+        className={cardClassName({ className: "flex flex-col" })}
+      >
+        <div className="flex flex-col gap-1.5 border-b border-line px-4 py-3">
+          <Skeleton className="h-5 w-48 max-w-full rounded-sm" />
+          <Skeleton className="h-3.5 w-80 max-w-full rounded-sm" />
+        </div>
+        {Array.from({ length: ROLE_MATRIX.length }, (_, index) => (
+          <div key={index} className="flex items-center gap-4 px-4 py-2.5">
+            <Skeleton className="h-4 w-56 max-w-[45%] rounded-sm" />
+            <Skeleton className="ml-auto h-4 w-1/3 rounded-sm" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

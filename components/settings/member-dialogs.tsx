@@ -32,6 +32,7 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { roleOptionsFor } from "@/lib/settings/gating"
 import { roleLabel, type MemberRole } from "@/lib/settings/forms/invitation"
 import {
+  roleCapabilities,
   roleDescriptions,
   roleSummaries,
   roleWithArticle,
@@ -259,6 +260,9 @@ function ChangeRoleBody({
           onValueChange={setPick}
           disabled={pending}
         />
+        {!unchanged ? (
+          <RoleChangeSummary role={pick} who={self ? "you" : firstName(name)} />
+        ) : null}
         {!unchanged && pick === "owner" ? (
           <Alert variant="warning">
             <AlertTitle>Owners can change any role</AlertTitle>
@@ -313,6 +317,43 @@ function ChangeRoleBody({
         </Button>
       </DialogFooter>
     </>
+  )
+}
+
+/**
+ * The picked role in plain lists: what they will and won't be able to do,
+ * from the same matrix as Team's roles card.
+ */
+function RoleChangeSummary({ role, who }: { role: MemberRole; who: string }) {
+  const { can, cannot } = roleCapabilities(role)
+  return (
+    <div
+      data-slot="role-change-summary"
+      className="grid gap-3 rounded-(--np-radius-control) bg-surface-alt px-3 py-2.5 text-ui sm:grid-cols-2"
+    >
+      <div className="flex min-w-0 flex-col gap-1">
+        <p className="font-semibold text-ink">
+          As {roleWithArticle(role)}, {who} can
+        </p>
+        <ul className="flex list-disc flex-col gap-0.5 ps-5 text-ink-secondary">
+          {can.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      </div>
+      {cannot.length > 0 ? (
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="font-semibold text-ink">
+            {who === "you" ? "You" : who} can’t
+          </p>
+          <ul className="flex list-disc flex-col gap-0.5 ps-5 text-ink-secondary">
+            {cannot.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   )
 }
 

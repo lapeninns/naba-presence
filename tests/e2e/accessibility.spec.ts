@@ -108,8 +108,9 @@ async function mockReviewWorkspace(
   page: Page,
   options: { disconnected?: boolean } = {}
 ) {
-  // `useContextHealth` (components/app-shell/context-health-chip.tsx) is
-  // what actually derives "stale" for the chip and the More sheet's row: a
+  // `useContextHealth` (components/app-shell/context-health-chip.tsx) and
+  // `useScopeControl` (components/app-shell/scope-sheet-model.tsx) are what
+  // actually derive "stale" for the More sheet's row and the scope control: a
   // *subsequent* failed refetch of the client list after an earlier success,
   // not a failed `/api/reviews/counts`. `failClients()` drives it;
   // `/api/google/connections` keeps its own toggle for the inbox.
@@ -325,8 +326,8 @@ async function mockReviewWorkspace(
   await page.route(/\/api\/organisations(?:\?.*)?$/, async (route) => {
     await route.fulfill({ json: { items: [] } })
   })
-  // The shell reads the client list for its sidebar, breadcrumbs and health
-  // chip. Unstubbed it answers 401, and lib/api/client.ts hard-navigates the
+  // The shell reads the client list for its sidebar, breadcrumbs and scope
+  // control. Unstubbed it answers 401, and lib/api/client.ts hard-navigates the
   // whole page to /sign-in mid-assertion.
   await page.route(/\/api\/clients(?:\?.*)?$/, async (route) => {
     if (clientsShouldFail) {
@@ -711,6 +712,22 @@ for (const theme of themes) {
         await expect(
           page.getByRole("heading", { name: "Business profile", level: 1 })
         ).toBeVisible()
+        if (viewport.name === "mobile") {
+          const sections = page.getByRole("navigation", {
+            name: "Profile sections",
+          })
+          const identity = sections.getByRole("button", {
+            name: "Identity",
+            exact: true,
+          })
+          await expect(identity).toBeVisible()
+          await pageSettled(page)
+          await expectAccessible(
+            page,
+            `${viewport.name} ${theme} profile index`
+          )
+          await identity.click()
+        }
         await expect(
           page.getByRole("textbox", { name: "Business name" })
         ).toBeVisible()
@@ -778,7 +795,7 @@ for (const theme of themes) {
           })
         })
         // The shell reads the client list for its sidebar, breadcrumbs and
-        // health chip. Unstubbed it answers 401, and lib/api/client.ts treats
+        // scope control. Unstubbed it answers 401, and lib/api/client.ts treats
         // that as "sign in again" and navigates the whole page away.
         await page.route(/\/api\/clients(?:\?.*)?$/, async (route) => {
           await route.fulfill({
@@ -1151,11 +1168,11 @@ for (const theme of themes) {
 
         // One status surface, from lib/inbox/reply-state.ts: a confirmed
         // `published` reply with nothing newer in the composer is the only
-        // state that reads "Live on Google". Asserting the strip by its slot
+        // state that reads "On Google". Asserting the strip by its slot
         // keeps this pointed at the one place the pane answers the question.
         await expect(
           selectedReview.locator('[data-slot="reply-status-strip"]')
-        ).toHaveText("Live on Google")
+        ).toHaveText("On Google")
 
         // The editor is always open: the live words, editable in place.
         await expect(
@@ -1244,8 +1261,9 @@ for (const theme of themes) {
         }
       })
 
-      test("stale data chip", async ({ page }) => {
-        // The health chip says "Data may be stale" when a refetch fails AFTER
+      test("stale data in the scope control", async ({ page }) => {
+        // The scope's health words (the retired health chip's, DIRECTION D8)
+        // say "Data may be stale" when a refetch fails AFTER
         // an earlier success. That is a different claim from "Google is
         // disconnected": the connection may be fine and it is our own server
         // we cannot reach, and an operator acting on stale counts would
@@ -1259,11 +1277,15 @@ for (const theme of themes) {
         await page.clock.install()
         const controls = await mockReviewWorkspace(page)
         await page.goto("/inbox")
-        // From 768px the words are the toolbar's health chip. A phone's bar
-        // has no chip: the same words (one hook, useContextHealth in
-        // components/app-shell/context-health-chip.tsx) are the More sheet's
-        // Connections row, so the sheet stays open across the refetch.
-        let health = page.locator('[data-slot="health-chip"]')
+        // From 1180px the words are in the sidebar's "Working on" control,
+        // after the scope and its listings ("1 listing · All clients in
+        // sync"). With one client there is nothing to switch, so a phone's
+        // More sheet shows the same words (useContextHealth in
+        // components/app-shell/context-health-chip.tsx) as its Connections
+        // row, and the sheet stays open across the refetch.
+        let health = page.locator(
+          'aside[data-slot="sidebar"] [data-slot="scope-control"]'
+        )
         if (viewport.name === "mobile") {
           await page
             .getByRole("navigation", { name: "Primary" })
@@ -1273,16 +1295,26 @@ for (const theme of themes) {
             .getByRole("dialog", { name: "More" })
             .locator('[data-slot="health-row"]')
         }
-        await expect(
-          health.getByText("All clients in sync", { exact: true })
-        ).toBeVisible()
+        if (viewport.name === "mobile") {
+          await expect(
+            health.getByText("All clients in sync", { exact: true })
+          ).toBeVisible()
+        } else {
+          await expect(health).toBeVisible()
+          await expect(health).toContainText("All clients in sync")
+        }
         controls.failClients()
         // Past the clients list's own poll (CLIENTS_POLL_MS, five minutes,
         // lib/queries/use-shell-status.ts): nothing else refetches it here.
         await page.clock.fastForward("00:05:05")
-        await expect(
-          health.getByText("Data may be stale", { exact: true })
-        ).toBeVisible()
+        if (viewport.name === "mobile") {
+          await expect(
+            health.getByText("Data may be stale", { exact: true })
+          ).toBeVisible()
+        } else {
+          await expect(health).toHaveAttribute("data-tone", "attention")
+          await expect(health).toContainText("Data may be stale")
+        }
         await expectAccessible(
           page,
           `${viewport.name} ${theme} stale review data`

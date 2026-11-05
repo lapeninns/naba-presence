@@ -102,14 +102,12 @@ function specialOrder(special: NormalizedHours["special"]): number[] {
 }
 
 /**
- * The "Changed" word on a special-day row, drawn as SettingsRow draws its
+ * The "Edited" word on a special-day row, drawn as SettingsRow draws its
  * `changed` word on the day rows: a word, never colour alone.
  */
 function ChangedMark() {
   return (
-    <span className="shrink-0 text-caption font-medium text-accent-ink">
-      Changed
-    </span>
+    <span className="shrink-0 text-caption font-medium text-ink">Edited</span>
   )
 }
 
@@ -264,13 +262,13 @@ const rowBleedClassName = "-mx-2 w-auto px-2"
  * Laid out as settings groups (`SettingsGroup`, a bordered card on the
  * desk): regular hours are one group with one compact row per day, Monday
  * first: the day's name over its hours ("09:00 – 17:00", "Closed"), a
- * "Changed" word and fill tint when it differs from Google, and the open
+ * "Edited" word and fill tint when it differs from Google, and the open
  * switch beside the row. A row opens that day's sheet, which holds the
  * times, closing day, split period and "Copy to…"; one "Copy Monday to…"
  * action sits at the top of the group. A day's problem shows on its row.
  *
  * Special days are list rows in one group: the date and its hours as a
- * summary ("Thu 25 Dec 2026 · Closed", with "Changed" and "Past" words, and
+ * summary ("Thu 25 Dec 2026 · Closed", with "Edited" and "Past" words, and
  * any problem in words under it). A row opens that day's sheet, which holds
  * its fields; edits go straight into the draft, as they always did, so
  * closing the sheet throws nothing away. The validation summary reaches a

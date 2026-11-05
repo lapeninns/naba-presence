@@ -4,17 +4,20 @@ import { cardClassName } from "@/components/ui/card"
 import { SettingsGroup } from "@/components/ui/settings-row"
 import { cn } from "@/lib/utils"
 
-/** The reference `.changed-mark`: an info-ink word with a pen, never colour alone. */
-export function ChangedMark({ label = "Changed" }: { label?: string }) {
+/**
+ * The reference `.changed-mark`: a word with a pen, never colour alone. Ink,
+ * not blue: an edit that differs from Google has not gone there yet.
+ */
+export function ChangedMark({ label = "Edited" }: { label?: string }) {
   return (
-    <span className="inline-flex items-center gap-1 text-caption font-semibold text-info-ink">
+    <span className="inline-flex items-center gap-1 text-caption font-semibold text-ink">
       <PenLine className="size-3" strokeWidth={2} aria-hidden />
       {label}
     </span>
   )
 }
 
-/** A field label row: the label, then the "Changed" word when it differs from Google. */
+/** A field label row: the label, then the "Edited" word when it differs from Google. */
 export function LabelRow({
   children,
   changed,
@@ -50,7 +53,7 @@ export function LabelRow({
  * section, the group drops its visible heading row and caption below `desk`
  * so its first field starts straight under the tabs. The heading stays in
  * the outline as screen-reader text, still the section nav's focus target,
- * and the caption still describes the group; a "Changed" mark keeps its row.
+ * and the caption still describes the group; an "Edited" mark keeps its row.
  * The section nav moves focus to that heading, and a 1 px clipped box cannot
  * show a focus ring, so the heading is drawn again while it has keyboard
  * focus (`focus-visible`), ring included, and goes quiet when focus leaves.

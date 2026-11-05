@@ -34,15 +34,17 @@ import { cn } from "@/lib/utils"
  *   it and a matching sr-only word (`unreadLabel`, "Unread"): the dot only
  *   reinforces words. `"read"`: title 400 ink-secondary. `"neutral"`: for
  *   lists without a read state, title 500 ink.
- * - Selected: the selection tint (`--np-selection-bg`, the accent tint:
- *   "you are here"), `aria-current` (or `aria-selected` with
- *   `selectedAs="selected"` inside a listbox/grid), and no divider. Ink,
- *   muted and status inks are gated on it. A hover does not change it.
+ * - Selected: the neutral fill (`--np-selection-bg`, "you are here") and a
+ *   3px ink edge down the leading side (`shadow-np-edge-select`, inset, so
+ *   nothing moves), `aria-current` (or `aria-selected` with
+ *   `selectedAs="selected"` inside a listbox/grid), and no divider. No
+ *   accent: green is kept for sending. Ink, muted and status inks are gated
+ *   on the fill, and the edge reads in greyscale. A hover does not change it.
  * - Divider: 1px `line-subtle`, inset from `--np-row-inset-start` (the text
  *   column) to `--np-page-pad-x`; never under the last row.
  * - Focus: an inset 2px ring (a box-shadow, so a scrolling list never clips
  *   it; `outline-hidden` keeps an outline in forced colours). The ring is
- *   a 2px line at the focus step, darker than the tint in light and
+ *   a 2px line at the focus step, darker than the fill in light and
  *   lighter in dark, so a focused selected row shows both. Hover
  *   `surface-alt`, fine pointers only, on rows that are not selected.
  * - `bleed`: on a phone the row (or the `ListRows` list) cancels the page
@@ -211,6 +213,12 @@ export type ListRowProps = Omit<
   subtitle?: React.ReactNode
   /** Trailing L2: a status pill. Shares the line with `subtitle`. */
   trailing?: React.ReactNode
+  /**
+   * Where `trailing` sits. `"line"` (default): at the end of the subtitle
+   * line everywhere. `"adaptive"`: there on a desk, and under the preview on
+   * touch, where the subtitle line is too narrow to share.
+   */
+  trailingPlacement?: "line" | "adaptive"
   /** The snippet: 2 lines on touch, 1 on a desk (1 when tags are shown). */
   preview?: React.ReactNode
   /** Tag pills (`ListRowTag`), the last line. */
@@ -315,6 +323,7 @@ function ListRow({
   meta,
   subtitle,
   trailing,
+  trailingPlacement = "line",
   preview,
   tags,
   emphasis = "read",
@@ -387,6 +396,7 @@ function ListRow({
   const hasFooter = footer != null && footer !== false
   const hasDetails = details != null && details !== false
   const hasLeading = leading != null || leadingControl != null
+  const adaptive = trailingPlacement === "adaptive"
   const isLink = href !== undefined
   const detailsId = React.useId()
   const [uncontrolledOpen, setUncontrolledOpen] =
@@ -470,11 +480,21 @@ function ListRow({
           ) : null}
         </TitleBox>
         {subtitle != null || trailing != null ? (
-          <span className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              "min-w-0 items-center gap-2",
+              // On touch the line dissolves into the column, so `order`
+              // can drop the pill under the preview without a second copy.
+              // Written as touch-first plus `desk:` because a negated
+              // `desk` query (`not (a) and (b)`) is invalid media syntax.
+              adaptive ? "contents desk:flex" : "flex"
+            )}
+          >
             <span
               data-slot="list-row-subtitle"
               className={cn(
-                "min-w-0 flex-1 text-ui",
+                "min-w-0 text-ui",
+                adaptive ? "desk:flex-1" : "flex-1",
                 wrap ? "wrap-anywhere" : "truncate",
                 emphasis === "read" ? "text-ink-secondary" : "text-ink"
               )}
@@ -484,7 +504,11 @@ function ListRow({
             {trailing != null ? (
               <span
                 data-slot="list-row-trailing"
-                className="flex shrink-0 items-center gap-1.5"
+                data-placement={trailingPlacement}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5",
+                  adaptive && "order-1 mt-1 desk:order-none desk:mt-0"
+                )}
               >
                 {trailing}
               </span>
@@ -505,7 +529,10 @@ function ListRow({
         {tags != null ? (
           <span
             data-slot="list-row-tags"
-            className="mt-1 flex min-w-0 flex-wrap gap-1.5"
+            className={cn(
+              "mt-1 flex min-w-0 flex-wrap gap-1.5",
+              adaptive && "order-2 desk:order-none"
+            )}
           >
             {tags}
           </span>
@@ -520,9 +547,9 @@ function ListRow({
     // The "⋯" button takes the row's end padding.
     hasSwipe && "pe-1",
     interactive &&
-      "cursor-pointer transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 forced-colors:focus-visible:outline-solid",
+      "cursor-pointer transition-colors duration-(--np-duration-fast) ease-press outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2 forced-colors:focus-visible:outline-solid",
     interactive && !selected && "hover-fine:hover:bg-surface-alt",
-    selected && "bg-(--np-selection-bg)",
+    selected && "bg-(--np-selection-bg) shadow-np-edge-select",
     className
   )
 

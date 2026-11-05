@@ -8,6 +8,7 @@ import {
   FilterIcon,
   InboxIcon,
   LoaderIcon,
+  LockIcon,
   PlugIcon,
   UnlinkIcon,
 } from "lucide-react"
@@ -79,6 +80,8 @@ export type FilteredFacts = {
   queueLabel?: string
   /** The server's count for that queue in scope, filters aside. */
   queueTotal?: number
+  /** The date range ends before it starts, so it can match nothing. */
+  rangeInverted?: boolean
 }
 
 /** "Needs reply has 2 reviews", or nothing when the count is not known. */
@@ -98,6 +101,13 @@ function filteredContent(filtered: FilteredFacts | undefined): Content {
       description: filtered.queueLabel
         ? `Nothing in ${filtered.queueLabel} matches. Try other words, or choose another queue above. Your search stays.`
         : "Try other words.",
+    }
+  }
+  if (filtered?.rangeInverted) {
+    return {
+      title: "No reviews match these filters.",
+      description:
+        "The end date is before the start date. Change the dates in Filters, or clear them all.",
     }
   }
   const has = filtered ? queueHas(filtered) : null
@@ -190,6 +200,15 @@ function content(
             description:
               "Ask an owner or admin to add a client and link its Google listings. Their reviews will arrive here.",
           }
+    // Said for both "none shared" and "the server refused": either way the
+    // fix is someone else's, so there is no action to offer.
+    case "no_access":
+      return {
+        title: "No reviews are shared with you.",
+        description: business
+          ? "Ask an owner or admin to give you access to a listing. Its reviews will appear here."
+          : "Ask an owner or admin to give you access to a client. Its reviews will appear here.",
+      }
     // This state carries the whole message, headline and action included. It
     // used to defer to the shell's ReconnectBanner, but that banner is now
     // client-scoped and the inbox is organisation-wide, so on this screen
@@ -279,10 +298,9 @@ const NO_COUNTS: EmptyCounts = {
 
 /**
  * A message in place of content (reference `.empty`): the `Empty`
- * primitive, with a tinted mark or, in its `illustration` slot, a line
- * drawing; the title (an h2, the primitive's `text-title` at weight 500,
- * like Notion Mail's "All caught up!"), one muted sentence and at most one
- * action. Used for the pane that has nothing selected and for every reason
+ * primitive, with its 20px line glyph in the tone's ink; the title (an h2,
+ * the primitive's `text-title`, like Notion Mail's "All caught up!"), one
+ * muted sentence and at most one action. Used for the pane that has nothing selected and for every reason
  * a queue can be empty. `placement="page"` is for a state that fills its
  * pane (it sits at about 35% of the height).
  */
@@ -291,7 +309,6 @@ function Statement({
   description,
   action,
   icon = <InboxIcon />,
-  illustration,
   tone = "neutral",
   placement,
   className,
@@ -300,7 +317,6 @@ function Statement({
   description?: React.ReactNode
   action?: React.ReactNode
   icon?: React.ReactNode
-  illustration?: React.ReactNode
   tone?: "neutral" | "ok" | "bad"
   placement?: "inline" | "page"
   className?: string
@@ -310,8 +326,7 @@ function Statement({
       title={title}
       description={description}
       action={action}
-      icon={illustration ? null : icon}
-      illustration={illustration || undefined}
+      icon={icon}
       tone={tone}
       titleAs="h2"
       placement={placement}
@@ -320,160 +335,11 @@ function Statement({
   )
 }
 
-/**
- * Line art for the empty list (Notion Mail's inbox-zero drawing, in our own
- * shapes), for the `Empty` illustration slot: drawn on a 112 grid with a
- * 1.5 stroke in `currentColor`, so the slot's ink, size and aria-hidden
- * apply. Only the danger mark carries a colour of its own. Nothing
- * animates, so reduced motion has nothing to stop (the hourglass is a still
- * drawing, never a spinner).
- */
-function Art({ children }: { children: React.ReactNode }) {
-  return (
-    <svg
-      aria-hidden
-      focusable="false"
-      viewBox="0 0 112 112"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {children}
-    </svg>
-  )
-}
-
-/** The tray every inbox drawing starts from. */
-const TRAY = (
-  <>
-    <path d="M18 66 30 38h52l12 28v18a4 4 0 0 1-4 4H22a4 4 0 0 1-4-4Z" />
-    <path d="M18 66h22l4 8h24l4-8h22" />
-  </>
-)
-
-/**
- * The danger mark for a reason that is a problem (`bad`): an exclamation in
- * a circle, so the state is not carried by the red alone.
- */
-const ALERT_MARK = (
-  <g className="text-danger-ink">
-    <circle cx="88" cy="24" r="10" />
-    <path d="M88 19v6" />
-    <path d="M88 29.5h.01" />
-  </g>
-)
-
-/** Caught up: the tray with a tick in it. */
-const TRAY_TICK = (
-  <Art>
-    {TRAY}
-    <path d="m46 54 7 7 13-14" />
-  </Art>
-)
-
-/** Nothing yet: the empty tray, with a little air above it. */
-const TRAY_EMPTY = (
-  <Art>
-    {TRAY}
-    <path d="M46 26v-6M56 24V14M66 26v-6" />
-  </Art>
-)
-
-/** No clients or locations: a shopfront. */
-const STOREFRONT = (
-  <Art>
-    <path d="M24 44 32 26h48l8 18" />
-    <path d="M24 44a8 8 0 0 0 16 0 8 8 0 0 0 16 0 8 8 0 0 0 16 0 8 8 0 0 0 16 0" />
-    <path d="M28 52v36h56V52" />
-    <path d="M48 88V68h16v20" />
-    <path d="M70 62h8v10h-8Z" />
-    <path d="M16 88h80" />
-  </Art>
-)
-
-/** Not connected: a plug pulled out of its socket. */
-const UNPLUGGED = (
-  <Art>
-    <path d="M8 58h14" />
-    <rect x="22" y="48" width="20" height="20" rx="4" />
-    <path d="M42 53h8M42 63h8" />
-    <rect x="64" y="46" width="24" height="24" rx="5" />
-    <path d="M72 55v6M80 55v6" />
-    <path d="M88 58h16" />
-    <path d="m55 44 3-6M57 58h2M55 72l3 6" />
-  </Art>
-)
-
-/** Disconnected: the pulled plug, with the danger mark. */
-const UNPLUGGED_ALERT = (
-  <Art>
-    <path d="M8 66h14" />
-    <rect x="22" y="56" width="20" height="20" rx="4" />
-    <path d="M42 61h8M42 71h8" />
-    <rect x="60" y="54" width="24" height="24" rx="5" />
-    <path d="M68 63v6M76 63v6" />
-    <path d="M84 66h20" />
-    {ALERT_MARK}
-  </Art>
-)
-
-/** Still coming in: an hourglass, part run. */
-const HOURGLASS = (
-  <Art>
-    <path d="M38 18h36M38 94h36" />
-    <path d="M42 18c0 20 14 26 14 38S42 74 42 94" />
-    <path d="M70 18c0 20-14 26-14 38s14 18 14 38" />
-    <path d="M48 30h16M48 88c2-6 6-8 8-8s6 2 8 8Z" />
-  </Art>
-)
-
-/** An import that did not finish: the tray, with the danger mark. */
-const TRAY_ALERT = (
-  <Art>
-    {TRAY}
-    <path d="M44 52h24" />
-    {ALERT_MARK}
-  </Art>
-)
-
-/**
- * The drawing for each reason. `filtered` and `unknown` have none: a
- * search or filter that matched nothing gets the small mark and one line,
- * as Notion Mail's search does, and "nothing to show" is not an event to
- * illustrate.
- */
-function illustrationFor(
-  reason: EmptyReason,
-  queue: Queue | undefined
-): React.ReactNode {
-  switch (reason) {
-    case "queue_empty":
-      return queue && visibleQueue(queue) === "done" ? TRAY_EMPTY : TRAY_TICK
-    case "checked":
-      return TRAY_EMPTY
-    case "no_clients":
-      return STOREFRONT
-    case "disconnected":
-      return UNPLUGGED_ALERT
-    case "not_connected":
-    case "never_imported":
-      return UNPLUGGED
-    case "importing":
-      return HOURGLASS
-    case "import_failed":
-      return TRAY_ALERT
-    case "filtered":
-    case "unknown":
-      return null
-  }
-}
-
 const ICONS: Record<EmptyReason, React.ReactNode> = {
   filtered: <FilterIcon />,
   queue_empty: <CheckIcon />,
   no_clients: <InboxIcon />,
+  no_access: <LockIcon />,
   disconnected: <UnlinkIcon />,
   not_connected: <PlugIcon />,
   importing: <LoaderIcon />,
@@ -602,7 +468,6 @@ function EmptyState({
       description={description}
       action={action}
       icon={ICONS[reason]}
-      illustration={illustrationFor(reason, queue)}
       placement={placement}
       tone={
         // An empty Done queue is not good news; every other empty queue is.

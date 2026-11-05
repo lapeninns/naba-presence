@@ -1,14 +1,9 @@
 "use client"
 
-import { History, RefreshCw } from "lucide-react"
+import { CircleAlertIcon, History } from "lucide-react"
 import { useId } from "react"
 
-import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
@@ -35,7 +30,8 @@ const STATUS: Record<
   not_started: { label: "Not started", tone: "neutral", dashed: true },
   pending: { label: "Queued", tone: "neutral", dashed: true },
   running: { label: "Importing…", tone: "info" },
-  succeeded: { label: "Imported", tone: "ok" },
+  // Reviews read from Google, not a change Google confirmed: ink, not green.
+  succeeded: { label: "Imported", tone: "neutral" },
   failed: { label: "Failed", tone: "bad" },
   cancelled: { label: "Cancelled", tone: "neutral" },
   // Terminal (lib/contracts/sync.ts): the runner stopped retrying it.
@@ -83,6 +79,28 @@ function describeStoppedImport(code: string | null): string {
 const IN_FLIGHT = new Set(["running", "pending"])
 // Rows that ended without importing: starting again is then a retry.
 const UNSUCCESSFUL = new Set(["failed", "dead", "cancelled"])
+
+/**
+ * One line over a mixed run ("2 imported · 1 failed · 1 queued"), so a
+ * partial import reads as partial before anyone scans the rows. Nothing for
+ * a single listing or a run whose rows all share one state: the pill says it.
+ */
+function importSummary(items: readonly BackfillItem[]): string | null {
+  if (items.length < 2) return null
+  const count = (statuses: readonly string[]) =>
+    items.filter((item) => statuses.includes(item.status)).length
+  const parts = [
+    [count(["succeeded"]), "imported"],
+    [count(["running"]), "importing"],
+    [count(["pending"]), "queued"],
+    [count(["failed", "dead"]), "failed"],
+    [count(["cancelled"]), "cancelled"],
+    [count(["not_started"]), "not started"],
+  ] as const
+  const present = parts.filter(([n]) => n > 0)
+  if (present.length < 2) return null
+  return present.map(([n, word]) => `${n} ${word}`).join(" · ")
+}
 
 function attempts(count: number): string {
   return count === 1 ? "1 attempt" : `${count} attempts`
@@ -169,6 +187,9 @@ export function BackfillCard({
     return (
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {header}
+        <p role="status" className="sr-only">
+          Loading import progress…
+        </p>
         <Skeleton
           aria-busy="true"
           className="h-28 w-full rounded-(--np-radius-card)"
@@ -180,26 +201,30 @@ export function BackfillCard({
     return (
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {header}
-        <Alert variant="destructive">
-          <AlertTitle>We couldn’t load import progress</AlertTitle>
-          <AlertDescription>
-            {describeActionError(query.error)}
-          </AlertDescription>
-          <AlertActions>
+        {/* The setup error idiom: announced once, Try again outside the
+            alert and showing that it runs. */}
+        <Empty
+          variant="error"
+          role="alert"
+          icon={<CircleAlertIcon />}
+          title="We couldn’t load import progress"
+          description={`${describeActionError(query.error)} Nothing was changed.`}
+          actions={
             <Button
               variant="secondary"
-              size="sm"
-              onClick={() => query.refetch()}
+              pending={query.isFetching}
+              pendingLabel="Trying again…"
+              onClick={() => void query.refetch()}
             >
-              <RefreshCw aria-hidden />
               Try again
             </Button>
-          </AlertActions>
-        </Alert>
+          }
+        />
       </section>
     )
   }
 
+  const summary = importSummary(items)
   const paused = isPausedError(start.error)
   const startFailed = start.error && !paused ? start.error : null
 
@@ -229,6 +254,9 @@ export function BackfillCard({
             {describeActionError(cancel.error)}
           </AlertDescription>
         </Alert>
+      ) : null}
+      {summary ? (
+        <p className="text-ui text-ink-secondary tabular-nums">{summary}</p>
       ) : null}
       {items.length === 0 ? (
         <Card flush>

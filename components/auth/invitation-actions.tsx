@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
-import { useState, useTransition } from "react"
+import { useId, useState, useTransition } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
@@ -43,6 +43,10 @@ function InvitationActions({
   const queryClient = useQueryClient()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<AuthMessage | null>(null)
+  // Focus stays on the button through a failure, so the failure (and, on
+  // the other account, why signing out is needed) describes it.
+  const errorId = useId()
+  const mismatchId = useId()
 
   const sameEmail =
     viewer.email.trim().toLowerCase() === invitedEmail.trim().toLowerCase()
@@ -99,12 +103,17 @@ function InvitationActions({
     // this joins, so the action follows the details directly.
     return (
       <div className="flex flex-col gap-5">
-        {error ? <AuthErrorAlert message={error} /> : null}
+        {error ? (
+          <div id={errorId}>
+            <AuthErrorAlert message={error} />
+          </div>
+        ) : null}
         <Button
           type="button"
           size="lg"
           block
           className={WRAPPING_BLOCK_BUTTON}
+          aria-describedby={error ? errorId : undefined}
           onClick={handleAccept}
           pending={pending}
           pendingLabel="Accepting…"
@@ -117,7 +126,10 @@ function InvitationActions({
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-body [overflow-wrap:anywhere] text-ink-muted">
+      <p
+        id={mismatchId}
+        className="text-body [overflow-wrap:anywhere] text-ink-muted"
+      >
         {`You are signed in as ${viewer.email}, but this invitation is for ${invitedEmail}.`}
       </p>
       <div className="flex flex-col gap-2">
@@ -126,6 +138,7 @@ function InvitationActions({
           size="lg"
           block
           className={WRAPPING_BLOCK_BUTTON}
+          aria-describedby={mismatchId}
           onClick={handleSignOut}
           pending={pending}
           pendingLabel="Signing out…"

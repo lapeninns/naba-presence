@@ -34,24 +34,24 @@ describe("GoogleFreshness", () => {
   it("takes the caller's layout when the data is current", () => {
     stubClients("up_to_date")
     const { container } = render(
-      <GoogleFreshness className="max-desk:hidden min-w-0 truncate" />
+      <GoogleFreshness className="hidden min-w-0 truncate desk:block" />
     )
     expect(screen.getByText(/Google checked/)).toBeInTheDocument()
     const note = container.firstElementChild!
-    expect(note).toHaveClass("min-w-0", "truncate", "max-desk:hidden")
+    expect(note).toHaveClass("min-w-0", "truncate", "hidden desk:block")
     expect(note).toHaveClass("text-ink-muted")
   })
 
   it("takes the caller's layout when the data is delayed, in the warning ink", () => {
     stubClients("data_delayed")
     const { container } = render(
-      <GoogleFreshness className="max-desk:hidden min-w-0 truncate" />
+      <GoogleFreshness className="hidden min-w-0 truncate desk:block" />
     )
     const note = container.firstElementChild!
     expect(note).toHaveTextContent("delayed, retrying")
     // A delay used to ignore the caller's classes, so it could overflow a
     // header that had folded the routine line away.
-    expect(note).toHaveClass("min-w-0", "truncate", "max-desk:hidden")
+    expect(note).toHaveClass("min-w-0", "truncate", "hidden desk:block")
     expect(note).toHaveClass("text-warning-ink")
     expect(note).not.toHaveClass("text-ink-muted")
   })
@@ -68,5 +68,50 @@ describe("GoogleFreshness", () => {
     stubClients("up_to_date", { ageMs: 0 })
     render(<GoogleFreshness />)
     expect(screen.getByText("Google checked just now")).toBeInTheDocument()
+  })
+
+  describe("across clients (agency scope)", () => {
+    function stubTwo(second: string | null) {
+      const entry = (lastSuccessfulCheckAt: string | null) => ({
+        state: "up_to_date",
+        reason: null,
+        lastSuccessfulCheckAt,
+      })
+      vi.spyOn(clientsHook, "useClients").mockReturnValue({
+        data: {
+          items: [
+            {
+              id: "c1",
+              linkedCount: 1,
+              freshness: entry(new Date(Date.now() - 300_000).toISOString()),
+            },
+            { id: "c2", linkedCount: 2, freshness: entry(second) },
+          ],
+        },
+      } as unknown as ReturnType<typeof clientsHook.useClients>)
+    }
+
+    it("dates the scope by its least recently checked client", () => {
+      stubTwo(new Date(Date.now() - 3 * 3_600_000).toISOString())
+      render(<GoogleFreshness />)
+      expect(
+        screen.getByText(/Google checked 3 h(ou)?rs? ago/)
+      ).toBeInTheDocument()
+    })
+
+    it("does not date the scope by the checked clients while another was never checked", () => {
+      stubTwo(null)
+      const { container } = render(<GoogleFreshness />)
+      expect(container.firstElementChild).toHaveTextContent(
+        "Google not checked for every listing yet"
+      )
+      expect(screen.queryByText(/Google checked/)).not.toBeInTheDocument()
+    })
+
+    it("dates a filtered client by its own check", () => {
+      stubTwo(null)
+      render(<GoogleFreshness clientId="c1" />)
+      expect(screen.getByText(/Google checked 5 min/)).toBeInTheDocument()
+    })
   })
 })

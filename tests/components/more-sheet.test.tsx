@@ -10,6 +10,15 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
+// The Outbox route ships later (lib/navigation/outbox.ts); flipping the
+// guard here shows where Outbox lands once it does.
+const outbox = vi.hoisted(() => ({ ready: false }))
+vi.mock("@/lib/navigation/outbox", () => ({
+  get OUTBOX_ROUTE_READY() {
+    return outbox.ready
+  },
+}))
+
 import { AppShell, type ShellSession } from "@/components/app-shell/app-shell"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { Toaster } from "@/components/ui/toast"
@@ -23,6 +32,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   pathname.current = "/listings"
+  outbox.ready = false
 })
 
 const baseSession: ShellSession = {
@@ -64,17 +74,27 @@ function renderShell({
   organisations = [{ organisationId: "o", name: "Lapen Inns Agency" }],
   unread = 0,
   hideCalendar = false,
+  outboxFailed = 0,
 }: {
   session?: ShellSession
   clients?: unknown[]
   organisations?: { organisationId: string; name: string }[]
   unread?: number
   hideCalendar?: boolean
+  outboxFailed?: number
 } = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn<typeof fetch>(async (input) => {
       const url = String(input)
+      if (url.includes("/api/outbox/counts"))
+        return Response.json({
+          person: 0,
+          google: 0,
+          failed: outboxFailed,
+          live: 0,
+          partial: false,
+        })
       const body = url.includes("/api/clients")
         ? { items: clients, unassignedLocationCount: 0 }
         : url.includes("/api/organisations")
@@ -176,6 +196,104 @@ describe("More sheet contents", () => {
     }
   )
 
+  it("lists Outbox first for an agency owner once the route exists", async () => {
+    outbox.ready = true
+    renderShell()
+    const { dialog, sheet } = await openMore()
+    expect(destinationLabels(dialog)).toEqual([
+      "Outbox",
+      "Calendar",
+      "Notifications",
+      "Team",
+      "Settings",
+    ])
+    expect(sheet.getByRole("link", { name: "Outbox" })).toHaveAttribute(
+      "href",
+      "/outbox"
+    )
+  })
+
+  it("lists Outbox first for a business too", async () => {
+    outbox.ready = true
+    renderShell({ session: { ...baseSession, workspaceMode: "business" } })
+    const { dialog } = await openMore()
+    expect(destinationLabels(dialog)).toEqual([
+      "Outbox",
+      "Notifications",
+      "Team",
+      "Settings",
+    ])
+  })
+
+  it("names Outbox failures in the row and draws them in danger ink", async () => {
+    outbox.ready = true
+    renderShell({ outboxFailed: 2 })
+    const { sheet } = await openMore()
+    const row = await sheet.findByRole("link", { name: "Outbox, 2 failed" })
+    const figures = row.querySelector("[data-slot='more-alert']")
+    expect(figures).toHaveTextContent("2")
+    expect(figures).toHaveClass("text-danger-ink")
+  })
+
+  it("never asks a viewer's Outbox counts", async () => {
+    outbox.ready = true
+    renderShell({
+      session: { ...baseSession, role: "viewer" },
+      outboxFailed: 2,
+    })
+    await openMore()
+    const urls = vi.mocked(fetch).mock.calls.map(([input]) => String(input))
+    expect(urls.some((url) => url.includes("/api/outbox"))).toBe(false)
+  })
+
+  it("keeps Outbox for a member, who can send", async () => {
+    outbox.ready = true
+    renderShell({ session: { ...baseSession, role: "member" } })
+    const { dialog } = await openMore()
+    expect(destinationLabels(dialog)).toEqual([
+      "Outbox",
+      "Calendar",
+      "Notifications",
+      "Settings",
+    ])
+  })
+
+  it("leaves Outbox out for a viewer, who cannot send", async () => {
+    outbox.ready = true
+    renderShell({ session: { ...baseSession, role: "viewer" } })
+    const { dialog } = await openMore()
+    expect(destinationLabels(dialog)).toEqual([
+      "Calendar",
+      "Notifications",
+      "Settings",
+    ])
+  })
+
+  it("marks the current row with the neutral grammar, not the accent", async () => {
+    pathname.current = "/team"
+    renderShell()
+    const { sheet } = await openMore()
+    const nav = within(sheet.getByRole("navigation", { name: "More" }))
+    const team = nav.getByRole("link", { name: "Team" })
+    expect(team).toHaveAttribute("aria-current", "page")
+    expect(team).toHaveClass(
+      "aria-[current=page]:bg-fill",
+      "aria-[current=page]:font-semibold",
+      "aria-[current=page]:text-ink"
+    )
+    expect(team.querySelector("svg")).toHaveAttribute("stroke-width", "2")
+    expect(team.querySelector("svg")).toHaveClass("text-ink")
+    const settings = nav.getByRole("link", { name: "Settings" })
+    expect(settings).not.toHaveAttribute("aria-current")
+    expect(settings.querySelector("svg")).toHaveAttribute(
+      "stroke-width",
+      "1.75"
+    )
+    for (const link of nav.getAllByRole("link")) {
+      expect(link.className).not.toMatch(/accent/)
+    }
+  })
+
   it("leaves Calendar out when scheduling is off", async () => {
     renderShell({ hideCalendar: true })
     const { dialog } = await openMore()
@@ -193,9 +311,18 @@ describe("More sheet contents", () => {
   it("shows which client is being worked when an agency has more than one", async () => {
     renderShell()
     const { sheet } = await openMore()
-    const row = await sheet.findByRole("button", { name: /^Working on/ })
+    // One name with the scope control's words: the scope, its listings
+    // and its health, so the dot never says it alone (DIRECTION D8).
+    const row = await sheet.findByRole("button", {
+      name: "Working on All clients, 2 listings · 1 client needs action, Change",
+    })
     expect(row).toHaveAttribute("aria-haspopup", "dialog")
+    expect(row).toHaveAttribute("data-slot", "more-scope")
     expect(row).toHaveTextContent("All clients")
+    // The scope row replaces the Connections row: its health is in the name.
+    expect(
+      sheet.queryByRole("link", { name: /^Connections/ })
+    ).not.toBeInTheDocument()
   })
 
   it("has no Working on row for an agency with one client", async () => {
@@ -208,7 +335,8 @@ describe("More sheet contents", () => {
   })
 
   it("states connection health in words, not a dot alone", async () => {
-    renderShell()
+    // With nothing to switch, the Connections row carries the health.
+    renderShell({ clients: oneClient })
     const { sheet } = await openMore()
     const row = await sheet.findByRole("link", {
       // The two lines are separate spans (jsdom does not lay out the

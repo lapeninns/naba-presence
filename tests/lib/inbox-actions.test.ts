@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  describeDeleteToast,
   describeOutcomeToast,
   evaluateApproval,
   evaluateDelete,
@@ -83,8 +84,8 @@ describe("describeOutcomeToast", () => {
   it("shows success copy for an actually-published outcome", () => {
     expect(describeOutcomeToast("published")).toEqual({
       kind: "google",
-      title: "Reply published",
-      description: "Live on Google.",
+      title: "Confirmed on Google",
+      description: "Your reply is on Google.",
       type: "success",
     })
   })
@@ -97,8 +98,8 @@ describe("describeOutcomeToast", () => {
     })
     expect(toast).toEqual({
       kind: "google",
-      title: "Reply published",
-      description: "Live on Google.",
+      title: "Confirmed on Google",
+      description: "Your reply is on Google.",
       type: "success",
       link: { href: "https://search.google.com/local/reviews?r=1" },
     })
@@ -148,13 +149,13 @@ describe("describeOutcomeToast", () => {
       cancelled: "local",
     })
   })
-  it("does not say Live on Google while Google is still checking the reply", () => {
+  it("does not say On Google while Google is still checking the reply", () => {
     const toast = describeOutcomeToast("published", {
       googleReplyState: "PENDING",
     })
     expect(toast).toEqual({
       kind: "google",
-      title: "Reply sent",
+      title: "Sent, waiting for Google to confirm",
       description:
         "Google is checking it. It is not public until Google approves it.",
       type: "info",
@@ -162,14 +163,14 @@ describe("describeOutcomeToast", () => {
     expect(JSON.stringify(toast)).not.toMatch(/live/i)
     expect(
       describeOutcomeToast("published", { googleReplyState: "APPROVED" }).title
-    ).toBe("Reply published")
+    ).toBe("Confirmed on Google")
   })
   it("shows the awaiting-approval copy, not success", () => {
     expect(describeOutcomeToast("awaiting_approval")).toEqual({
       kind: "google",
-      title: "Submitted for approval",
+      title: "Awaiting approval",
       description:
-        "It goes live once someone with publishing rights approves it.",
+        "It goes to Google once someone with publishing rights approves it.",
       type: "info",
     })
   })
@@ -178,12 +179,12 @@ describe("describeOutcomeToast", () => {
     expect(toast.type).not.toBe("success")
     expect(toast.title).not.toMatch(/published/i)
   })
-  it("shows success copy when a reject decision returns the reply to draft", () => {
+  it("shows neutral copy when a reject decision returns the reply to draft (local only)", () => {
     expect(describeOutcomeToast("returned_to_draft")).toEqual({
       kind: "local",
-      title: "Reply sent back for edits",
+      title: "Sent back",
       description: "Its author can revise it and submit it again.",
-      type: "success",
+      type: "neutral",
     })
   })
   it("never claims 'published' for an unrecognised resolved status", () => {
@@ -194,11 +195,40 @@ describe("describeOutcomeToast", () => {
   it("calls a resolved pending reply sent, never submitted or published", () => {
     expect(describeOutcomeToast("pending")).toEqual({
       kind: "google",
-      title: "Reply sent",
-      description:
-        "Google hasn’t confirmed it yet. This review updates when it does.",
+      title: "Sent, waiting for Google to confirm",
+      description: "This review updates when Google confirms it.",
       type: "info",
     })
+  })
+  it("says a settled failed publish did not reach Google", () => {
+    expect(describeOutcomeToast("failed")).toMatchObject({
+      kind: "google",
+      title: "It didn’t go through. Nothing changed on Google.",
+      type: "error",
+    })
+  })
+  it("says neither sent nor failed when Google's answer was lost", () => {
+    const toast = describeOutcomeToast("ambiguous")
+    expect(toast).toMatchObject({
+      kind: "google",
+      title: "We can’t tell whether Google applied it",
+      type: "warning",
+    })
+    expect(String(toast.description)).toMatch(/Check Google/)
+    expect(String(toast.title)).not.toMatch(/published|submitted|sent/i)
+  })
+  it("says an ambiguous delete may have left the reply on Google", () => {
+    expect(describeDeleteToast("ambiguous")).toMatchObject({
+      kind: "google",
+      title: "We can’t tell whether Google applied it",
+      type: "warning",
+    })
+    expect(String(describeDeleteToast("ambiguous").description)).toMatch(
+      /may still be on Google/
+    )
+    expect(describeDeleteToast("deleted")).toEqual(
+      describeOutcomeToast("deleted")
+    )
   })
   it("never claims 'published' for an unknown status", () => {
     const toast = describeOutcomeToast("something_new")

@@ -42,12 +42,13 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
       const replyBox = screen.getByRole("textbox", { name: "Your reply" })
       await expect(replyBox).toBeVisible()
 
-      // No OpenAI key here, so Generate answers with an error (or is off).
-      // One try, then the typed reply below is what the journey publishes.
-      await agent.act(
-        'Press "Generate reply" (or "Regenerate") once to ask for a suggested reply. This test environment has no AI provider, so a message such as "No reply was generated" is an expected result: the goal is done once you have pressed it, or found it disabled. Do not retry and do not type anything.'
-      )
-      await expect(replyBox).toBeVisible()
+      // The fixture has no AI provider. Wait for that capability to resolve
+      // before taking the manual compose path.
+      await expect(
+        selected.getByText("AI replies aren’t set up here. Write your own.", {
+          exact: true,
+        })
+      ).toBeVisible({ timeout: 30_000 })
 
       const reply = `Thank you for your kind review. We are delighted you enjoyed your stay (ref ${runTag()}).`
       await agent.act(
@@ -79,10 +80,14 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
         'Publish the reply to Google with the "Publish reply" button (it reads "Update reply" if a reply is already live)'
       )
       await expect(
-        // "Reply sent" when Google holds the reply for moderation (the stub
-        // can answer PENDING); either way it reached Google
-        // (lib/inbox/actions.ts describeOutcomeToast).
-        screen.getByText(/^Reply (published|sent)$/).first()
+        // "Confirmed on Google" once readback confirms it, or "Sent, waiting
+        // for Google to confirm" while Google holds it; never "published"
+        // before Google says so (lib/inbox/actions.ts describeOutcomeToast).
+        screen
+          .getByText(
+            /^(Confirmed on Google|Sent, waiting for Google to confirm)$/
+          )
+          .first()
       ).toBeVisible({
         timeout: 30_000,
       })
@@ -130,7 +135,7 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
         'Send the reply on: press the primary reply button below it ("Publish reply", "Update reply" or "Submit for approval"). This organisation needs approval, so it should be submitted for approval.'
       )
       await expect(
-        screen.getByText("Submitted for approval", { exact: true }).first()
+        screen.getByText("Awaiting approval", { exact: true }).first()
       ).toBeVisible({
         timeout: 30_000,
       })
@@ -163,15 +168,19 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
         selected.getByText(state.approval.text, { exact: true })
       ).toBeVisible()
       await agent.assert(
-        "The selected review shows a reply waiting for approval, with an Approve reply button"
+        "The selected review shows a reply waiting for approval, with an Approve and publish button"
       )
 
-      await agent.act('Approve the reply with the "Approve reply" button')
+      await agent.act('Approve the reply with the "Approve and publish" button')
       await expect(
-        // "Reply sent" when Google holds the reply for moderation (the stub
-        // can answer PENDING); either way it reached Google
-        // (lib/inbox/actions.ts describeOutcomeToast).
-        screen.getByText(/^Reply (published|sent)$/).first()
+        // "Confirmed on Google" once readback confirms it, or "Sent, waiting
+        // for Google to confirm" while Google holds it; never "published"
+        // before Google says so (lib/inbox/actions.ts describeOutcomeToast).
+        screen
+          .getByText(
+            /^(Confirmed on Google|Sent, waiting for Google to confirm)$/
+          )
+          .first()
       ).toBeVisible({
         timeout: 30_000,
       })

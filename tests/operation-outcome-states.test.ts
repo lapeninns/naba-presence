@@ -223,17 +223,17 @@ describe("post outcomes", () => {
 
   it("words the posts tab pill in the shared outcome words", () => {
     expect(postStatus({ status: "published", googleState: "LIVE" })).toEqual({
-      label: "Live on Google",
+      label: "On Google",
       tone: "ok",
     })
     expect(
       postStatus({ status: "published", googleState: "PROCESSING" })
     ).toEqual({
-      label: "Waiting for Google",
+      label: "Sent, waiting for Google",
       tone: "info",
     })
     expect(postStatus({ status: "published", googleState: null })).toEqual({
-      label: "Waiting for Google",
+      label: "Sent, waiting for Google",
       tone: "info",
     })
     expect(
@@ -243,15 +243,15 @@ describe("post outcomes", () => {
       tone: "bad",
     })
     expect(postStatus({ status: "publishing", googleState: null })).toEqual({
-      label: "Sent to Google",
+      label: "Sending to Google",
       tone: "info",
     })
     expect(postStatus({ status: "ambiguous", googleState: null })).toEqual({
-      label: "Not confirmed",
+      label: "Not confirmed: check Google",
       tone: "warn",
     })
     expect(postStatus({ status: "draft", googleState: null })).toEqual({
-      label: "Draft",
+      label: "Draft saved",
       tone: "neutral",
     })
   })
@@ -259,14 +259,16 @@ describe("post outcomes", () => {
 
 describe("inbox status pills", () => {
   it("names reply publish states in the shared words", () => {
-    expect(describeReplyState("published").label).toBe("Live on Google")
-    expect(describeReplyState("accepted").label).toBe("Sent to Google")
+    expect(describeReplyState("published").label).toBe("On Google")
+    expect(describeReplyState("accepted").label).toBe(
+      "Sent, waiting for Google"
+    )
   })
 
   it("takes the live pill's tone from the outcome, not from the words", () => {
     expect(
       replyStatusPill({
-        text: "Live on Google",
+        text: "On Google",
         short: "Replied",
         tone: "neutral",
         icon: "check-circle",
@@ -274,7 +276,7 @@ describe("inbox status pills", () => {
     ).toEqual({ tone: "neutral", dashed: false })
     expect(
       replyStatusPill({
-        text: "Live on Google",
+        text: "On Google",
         short: "Replied",
         tone: "neutral",
         icon: "check-circle",

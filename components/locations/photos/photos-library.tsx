@@ -234,10 +234,10 @@ function PhotosEmpty({
       role={filtersActive ? "status" : undefined}
       description={
         filtersActive
-          ? "Nothing here matches these filters. Try another ownership or category, or clear them."
+          ? "Nothing matches these filters."
           : canAdd
-            ? "Google has no photos for this listing yet. Use Add photos to upload the first ones, or Refresh from Google if someone added them on Google directly."
-            : "Google has no photos for this listing yet. Refresh from Google if someone added them on Google directly."
+            ? "Use Add photos to upload the first ones."
+            : "Google has no photos for this listing."
       }
       actions={
         filtersActive ? (

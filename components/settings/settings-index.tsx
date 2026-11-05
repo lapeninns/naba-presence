@@ -2,9 +2,9 @@
 
 import { AppearanceRow } from "@/components/settings/appearance"
 import {
+  SETTINGS_GROUPS,
   useVisibleSettingsAreas,
   WithPrivacyAccess,
-  type SettingsArea,
 } from "@/components/settings/settings-areas"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
@@ -17,25 +17,6 @@ import {
   settingsGatingFromRole,
   type PrivacyAccess,
 } from "@/lib/settings/gating"
-
-// "You" is reserved for the signed-in person's own settings
-// (settings-setup-auth-24): today Notifications, Sign-in security and
-// Appearance (the theme, also in More; SET-26). A
-// signed-in account area (name, change password) belongs here once the API
-// has one; nothing is offered before it exists.
-const GROUPS: { id: SettingsArea["group"]; header: string; footer: string }[] =
-  [
-    {
-      id: "personal",
-      header: "You",
-      footer: "Only you. Your choices here don’t change anyone else’s.",
-    },
-    {
-      id: "workspace",
-      header: "Workspace",
-      footer: "Shared by everyone in the workspace.",
-    },
-  ]
 
 // Local exemption (Review R1 S5; FOUNDATION request filed): the row's
 // `focus-halo` draws its ring outside the row, so draw it inset instead, and
@@ -57,7 +38,7 @@ function SettingsIndexGroups({
   const canEditPolicy = settingsGatingFromRole(role).canEditSettings
   return (
     <nav aria-label="Settings" className="flex flex-col gap-(--np-gap-section)">
-      {GROUPS.map((group) => {
+      {SETTINGS_GROUPS.map((group) => {
         const rows = areas.filter((area) => area.group === group.id)
         if (rows.length === 0) return null
         const footerId = `settings-index-${group.id}-footer`
@@ -97,9 +78,9 @@ function SettingsIndexGroups({
  * The phone's settings home: every area the signed-in person may open, as
  * grouped rows (their own preferences, then the workspace's), so nobody
  * lands inside a form they can't change. Reads the same area list and rules
- * as the tab row (settings-areas.tsx). Desks never see it: /settings shows
- * Reply policy with the tab row there, chosen in CSS (app/(dashboard)/
- * settings/page.tsx). Members and viewers see Reply policy marked "View
+ * as the desk's section list (settings-areas.tsx). Desks never see it:
+ * /settings shows Reply policy beside the section list there, chosen in CSS
+ * (app/(dashboard)/settings/page.tsx). Members and viewers see Reply policy marked "View
  * only", so they know before opening it that it can't be changed.
  */
 export type SettingsProfile = {

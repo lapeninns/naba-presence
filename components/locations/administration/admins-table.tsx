@@ -72,10 +72,13 @@ export function AdminsList({
                 </span>
               }
               trailing={
+                // A pending invitation waits on a person (amber); standing
+                // access is a roster fact, not a send Google confirmed, so it
+                // stays neutral.
                 admin.pendingInvitation ? (
-                  <StatusPill tone="pending">Invitation pending</StatusPill>
+                  <StatusPill tone="attention">Invitation pending</StatusPill>
                 ) : (
-                  <StatusPill tone="healthy">Has access</StatusPill>
+                  <StatusPill tone="neutral">Has access</StatusPill>
                 )
               }
               tags={actions}

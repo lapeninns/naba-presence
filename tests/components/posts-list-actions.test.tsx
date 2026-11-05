@@ -72,7 +72,7 @@ function renderRow(props: Partial<BarProps> = {}) {
           id={row.id}
           title="Open late tonight"
           summary=""
-          status="Draft"
+          status="Draft saved"
           tone="neutral"
           actions={
             <PostsActionBar
@@ -108,7 +108,7 @@ describe("publish consent", () => {
   it("asks to publish a failed post again and says a retry adds no second post", async () => {
     api.publishPost.mockResolvedValue({ status: "published", postId: "p1" })
     renderRow({ post: post({ status: "failed" }) })
-    await userEvent.click(screen.getByRole("button", { name: "Retry publish" }))
+    await userEvent.click(screen.getByRole("button", { name: "Retry sending" }))
     const dialog = await screen.findByRole("alertdialog")
     expect(dialog).toHaveAccessibleName("Publish this post to Google again?")
     expect(
@@ -126,6 +126,37 @@ describe("publish consent", () => {
         expectedRevision: 3,
       })
     )
+  })
+})
+
+describe("the row's actions speak the lifecycle", () => {
+  it("keeps green for the dialog's send, not the Publish that opens it", async () => {
+    renderRow()
+    const opener = screen.getByRole("button", { name: "Publish" })
+    expect(opener).not.toHaveAttribute("data-variant", "send")
+    await userEvent.click(opener)
+    const dialog = await screen.findByRole("alertdialog")
+    expect(
+      within(dialog).getByRole("button", { name: "Publish to Google" })
+    ).toHaveAttribute("data-variant", "send")
+  })
+
+  it("keeps green for Approve and publish, not the Approve that opens it", async () => {
+    renderRow({ post: post({ status: "awaiting_approval" }) })
+    const opener = screen.getByRole("button", { name: "Approve" })
+    expect(opener).not.toHaveAttribute("data-variant", "send")
+    await userEvent.click(opener)
+    const dialog = await screen.findByRole("alertdialog")
+    expect(
+      within(dialog).getByRole("button", { name: "Approve and publish" })
+    ).toHaveAttribute("data-variant", "send")
+  })
+
+  it("keeps Request approval off the send fill: it sends nothing to Google", () => {
+    renderRow({ caps: MEMBER })
+    expect(
+      screen.getByRole("button", { name: "Request approval" })
+    ).not.toHaveAttribute("data-variant", "send")
   })
 })
 

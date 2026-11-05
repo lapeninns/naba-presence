@@ -206,4 +206,40 @@ describe("LocationActivityPanel", () => {
       screen.queryByText(/Regularhours|Publish google|Not found/)
     ).toBeNull()
   })
+
+  it.each([
+    ["succeeded", undefined, "Sent, waiting for Google", "info"],
+    ["succeeded", "unrecorded", "Sent, waiting for Google", "info"],
+    ["succeeded", "pending", "Sent, waiting for Google", "info"],
+    ["published", undefined, "Sent, waiting for Google", "info"],
+    ["succeeded", "confirmed", "On Google", "ok"],
+    ["succeeded", "unresolved", "Not confirmed: check Google", "warn"],
+    ["ambiguous", undefined, "Not confirmed: check Google", "warn"],
+    ["publishing", undefined, "Sending to Google", "info"],
+    ["failed", undefined, "Failed", "bad"],
+    ["rejected", undefined, "Rejected by Google", "bad"],
+  ] as const)(
+    "shows %s (confirmation %s) as %s, green only once Google confirms",
+    (status, confirmationState, label, tone) => {
+      usePagesMock.mockReturnValue({
+        data: {
+          canManage: false,
+          total: 1,
+          pageSize: 10,
+          items: [{ ...item("a"), status, confirmationState }],
+          paging: noMore,
+        },
+        isPending: false,
+        isError: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      renderPanel()
+      expect(screen.getByText("Sent to Google · Opening hours")).toBeVisible()
+      expect(
+        screen.getByText(label).closest('[data-slot="status-pill"]')
+      ).toHaveAttribute("data-tone", tone)
+      expect(screen.queryByText(/Succeeded|Published/)).toBeNull()
+    }
+  )
 })

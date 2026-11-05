@@ -30,10 +30,10 @@ describe("editorStatusPill", () => {
         localEdits: true,
         emptyOnGoogle: "No hours on Google",
       })
-    ).toEqual({ tone: "pending", label: "Unsaved edits" })
+    ).toEqual({ tone: "neutral", label: "Unsaved changes", state: "unsaved" })
   })
 
-  it("says unsaved edits over any 'in sync' while the tab holds edits", () => {
+  it("says unsaved changes over any 'in sync' while the tab holds edits", () => {
     expect(
       editorStatusPill({
         ...base,
@@ -41,13 +41,13 @@ describe("editorStatusPill", () => {
         isDirty: true,
         localEdits: true,
       })
-    ).toEqual({ tone: "pending", label: "Unsaved edits" })
+    ).toEqual({ tone: "neutral", label: "Unsaved changes", state: "unsaved" })
   })
 
-  it("says saved here, not on Google once the edits are saved", () => {
+  it("says draft saved once the edits are saved", () => {
     expect(
       editorStatusPill({ ...base, status: "edited", isDirty: true })
-    ).toEqual({ tone: "pending", label: "Saved here, not on Google" })
+    ).toEqual({ tone: "neutral", label: "Draft saved", state: "saved_locally" })
     expect(
       editorStatusPill({
         ...base,
@@ -55,7 +55,7 @@ describe("editorStatusPill", () => {
         status: "unpublished",
         isDirty: true,
       })
-    ).toEqual({ tone: "pending", label: "Saved here, not on Google" })
+    ).toEqual({ tone: "neutral", label: "Draft saved", state: "saved_locally" })
   })
 
   it("names a conflict and a change made on Google", () => {
@@ -66,7 +66,7 @@ describe("editorStatusPill", () => {
         isDirty: true,
         localEdits: true,
       })?.label
-    ).toBe("Conflict with Google")
+    ).toBe("Changed on Google")
     expect(
       editorStatusPill({ ...base, status: "google_dirty", isDirty: true })
         ?.label

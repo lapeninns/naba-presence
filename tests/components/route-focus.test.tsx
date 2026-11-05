@@ -102,6 +102,38 @@ describe("RouteFocus", () => {
     )
   })
 
+  it("skips an h1 that is not drawn at this width for the one that is", () => {
+    // Only the second heading has a box (the first is display:none here).
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getClientRects")
+      .mockImplementation(function (this: HTMLElement) {
+        return (this.dataset.testid === "hidden"
+          ? []
+          : [{}]) as unknown as DOMRectList
+      })
+    const { rerender } = render(<Shell />)
+    navigate(
+      rerender,
+      "/listings",
+      <Shell title={null}>
+        <h1 data-testid="hidden">Listings (phone)</h1>
+        <h1 data-testid="shown">Listings</h1>
+      </Shell>
+    )
+    expect(screen.getByTestId("shown")).toHaveFocus()
+    rects.mockRestore()
+  })
+
+  it("falls back to #main when the h1 cannot take focus", () => {
+    const { rerender } = render(<Shell />)
+    const focus = vi
+      .spyOn(HTMLHeadingElement.prototype, "focus")
+      .mockImplementation(() => {})
+    navigate(rerender, "/listings", <Shell title="Listings" />)
+    expect(screen.getByRole("main")).toHaveFocus()
+    focus.mockRestore()
+  })
+
   it("settles for #main when no h1 arrives", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const { rerender } = render(<Shell />)

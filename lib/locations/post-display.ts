@@ -49,7 +49,7 @@ const OUTCOME_POST_TONE: Record<OperationOutcome, PostTone> = {
  * The post's state in words. A post nothing has been sent for says where it
  * is (draft, awaiting approval); every other post says its publish outcome
  * in the shared words (lib/editors/outcome.ts) via `localPostOutcome`, so
- * "Live on Google" appears only when Google's own state for the post says
+ * "On Google" appears only when Google's own state for the post says
  * LIVE. Google still reviewing it (PROCESSING), or not having reported on it
  * yet, is "Waiting for Google"; REJECTED is "Rejected by Google".
  */
@@ -60,7 +60,7 @@ export function postStatus(
   label: string
   tone: PostTone
 } {
-  if (post.status === "draft") return { label: "Draft", tone: "neutral" }
+  if (post.status === "draft") return { label: "Draft saved", tone: "neutral" }
   if (post.status === "awaiting_approval")
     return { label: "Awaiting approval", tone: "warn" }
   const outcome = localPostOutcome(post) ?? "failed"
@@ -78,7 +78,7 @@ export const POST_FILTERS: ReadonlyArray<{ value: PostFilter; label: string }> =
     { value: "all", label: "All" },
     { value: "draft", label: "Drafts" },
     { value: "awaiting", label: "Awaiting approval" },
-    { value: "published", label: "On Google" },
+    { value: "published", label: "Sent to Google" },
     { value: "attention", label: "Needs attention" },
   ]
 
@@ -104,6 +104,7 @@ export function matchesPostFilter(
     case "awaiting":
       return post.status === "awaiting_approval"
     case "published":
+      // Match the server's sent view and counts, including sends in progress.
       return post.status === "published" || post.status === "publishing"
     case "attention":
       return postNeedsAttention(post)

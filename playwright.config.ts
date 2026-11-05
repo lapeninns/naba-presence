@@ -7,6 +7,7 @@ const googleStubPort =
 const baseURL = `http://127.0.0.1:${port}`
 const tokenEncryptionKey =
   process.env.TOKEN_ENCRYPTION_KEY ?? "route-harness-token-key-32-characters!!"
+const appDir = process.env.PLAYWRIGHT_APP_DIR
 
 // PLAYWRIGHT_SUITE=shared|isolated splits the suite into two invocations that
 // run at the same time (the release gate does); unset runs everything.
@@ -69,9 +70,13 @@ export default defineConfig({
     suite === "isolated"
       ? undefined
       : {
-          command: `PORT=${port} pnpm start`,
+          command: appDir
+            ? "node --require ./lane-pid.cjs server.js"
+            : `PORT=${port} pnpm start`,
+          ...(appDir ? { cwd: appDir } : {}),
           url: baseURL,
           env: {
+            ...(appDir ? { PORT: port, HOSTNAME: "127.0.0.1" } : {}),
             GOOGLE_API_PROXY_BASE: `http://127.0.0.1:${googleStubPort}`,
             NEXTAUTH_URL: baseURL,
             OPENAI_API_KEY: "",

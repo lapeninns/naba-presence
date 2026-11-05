@@ -119,6 +119,67 @@ describe("BackfillCard scoped to one client", () => {
 
 afterEach(() => vi.clearAllMocks())
 
+describe("BackfillCard states", () => {
+  it("sums up a partial import in one line, with Retry import as the way on", () => {
+    renderCard([
+      item({ externalLocationId: "e1", status: "succeeded" }),
+      item({ externalLocationId: "e2", status: "succeeded" }),
+      item({
+        externalLocationId: "e3",
+        locationName: "Canal Bar",
+        status: "failed",
+        lastErrorCode: "sync_failed",
+      }),
+    ])
+    expect(screen.getByText("2 imported · 1 failed")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Retry import" })
+    ).toBeInTheDocument()
+    // Imported is a read from Google, not a confirmed change: never green.
+    for (const pill of screen.getAllByText("Imported")) {
+      expect(pill.className).not.toMatch(/success/)
+    }
+  })
+
+  it("adds no summary when every row says the same", () => {
+    renderCard([
+      item({ externalLocationId: "e1", status: "running" }),
+      item({ externalLocationId: "e2", status: "running" }),
+    ])
+    expect(screen.queryByText(/·/)).toBeNull()
+  })
+
+  it("announces a failed progress load once, and Try again shows it runs", () => {
+    const refetch = vi.fn()
+    backfillMock.mockReturnValue({
+      query: {
+        data: undefined,
+        isPending: false,
+        isError: true,
+        isFetching: true,
+        error: new Error("boom"),
+        refetch,
+      },
+      start: { mutate: vi.fn(), isPending: false, error: null },
+      cancel: { mutate: vi.fn(), isPending: false, error: null },
+    })
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Toaster>
+          <BackfillCard />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    expect(screen.getAllByRole("alert")).toHaveLength(1)
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "We couldn’t load import progress"
+    )
+    expect(
+      screen.getByRole("button", { name: /Trying again/ })
+    ).toHaveAttribute("aria-busy", "true")
+  })
+})
+
 describe("BackfillCard", () => {
   it("shows the honest per-location status, with no cancel once running", () => {
     renderCard([item({})])

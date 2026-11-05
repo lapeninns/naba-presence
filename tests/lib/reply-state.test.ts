@@ -5,7 +5,9 @@ import {
   deriveReplyStatus,
   hasVerifiedDraft,
   publishableDraft,
+  replyApprovalStop,
   replyStateFromRow,
+  replyTrackState,
   type ReplyPendingKind,
   type ReplyStateInput,
 } from "@/lib/inbox/reply-state"
@@ -142,7 +144,11 @@ describe("derivePrimaryAction — which action applies", () => {
   it("offers Approve while the reply is awaiting approval", () => {
     expect(
       derivePrimaryAction(input({ workflowStatus: "awaiting_approval" }))
-    ).toMatchObject({ kind: "approve", label: "Approve reply", enabled: true })
+    ).toMatchObject({
+      kind: "approve",
+      label: "Approve and publish",
+      enabled: true,
+    })
   })
 
   // The approval decision is the top branch, so it must win even for an
@@ -264,7 +270,7 @@ describe("derivePrimaryAction — availability and reasons", () => {
     expect(action).toMatchObject({
       enabled: false,
       reason: undefined,
-      pendingLabel: "Publishing…",
+      pendingLabel: "Sending…",
     })
   })
 
@@ -299,9 +305,9 @@ describe("deriveReplyStatus", () => {
   })
 
   it.each([
-    ["publish", "Publishing reply", "Publishing"],
+    ["publish", "Sending to Google", "Sending"],
     ["submit", "Submitting for approval", "Submitting"],
-    ["approve", "Recording your approval", "Approving"],
+    ["approve", "Sending to Google", "Sending"],
     ["reject", "Sending the reply back", "Sending back"],
     ["save", "Saving and checking the draft", "Saving draft"],
     ["generate", "Generating a draft", "Generating"],
@@ -319,9 +325,10 @@ describe("deriveReplyStatus", () => {
   )
 
   it.each([
-    ["publish_requested", "Publishing reply", "Publishing", "neutral"],
-    ["failed", "Publish failed", "Publish failed", "attention"],
-    ["rejected", "Sent back for changes", "Sent back", "caution"],
+    ["publish_requested", "Sending to Google", "Sending", "neutral"],
+    ["failed", "Failed: retry", "Failed", "attention"],
+    // Google refused it: not the approver's "Sent back" (DIRECTION §6.3 #2).
+    ["rejected", "Rejected by Google", "Rejected", "attention"],
   ])(
     "lets the %s workflow state outrank the draft in hand",
     (workflowStatus, text, short, tone) => {
@@ -368,7 +375,7 @@ describe("deriveReplyStatus", () => {
     })
   })
 
-  it("asks for a correction when the verdict failed", () => {
+  it("says the checks block it when the verdict failed", () => {
     expect(
       deriveReplyStatus(
         input({
@@ -381,8 +388,8 @@ describe("deriveReplyStatus", () => {
         })
       )
     ).toMatchObject({
-      text: "Draft needs a correction",
-      short: "Check needed",
+      text: "Blocked: fix the reply to publish",
+      short: "Blocked by checks",
       tone: "attention",
     })
   })
@@ -456,35 +463,68 @@ describe("deriveReplyStatus", () => {
       deriveReplyStatus({ ...readyToPublish(), workflowStatus: "new" })
     ).toMatchObject({ text: "Cannot be sent yet", short: "Not ready" })
   })
+
+  it("says a reply an approver sent back is Sent back, waiting on its author", () => {
+    const sentBack = {
+      ...readyToPublish(),
+      workflowStatus: "drafted",
+      sentBack: true,
+    }
+    expect(deriveReplyStatus(sentBack)).toMatchObject({
+      text: "Sent back",
+      short: "Sent back",
+      tone: "caution",
+      note: "edit the reply, then send it again",
+    })
+    // Editing it speaks about the edit instead.
+    expect(deriveReplyStatus({ ...sentBack, isDirty: true }).short).toBe(
+      "Unsaved changes"
+    )
+    // Saved, it sits on the track at Saved here, as Sent back: nothing has
+    // gone to Google.
+    expect(replyTrackState(sentBack)).toBe("changes")
+  })
+
+  it("keeps the track on Sent back when the sent-back draft also fails its checks", () => {
+    const sentBack = {
+      ...readyToPublish(),
+      workflowStatus: "drafted",
+      sentBack: true,
+      verification: { verdict: "fail" as const, reasons: [] },
+    }
+    expect(deriveReplyStatus(sentBack).short).toBe("Sent back")
+    expect(replyTrackState(sentBack)).toBe("changes")
+  })
 })
 
 describe("deriveReplyStatus — what counts as published", () => {
   // Rule (a): only a confirmed `published` publish_status may read as
   // published. `accepted` means Google took the request and has not yet said
   // what became of it, and a `publish_requested` review is still in flight.
-  it("says Live on Google only for a confirmed published publish_status", () => {
+  it("says On Google only for a confirmed published publish_status", () => {
     expect(deriveReplyStatus(settledReview("published"))).toMatchObject({
-      text: "Live on Google",
+      text: "On Google",
       short: "Replied",
     })
   })
 
-  it("says Sent to Google for an accepted reply, not published", () => {
+  it("says Sent, waiting for Google for an accepted reply, not published", () => {
     const status = deriveReplyStatus(settledReview("accepted"))
     expect(status).toMatchObject({
-      text: "Sent to Google",
+      text: "Sent, waiting for Google",
       short: "Sent",
-      note: "not live until Google confirms",
+      outcome: "awaiting_confirmation",
     })
+    expect(status.note).toBeUndefined()
     expect(status.text).not.toMatch(/published/i)
   })
 
-  it("says Publishing reply while the publish is requested", () => {
+  it("says Sending to Google while the publish is requested", () => {
     const status = deriveReplyStatus({
       ...settledReview("accepted"),
       workflowStatus: "publish_requested",
     })
-    expect(status.text).toBe("Publishing reply")
+    expect(status.text).toBe("Sending to Google")
     expect(status.text).not.toMatch(/published/i)
   })
 
@@ -497,9 +537,9 @@ describe("deriveReplyStatus — what counts as published", () => {
       reply: { ...state.reply!, googleReplyState: "PENDING" },
     })
     expect(status).toMatchObject({
-      text: "Sent · waiting for Google\u2019s check",
+      text: "Sent, waiting for Google",
       short: "Sent",
-      outcome: "sent",
+      outcome: "awaiting_confirmation",
     })
     expect(status.text).not.toMatch(/live/i)
     // The sentence already says it is waiting, so no note follows it: on a
@@ -507,7 +547,7 @@ describe("deriveReplyStatus — what counts as published", () => {
     expect(status.note).toBeUndefined()
   })
 
-  it("says Live on Google once Google has approved the reply", () => {
+  it("says On Google once Google has approved the reply", () => {
     const state = settledReview("published")
     for (const googleReplyState of ["APPROVED", null]) {
       expect(
@@ -515,7 +555,7 @@ describe("deriveReplyStatus — what counts as published", () => {
           ...state,
           reply: { ...state.reply!, googleReplyState },
         }).text
-      ).toBe("Live on Google")
+      ).toBe("On Google")
     }
   })
 
@@ -582,7 +622,7 @@ describe("deriveReplyStatus — approval scope", () => {
       expect(
         deriveReplyStatus(input({ ...awaiting, approvalScope: scope }))
       ).toMatchObject({
-        text: "Waiting for approval",
+        text: "Awaiting approval",
         short: "Awaiting approval",
       })
     }
@@ -601,7 +641,7 @@ describe("deriveReplyStatus — approval scope", () => {
           },
         })
       ).text
-    ).toBe("Waiting for approval")
+    ).toBe("Awaiting approval")
   })
 })
 
@@ -695,10 +735,7 @@ describe("status and action agree", () => {
       // A published or sent status over a disabled button is legitimate in
       // exactly one shape: the reply is live and there is nothing newer to
       // send. Anything else would be claiming a state the button denies.
-      if (
-        status.text === "Live on Google" ||
-        status.text === "Sent to Google"
-      ) {
+      if (status.text === "On Google" || status.text === "Sent to Google") {
         expect(action.settled).toBe(true)
       }
     }
@@ -775,7 +812,7 @@ describe("replyStateFromRow", () => {
           "approval"
         )
       ).text
-    ).toBe("Waiting for approval")
+    ).toBe("Awaiting approval")
   })
 
   it("gives the list row the same answer the detail pane would give", () => {
@@ -942,5 +979,136 @@ describe("two-person approval wording (R01b)", () => {
     })
     expect(deriveReplyStatus(state).text).toBe("Waiting for your approval")
     expect(derivePrimaryAction(state).enabled).toBe(true)
+  })
+})
+
+// The change track reads the same inputs as the status line, so a stop can
+// never claim more than the sentence beside it.
+describe("replyTrackState", () => {
+  const sentReply = (
+    publishStatus: string,
+    googleReplyState: string | null
+  ) => ({
+    body: "Thanks",
+    publishStatus,
+    googleReplyState,
+  })
+
+  it("has no track before there is a reply", () => {
+    expect(replyTrackState(input())).toBeNull()
+  })
+
+  it("puts a saved draft on Saved here, and a failed check on Blocked", () => {
+    expect(
+      replyTrackState(
+        input({ workflowStatus: "drafted", drafts: [draft("Hi")] })
+      )
+    ).toBe("saved_locally")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "drafted",
+          drafts: [draft("Hi", "fail")],
+          verification: {
+            verdict: "fail",
+            reasons: [{ code: "c", severity: "fail", message: "m" }],
+          },
+        })
+      )
+    ).toBe("blocked")
+  })
+
+  it("does not move for unsaved typing or a press in flight", () => {
+    const saved = input({ workflowStatus: "drafted", drafts: [draft("Hi")] })
+    expect(
+      replyTrackState({ ...saved, isDirty: true, pending: "publish" })
+    ).toBe("saved_locally")
+  })
+
+  it("follows the reply to Google and only says On Google when Google shows it", () => {
+    expect(
+      replyTrackState(
+        input({ workflowStatus: "awaiting_approval", drafts: [draft("Hi")] })
+      )
+    ).toBe("awaiting_approval")
+    expect(
+      replyTrackState(
+        input({ workflowStatus: "publish_requested", drafts: [draft("Hi")] })
+      )
+    ).toBe("sent")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "published",
+          reply: sentReply("published", "PENDING"),
+        })
+      )
+    ).toBe("awaiting_confirmation")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "published",
+          reply: sentReply("accepted", null),
+        })
+      )
+    ).toBe("awaiting_confirmation")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "published",
+          reply: sentReply("published", "APPROVED"),
+        })
+      )
+    ).toBe("confirmed_applied")
+    expect(
+      replyTrackState(
+        input({ workflowStatus: "failed", reply: sentReply("failed", null) })
+      )
+    ).toBe("failed")
+    expect(
+      replyTrackState(
+        input({
+          workflowStatus: "rejected",
+          reply: sentReply("failed", "REJECTED"),
+        })
+      )
+    ).toBe("rejected")
+  })
+})
+
+describe("replyApprovalStop", () => {
+  const event = (action: string) => ({ action })
+
+  it("ticks Approved only when an approval came after the sent text was written", () => {
+    expect(
+      replyApprovalStop([
+        event("review.reply.publish_requested"),
+        event("review.approval.approved"),
+        event("review.approval.requested"),
+        event("review.draft.edited"),
+      ])
+    ).toBe("needed")
+    // Written in one transaction, the approval may sort above the send.
+    expect(
+      replyApprovalStop([
+        event("review.approval.approved"),
+        event("review.reply.publish_requested"),
+        event("review.draft.generated"),
+      ])
+    ).toBe("needed")
+  })
+
+  it("says Not needed for a send with no approval, even with an older one", () => {
+    expect(
+      replyApprovalStop([
+        event("review.reply.publish_requested"),
+        event("review.draft.edited"),
+        event("review.approval.approved"),
+      ])
+    ).toBe("skipped")
+  })
+
+  it("leaves the stop to come when nothing was sent", () => {
+    expect(replyApprovalStop([event("review.draft.generated")])).toBe("needed")
   })
 })

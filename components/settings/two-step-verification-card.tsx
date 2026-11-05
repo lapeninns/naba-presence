@@ -150,8 +150,9 @@ function AuthenticatorSetup({ enrollment }: { enrollment: MfaEnrollResponse }) {
         <a
           href={appHref}
           className={cn(
-            // Tinted, not solid: "Turn on" below stays the one primary.
-            buttonVariants({ variant: "tinted", size: "lg" }),
+            // Secondary, not solid: "Turn on" below stays the one primary,
+            // and no green tint, since nothing here goes to Google.
+            buttonVariants({ variant: "secondary", size: "lg" }),
             "w-full desk:order-2 desk:w-fit"
           )}
         >
@@ -390,8 +391,10 @@ export function TwoStepVerificationCard({
   return (
     <SettingsSection id={titleId} title="Two-step verification" variant="group">
       <div className="flex flex-col gap-4">
+        {/* Neutral, not success green: green is kept for changes confirmed
+            on Google, and this one stays in NabaPresence. */}
         {justEnabled ? (
-          <Alert variant="success">
+          <Alert>
             <AlertTitle>
               {justEnabled === 1
                 ? "Two-step verification is on."

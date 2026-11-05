@@ -147,7 +147,12 @@ test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async
     ).toBeVisible()
   }
   await expect(page.getByRole("combobox", { name: /client/i })).toHaveCount(0)
-  await expect(page.getByRole("button", { name: /^Client:/ })).toHaveCount(0)
+  // No control names a client: Team is organisation-wide, so it shows no
+  // scope control at all, and a business's never says "client" anyway.
+  await expect(
+    page.getByRole("button", { name: /^Working on .*\bclients?\b/i })
+  ).toHaveCount(0)
+  await expect(page.locator('[data-slot="scope-control"]')).toHaveCount(0)
 })
 
 test("a phone's tabs have no Clients, and More holds Team and Settings", async ({
@@ -174,16 +179,27 @@ test("a phone's tabs have no Clients, and More holds Team and Settings", async (
       name: /^Inbox(, \d+ (?:needs? a reply|awaiting your approval|needs? your attention: \d+ to reply, \d+ to approve))?$/,
     })
   ).toBeVisible()
-  // The app bar names the business; there is no client chip to change.
+  // On a scoped top-level page the app bar leads with the scope chip, which
+  // names the business and its locations, never a client.
   const bar = page.locator('header[data-slot="app-bar"]')
-  await expect(bar.getByRole("button", { name: /^Client:/ })).toHaveCount(0)
-  await expect(bar.locator('[data-slot="workspace-name"]')).toBeVisible()
+  const chip = bar.locator('[data-slot="scope-control"]')
+  await expect(chip).toBeVisible()
+  await expect(chip).toHaveAttribute("data-mode", "business")
+  await expect(chip).toHaveAttribute("data-variant", "chip")
+  await expect(chip).not.toContainText(/\bclients?\b/i)
+  await expect(
+    bar.getByRole("button", { name: /^Working on .*\bclients?\b/i })
+  ).toHaveCount(0)
+  await expect(bar.locator('[data-slot="workspace-name"]')).toHaveCount(0)
 
   await tabs.getByRole("button", { name: "More", exact: true }).click()
   const sheet = page.getByRole("dialog", { name: "More" })
   await expect(sheet).toBeVisible()
-  // No "Working on" client row in a business.
-  await expect(sheet.getByText("Working on", { exact: true })).toHaveCount(0)
+  // No "Working on" client row in a business: the scope row, when there is
+  // more than one location to switch, names the business and its locations.
+  await expect(
+    sheet.getByRole("button", { name: /^Working on .*\bclients?\b/i })
+  ).toHaveCount(0)
   const more = sheet.getByRole("navigation", { name: "More" })
   for (const label of ["Team", "Settings"]) {
     await expect(
@@ -191,4 +207,13 @@ test("a phone's tabs have no Clients, and More holds Team and Settings", async (
     ).toBeVisible()
   }
   await expect(more.getByRole("link", { name: "Clients" })).toHaveCount(0)
+
+  // An organisation-wide page shows no scope: the app bar names the
+  // workspace there instead.
+  await more.getByRole("link", { name: "Team", exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: "Team", level: 1 })
+  ).toBeVisible()
+  await expect(bar.locator('[data-slot="scope-control"]')).toHaveCount(0)
+  await expect(bar.locator('[data-slot="workspace-name"]')).toBeVisible()
 })

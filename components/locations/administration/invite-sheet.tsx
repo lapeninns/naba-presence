@@ -7,6 +7,7 @@ import {
   ConsentSlot,
   Expiry,
   ReviewedWriteSheet,
+  useOpenerFocus,
   SummaryList,
   reviewedWriteStage,
   useClaimFocus,
@@ -99,6 +100,8 @@ export function InviteSheet({
   const recorded = invitation && attempt ? attempt : null
   const active = invitation && Boolean(current)
   const sheetOpen = open
+  // The sheet opens from state, so the dialog has no trigger to return to.
+  const finalFocus = useOpenerFocus(sheetOpen)
 
   const [scope, setScope] = useState("location")
   const [email, setEmail] = useState("")
@@ -217,6 +220,7 @@ export function InviteSheet({
       <ReviewedWriteSheet
         open={sheetOpen}
         onOpenChange={dismiss}
+        finalFocus={finalFocus}
         title={
           <span
             ref={setTitleElement}
@@ -288,6 +292,7 @@ export function InviteSheet({
               </Button>
               {cannotSend ? null : approved ? (
                 <Button
+                  variant="send"
                   disabled={sendLocked || !consent}
                   pending={action.busy && pending === "send"}
                   onClick={act("send", action.execute)}

@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { createElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const push = vi.fn()
@@ -319,5 +320,60 @@ describe("useGuardedRouter", () => {
     expect(run).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Leave" }))
     expect(run).toHaveBeenCalledTimes(1)
+  })
+})
+
+// A plain anchor stands in for next/link: the guard only reads the DOM.
+function InAppLink(props: React.ComponentProps<"a">) {
+  return createElement("a", { href: "/listings/l1/photos", ...props }, "Photos")
+}
+
+describe("useLeaveGuard: links", () => {
+  afterEach(() => {
+    cleanup()
+    __resetLeaveGuardForTests()
+  })
+
+  it("holds a menu item's link but lets its menu see the click, so the menu closes", () => {
+    const closeMenu = vi.fn()
+    const followed = vi.fn()
+    render(
+      <>
+        <Guarded when />
+        <div role="menu" onClick={closeMenu}>
+          <InAppLink
+            role="menuitem"
+            onClick={(event) => !event.defaultPrevented && followed()}
+          />
+        </div>
+      </>
+    )
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    })
+    act(() => {
+      screen.getByRole("menuitem", { name: "Photos" }).dispatchEvent(click)
+    })
+    expect(click.defaultPrevented).toBe(true)
+    expect(followed).not.toHaveBeenCalled()
+    expect(closeMenu).toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "Stay" })).toBeInTheDocument()
+  })
+
+  it("stops a plain link's click from reaching anything else", () => {
+    const row = vi.fn()
+    render(
+      <>
+        <Guarded when />
+        <div onClick={row}>
+          <InAppLink />
+        </div>
+      </>
+    )
+    fireEvent.click(screen.getByRole("link", { name: "Photos" }))
+    expect(row).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "Stay" })).toBeInTheDocument()
   })
 })

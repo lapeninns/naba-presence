@@ -1,3 +1,4 @@
+import { describeOutcome } from "@/lib/editors/outcome"
 import type { OutcomeToastOptions } from "@/components/ui/toast"
 import {
   isAllowedReviewTransition,
@@ -178,6 +179,24 @@ export type OutcomeToastContext = {
 // reached (or is on its way to) Google, which can never offer Undo, and
 // "local" for workflow-only outcomes (sent back, an unpublished draft
 // removed).
+/**
+ * The answer to deleting a live reply. Only an ambiguous answer differs
+ * from a publish's: the reply was live, so the honest line is that it may
+ * still be there.
+ */
+export function describeDeleteToast(status: string): OutcomeToastOptions {
+  if (status === "ambiguous") {
+    return {
+      kind: "google",
+      title: describeOutcome("uncertain").title,
+      description:
+        "Your reply may still be on Google. This review updates once we check again.",
+      type: "warning",
+    }
+  }
+  return describeOutcomeToast(status)
+}
+
 export function describeOutcomeToast(
   status: string,
   context: OutcomeToastContext = {}
@@ -188,7 +207,7 @@ export function describeOutcomeToast(
       if (context.googleReplyState === "PENDING") {
         return {
           kind: "google",
-          title: "Reply sent",
+          title: describeOutcome("awaiting_confirmation").title,
           description:
             "Google is checking it. It is not public until Google approves it.",
           type: "info",
@@ -197,8 +216,8 @@ export function describeOutcomeToast(
       }
       return {
         kind: "google",
-        title: "Reply published",
-        description: "Live on Google.",
+        title: describeOutcome("confirmed_applied").title,
+        description: "Your reply is on Google.",
         type: "success",
         ...(url ? { link: { href: url } } : {}),
       }
@@ -206,25 +225,25 @@ export function describeOutcomeToast(
     case "awaiting_approval":
       return {
         kind: "google",
-        title: "Submitted for approval",
+        title: describeOutcome("awaiting_approval").title,
         description: context.requireTwoPersonApproval
-          ? "It goes live once another person with publishing rights approves it."
-          : "It goes live once someone with publishing rights approves it.",
+          ? "It goes to Google once another person with publishing rights approves it."
+          : "It goes to Google once someone with publishing rights approves it.",
         type: "info",
       }
     case "rejected":
       return {
         kind: "google",
-        title: "Google declined this reply",
+        title: describeOutcome("rejected").title,
         description: "Edit the reply, then publish it again.",
         type: "error",
       }
     case "returned_to_draft":
       return {
         kind: "local",
-        title: "Reply sent back for edits",
+        title: describeOutcome("changes").label,
         description: "Its author can revise it and submit it again.",
-        type: "success",
+        type: "neutral",
       }
     case "deleted":
       return {
@@ -237,8 +256,27 @@ export function describeOutcomeToast(
       return {
         kind: "local",
         title: "Draft reply removed",
-        description: "Nothing was live on Google.",
+        description: "Nothing was on Google.",
         type: "success",
+      }
+    case "failed":
+      // Settled as failed: Google did not apply it. The exception under the
+      // reply says why and whether a retry can help.
+      return {
+        kind: "google",
+        title: describeOutcome("failed").title,
+        description: "The reply says what went wrong and what to do next.",
+        type: "error",
+      }
+    case "ambiguous":
+      // Google's answer was lost: the write may or may not have landed, so
+      // say neither, and point at Google rather than a blind retry.
+      return {
+        kind: "google",
+        title: describeOutcome("uncertain").title,
+        description:
+          "This review updates once we hear from Google. Check Google before trying again.",
+        type: "warning",
       }
     case "pending":
       // Google has the reply and has not said what became of it: "sent",
@@ -246,9 +284,8 @@ export function describeOutcomeToast(
       // "submitted" (the approval word) or "published".
       return {
         kind: "google",
-        title: "Reply sent",
-        description:
-          "Google hasn’t confirmed it yet. This review updates when it does.",
+        title: describeOutcome("awaiting_confirmation").title,
+        description: "This review updates when Google confirms it.",
         type: "info",
       }
     default:

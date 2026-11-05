@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useTransition } from "react"
+import { useId, useRef, useState, useTransition } from "react"
 
 import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { Button } from "@/components/ui/button"
@@ -24,6 +24,7 @@ const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+$/
  * focus never falls to the page and a corrected address can be sent to. The
  * result is written into a region that is always mounted, so it is read
  * out; it is cleared first, so the same answer twice is still announced.
+ * The result also describes the control, so returning to it repeats it.
  * The success line is conditional on purpose: the server answers every
  * address the same way and sends nothing to one that is confirmed or
  * unknown, so "sent" would be untrue there.
@@ -56,11 +57,18 @@ function ResendConfirmationButton({
   // Set from press to answer, so a second press in that window (or a press
   // on the link variant, which has no native disabled) sends nothing.
   const busy = useRef(false)
+  const noteId = useId()
+  const failureId = useId()
   const address = email.trim()
   const label =
     sentTo !== null && sentTo === address
       ? "Send another link"
       : "Resend confirmation email"
+
+  const describedBy =
+    [note ? noteId : null, failure ? failureId : null]
+      .filter(Boolean)
+      .join(" ") || undefined
 
   function send() {
     if (busy.current) return
@@ -118,6 +126,7 @@ function ResendConfirmationButton({
           pending={pending}
           pendingLabel="Sending…"
           className={cn(WRAPPING_BLOCK_BUTTON, className)}
+          aria-describedby={describedBy}
           onClick={send}
         >
           {label}
@@ -127,8 +136,9 @@ function ResendConfirmationButton({
           type="button"
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
+          aria-describedby={describedBy}
           className={cn(
-            "inline-flex min-h-(--np-touch) items-center rounded-sm text-left text-ui font-semibold text-accent-ink underline decoration-1 underline-offset-3 focus-halo hover:decoration-2 focus-visible:outline-none aria-disabled:cursor-default aria-disabled:text-ink-muted aria-disabled:no-underline desk:min-h-6",
+            "inline-flex min-h-(--np-touch) items-center rounded-sm text-left text-ui font-semibold text-accent-ink underline decoration-1 underline-offset-3 focus-halo focus-visible:outline-none aria-disabled:cursor-default aria-disabled:text-ink-muted aria-disabled:no-underline hover-fine:hover:decoration-2 desk:min-h-6",
             className
           )}
           onClick={send}
@@ -139,13 +149,18 @@ function ResendConfirmationButton({
       {/* Visually hidden while empty, never display:none: a region outside
           the accessibility tree may not announce what is written into it. */}
       <span
+        id={noteId}
         aria-live="polite"
         className="text-caption text-pretty [overflow-wrap:anywhere] text-ink-muted empty:sr-only"
       >
         {note}
       </span>
       {failure ? (
-        <span className="text-caption text-danger-ink" role="alert">
+        <span
+          id={failureId}
+          className="text-caption text-danger-ink"
+          role="alert"
+        >
           {failure}
         </span>
       ) : null}

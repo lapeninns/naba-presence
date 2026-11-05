@@ -293,6 +293,8 @@ function toCandidate(
   return candidate
 }
 
+const WARNING_REASON = "Acknowledge the content warnings first"
+
 /** A save refused because someone else saved the post after it was opened. */
 function isPostChanged(error: unknown): boolean {
   return error instanceof ApiClientError && error.code === "post_changed"
@@ -435,6 +437,12 @@ export function PostComposerSheet({
     setContentWarningsAccepted(false)
     return true
   }
+  // Warnings on screen for these values and not yet ticked: sending again
+  // would only be refused again, so both buttons wait for the tick.
+  const warningUnacknowledged =
+    contentWarning !== null &&
+    contentWarning.values === JSON.stringify(values) &&
+    !contentWarningsAccepted
   const isContentWarning = (error: unknown) =>
     contentWarningFromError(error) !== null
 
@@ -504,9 +512,7 @@ export function PostComposerSheet({
       return saved
     },
     invalidate: [queryKeys.locationPosts(locationId)],
-    successToast: post
-      ? "Draft updated. Google is not affected."
-      : "Draft saved. Google is not affected.",
+    successToast: { outcome: "saved_locally" },
     errorContext: "post",
     errorToast: saveErrorCopy,
     // Shown beside the buttons with the acknowledgement, not as a failure.
@@ -653,7 +659,7 @@ export function PostComposerSheet({
   const publishLabel = gate?.requestApproval
     ? "Request approval"
     : post?.status === "failed"
-      ? "Retry publish"
+      ? "Retry sending"
       : "Publish to Google"
   // Adding a new photo goes through the library's own flow, which writes to
   // Google; choosing one Google already has does not.
@@ -1395,6 +1401,7 @@ export function PostComposerSheet({
                   ? saveReasonId
                   : undefined
             }
+            disabledReason={warningUnacknowledged ? WARNING_REASON : undefined}
             pending={create.isPending}
             pendingLabel="Saving…"
           >
@@ -1402,9 +1409,13 @@ export function PostComposerSheet({
           </Button>
           {gate ? (
             <Button
+              variant={gate.requestApproval ? "default" : "send"}
               onClick={submitPublish}
               disabled={disabled || (!post && !isDirty) || create.isPending}
-              disabledReason={gate.reason ?? undefined}
+              disabledReason={
+                gate.reason ??
+                (warningUnacknowledged ? WARNING_REASON : undefined)
+              }
               // The consent first, always; then why it is off, as for Save.
               aria-describedby={[
                 consentId,
@@ -1417,9 +1428,7 @@ export function PostComposerSheet({
                 .filter(Boolean)
                 .join(" ")}
               pending={publish.isPending}
-              pendingLabel={
-                gate.requestApproval ? "Requesting…" : "Publishing…"
-              }
+              pendingLabel={gate.requestApproval ? "Requesting…" : "Sending…"}
             >
               {gate.requestApproval ? null : <UploadIcon aria-hidden />}
               {publishLabel}

@@ -5,6 +5,7 @@ import { useQuery, type QueryClient } from "@tanstack/react-query"
 import { fetchShellStatus } from "@/lib/api/shell-status"
 import type { ConnectionsResponse } from "@/lib/contracts/connections"
 import type { ShellStatusResponse } from "@/lib/contracts/shell-status"
+import { outboxKeys } from "@/lib/outbox/keys"
 import { queryKeys } from "./keys"
 
 /**
@@ -53,6 +54,7 @@ export function seedShellKeys(
   client.setQueryData(queryKeys.reviewCounts("organisation"), status.counts)
   client.setQueryData(queryKeys.connections, connections)
   client.setQueryData(queryKeys.notifications("badge"), status.notifications)
+  if (status.outbox) client.setQueryData(outboxKeys.counts({}), status.outbox)
   if (
     previous &&
     connectionsSignature(previous) !== connectionsSignature(connections)

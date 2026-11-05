@@ -349,7 +349,10 @@ export function NotificationsCard() {
           aria-labelledby={typesLabelId}
           className="flex flex-col gap-1.5"
         >
-          <span id={typesLabelId} className="text-ui font-medium text-ink-muted">
+          <span
+            id={typesLabelId}
+            className="text-ui font-medium text-ink-muted"
+          >
             What Google should tell us about
           </span>
           {/* Unlabelled: the group above names these rows, so the section
@@ -387,9 +390,11 @@ export function NotificationsCard() {
               ? "Unsaved changes"
               : null}
         </p>
+        {/* Writes Google's notification setting, so it is the send action. */}
         <Button
+          variant="send"
           pending={setting.save.isPending}
-          pendingLabel="Saving…"
+          pendingLabel="Sending…"
           onClick={onSave}
         >
           Save notifications

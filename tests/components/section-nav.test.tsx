@@ -3,8 +3,10 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  phoneSectionClass,
   PROFILE_PAGE_SLOT,
   SectionNav,
+  usePhoneSection,
 } from "@/components/locations/profile/section-nav"
 
 // jsdom has no layout and no IntersectionObserver: each section's top is set
@@ -164,5 +166,88 @@ describe("SectionNav", () => {
     navBox = { top: 0, width: 200, height: 500 }
     act(() => fire())
     expect(identity).toHaveAttribute("aria-current", "location")
+  })
+})
+
+describe("SectionNav on a phone (section index)", () => {
+  function PhonePage() {
+    const open = usePhoneSection()
+    return (
+      <div data-slot={PROFILE_PAGE_SLOT}>
+        <SectionNav
+          entries={[
+            { id: "section-a", label: "Identity" },
+            { id: "section-b", label: "Contact", changed: true },
+          ]}
+        />
+        {["section-a", "section-b"].map((id) => (
+          <section key={id} id={id} className={phoneSectionClass(id, open)}>
+            <h3 id={`${id}-heading`}>{id}</h3>
+          </section>
+        ))}
+      </div>
+    )
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "matchMedia",
+      (query: string) =>
+        ({
+          // A phone: under every min-width breakpoint.
+          matches: !query.includes("min-width"),
+          media: query,
+          addEventListener() {},
+          removeEventListener() {},
+        }) as unknown as MediaQueryList
+    )
+    window.scrollTo = vi.fn() as unknown as typeof window.scrollTo
+    window.history.replaceState(null, "", "/listings/loc-1/profile")
+  })
+
+  it("lists the sections with an ink Edited word, and opens one alone with a way back", async () => {
+    render(<PhonePage />)
+    const contact = await screen.findByRole("button", { name: /Contact/ })
+    expect(contact).toHaveTextContent("Edited")
+    for (const word of screen.getAllByText("Edited"))
+      expect(word).toHaveClass("text-ink")
+    // Every section is hidden on a phone while the index shows.
+    expect(document.getElementById("section-a")).toHaveClass("max-md:hidden")
+    expect(document.getElementById("section-b")).toHaveClass("max-md:hidden")
+
+    await userEvent.click(contact)
+    expect(window.location.search).toBe("?section=b")
+    expect(document.getElementById("section-b")).not.toHaveClass(
+      "max-md:hidden"
+    )
+    expect(document.getElementById("section-a")).toHaveClass("max-md:hidden")
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAttribute("id", "section-b-heading")
+    )
+    expect(screen.queryByRole("button", { name: /Identity/ })).toBeNull()
+
+    await userEvent.click(screen.getByRole("link", { name: "All sections" }))
+    expect(window.location.search).toBe("")
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAccessibleName(/Contact/)
+    )
+  })
+
+  it("follows the address when the phone's Back button pops a section", async () => {
+    render(<PhonePage />)
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Identity/ })
+    )
+    expect(document.getElementById("section-a")).not.toHaveClass(
+      "max-md:hidden"
+    )
+    act(() => {
+      window.history.replaceState(null, "", "/listings/loc-1/profile")
+      window.dispatchEvent(new PopStateEvent("popstate"))
+    })
+    expect(document.getElementById("section-a")).toHaveClass("max-md:hidden")
+    expect(
+      await screen.findByRole("button", { name: /Identity/ })
+    ).toBeInTheDocument()
   })
 })

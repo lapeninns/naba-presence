@@ -39,6 +39,12 @@ import { cn } from "@/lib/utils"
 export type ListRowSwipeAction = {
   /** One or two words ("Archive", "Delete"). Shown under the icon. */
   label: string
+  /**
+   * The name with the row in it ("Remove Alex Smith"). Revealed actions sit
+   * outside the row's own text, so a screen reader's list of buttons can't
+   * otherwise tell one row's "Remove" from the next. Defaults to `label`.
+   */
+  accessibleLabel?: string
   icon?: React.ReactNode
   onAction: () => void
   /** `"danger"` draws the danger token and a destructive menu item. */
@@ -60,8 +66,7 @@ const FALLBACK_ACTION_WIDTH = 80
 let closeOpenRow: (() => void) | null = null
 
 const TONE_CLASS = {
-  default:
-    "bg-accent-solid text-ink-on-accent focus-visible:ring-(--np-ink-on-accent)",
+  default: "bg-ink text-ink-inverse focus-visible:ring-(--np-ink-inverse)",
   danger:
     "bg-danger-solid text-danger-on-solid focus-visible:ring-(--np-danger-on-solid)",
 } as const
@@ -232,7 +237,7 @@ function ListRowSwipe({
         className={cn(
           "relative flex min-w-0 flex-1 translate-x-(--swipe-x) touch-pan-y flex-col",
           animates &&
-            "transition-transform duration-(--np-duration-fast) ease-spring-snappy motion-reduce:transition-none"
+            "transition-transform duration-(--np-duration-fast) ease-press motion-reduce:transition-none"
         )}
       >
         {control}
@@ -284,7 +289,7 @@ function ListRowSwipe({
         className={cn(
           "absolute inset-y-0 end-0 flex w-[calc(var(--swipe-x)*-1)] justify-end overflow-hidden",
           animates &&
-            "transition-[width] duration-(--np-duration-fast) ease-spring-snappy motion-reduce:transition-none"
+            "transition-[width] duration-(--np-duration-fast) ease-press motion-reduce:transition-none"
         )}
       >
         <div ref={actionsRef} className="flex shrink-0">
@@ -294,6 +299,7 @@ function ListRowSwipe({
               type="button"
               disabled={action.disabled}
               tabIndex={offset === 0 ? -1 : undefined}
+              aria-label={action.accessibleLabel}
               data-slot="list-row-swipe-action"
               data-tone={action.tone ?? "default"}
               onClick={() => {
@@ -301,7 +307,7 @@ function ListRowSwipe({
                 action.onAction()
               }}
               className={cn(
-                "flex w-20 shrink-0 flex-col items-center justify-center gap-1 px-2 text-center text-caption font-semibold wrap-anywhere outline-none focus-visible:ring-2 focus-visible:ring-inset disabled:opacity-50 forced-colors:focus-ring-inset [&_svg]:size-5 [&_svg]:shrink-0",
+                "flex w-20 shrink-0 flex-col items-center justify-center gap-1 px-2 text-center text-caption font-semibold wrap-anywhere outline-none focus-visible:ring-2 focus-visible:ring-inset forced-colors:focus-ring-inset drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink [&_svg]:size-5 [&_svg]:shrink-0",
                 TONE_CLASS[action.tone ?? "default"]
               )}
             >

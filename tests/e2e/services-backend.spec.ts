@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test"
 import AxeBuilder from "@axe-core/playwright"
 import { startServicesBackend } from "./helpers/services-backend"
 import { captureServicesPanel } from "./helpers/services-capture"
+import { openProfileSectionOnPhone } from "./helpers/profile-section"
 import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
 
 let backend: Awaited<ReturnType<typeof startServicesBackend>>
@@ -53,6 +54,7 @@ const serviceSheet = /^(Review service changes|Saved service outcome)$/
 async function retailAttributesAndHandoff(page: Page, info: TestInfo) {
   const fixture = await backend.serviceFixture(page, "retail")
   await fixture.open()
+  await openProfileSectionOnPhone(page, "Attributes")
   const pickup = page
     .getByRole("radiogroup", { name: "In-store pickup", exact: true })
     .getByRole("radio", { name: "Yes", exact: true })
@@ -73,6 +75,7 @@ async function retailAttributesAndHandoff(page: Page, info: TestInfo) {
     "#section-attributes"
   )
   expect(fixture.writes()).toHaveLength(0)
+  await openProfileSectionOnPhone(page, "Product catalogue")
   const handoff = page.getByRole("region", {
     name: "Product catalogue",
     exact: true,
@@ -109,6 +112,7 @@ async function retailAttributesAndHandoff(page: Page, info: TestInfo) {
 async function reviewSendAndConfirm(page: Page, info: TestInfo) {
   const fixture = await backend.serviceFixture(page)
   await fixture.open()
+  await openProfileSectionOnPhone(page, "Services")
   await expect(
     page.getByRole("textbox", { name: "Service name", exact: true })
   ).toHaveValue("Consultation")

@@ -189,13 +189,18 @@ const TILE_TONE: Record<SelectionBarTileTone, string> = {
   // accent-ink on accent-tint: the active chip's gated pair.
   accent: "bg-accent-tint text-accent-ink font-semibold",
   // The on-charcoal ink and fill; the focus halo is the shared one.
-  charcoal: "on-charcoal",
+  // Disabled, it is drawn on the lifted charcoal like a disabled `send`
+  // there, not with the surface's disabled fill.
+  charcoal:
+    "on-charcoal drawn-disabled:bg-disabled-on-charcoal drawn-disabled:text-disabled-on-charcoal-ink",
 }
 
 const TILE_CLASS = cn(
   "relative inline-flex min-h-16 min-w-16 flex-1 shrink-0 flex-col items-center justify-center gap-1 rounded-(--np-radius-card) px-2 py-2 text-caption font-medium whitespace-nowrap no-underline focus-halo select-none",
   "transition-colors duration-(--np-duration-fast) ease-standard",
-  "data-disabled:cursor-not-allowed data-disabled:opacity-50",
+  // Disabled is drawn with the disabled roles, never faded; the tone's
+  // hover fill steps aside (the drawn rule is the more specific one).
+  "data-disabled:cursor-not-allowed drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
   "[&_svg]:pointer-events-none [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:[stroke-width:1.5]",
   "md:min-h-(--np-control-h) md:min-w-0 md:flex-none md:flex-row md:gap-1.5 md:rounded-(--np-radius-control) md:px-3 md:py-0 md:text-ui md:font-semibold md:[&_svg]:size-4"
 )

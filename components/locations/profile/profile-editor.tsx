@@ -22,7 +22,10 @@ import {
 } from "./sections/saved-attribute-reviews"
 import {
   PROFILE_PAGE_SLOT,
+  phoneSectionClass,
+  revealPhoneSectionOf,
   SectionNav,
+  usePhoneSection,
   type SectionNavEntry,
 } from "./section-nav"
 import { SectionCard } from "./section-card"
@@ -160,6 +163,7 @@ import {
   useProfileEditor,
   type ProfileEditorState,
 } from "@/lib/queries/use-location-profile-editor"
+import { cn } from "@/lib/utils"
 
 const FIELD_LABELS: Record<ProfileFieldKey, string> = {
   name: "Business name",
@@ -256,12 +260,14 @@ const UNPLACED_PAYLOAD_TARGETS: Partial<Record<string, string>> = {
 /**
  * Opens the disclosure that holds a summary link's field, and where the link
  * names a group or a row rather than one control (the opening date, an
- * attribute's choice), focuses its first control. The summary then scrolls
+ * attribute's choice), focuses its first control. On a phone it first opens
+ * the field's section, which may not be the one on screen. The summary then scrolls
  * to the target; its own focus call leaves a group's control focused.
  */
-function revealField(fieldId: string) {
+async function revealField(fieldId: string) {
   const target = document.getElementById(fieldId)
   if (!target) return
+  await revealPhoneSectionOf(target)
   const details = target.closest("details")
   if (details && !details.open) details.open = true
   if (target.matches("input, textarea, select, button, [tabindex]")) return
@@ -340,6 +346,11 @@ export function ProfileTab({ locationId }: { locationId: string }) {
   // While Google can't be read they stay, empty or not, so "See saved work"
   // always lands on something.
   const hideEmptyWork = !unreachable && !savedReviews?.googleUnread
+  // On a phone the editor's section index lists the saved work too, so
+  // while the editor is up each piece shows only when it is the open one.
+  const phoneSection = usePhoneSection()
+  const phoneClass = (id: string) =>
+    cn("contents", savedReviews && phoneSectionClass(id, phoneSection))
   return (
     <LodgingWorkspaceProvider key={locationId} locationId={locationId}>
       <ServiceWorkspaceProvider locationId={locationId}>
@@ -384,29 +395,39 @@ export function ProfileTab({ locationId }: { locationId: string }) {
           >
             {savedReviews ? (
               <>
-                <SavedListingReviews
-                  locationId={locationId}
-                  enabled={savedReviews.enabled}
-                  publishReason={savedReviews.publishReason}
-                />
-                <SavedAttributeReviews
-                  locationId={locationId}
-                  enabled={savedReviews.enabled}
-                  metadata={savedReviews.metadata}
-                  publishReason={savedReviews.publishReason}
-                />
+                <div className={phoneClass(SAVED_LISTING_REVIEWS_ID)}>
+                  <SavedListingReviews
+                    locationId={locationId}
+                    enabled={savedReviews.enabled}
+                    publishReason={savedReviews.publishReason}
+                  />
+                </div>
+                <div className={phoneClass(SAVED_ATTRIBUTE_REVIEWS_ID)}>
+                  <SavedAttributeReviews
+                    locationId={locationId}
+                    enabled={savedReviews.enabled}
+                    metadata={savedReviews.metadata}
+                    publishReason={savedReviews.publishReason}
+                  />
+                </div>
               </>
             ) : null}
-            <SavedLodgingWorkspace
-              locationId={locationId}
-              hideWhenEmpty={hideEmptyWork}
-            />
-            <SavedServiceWorkspace
-              locationId={locationId}
-              hideWhenEmpty={hideEmptyWork}
-            />
+            <div className={phoneClass(SAVED_LODGING_ID)}>
+              <SavedLodgingWorkspace
+                locationId={locationId}
+                hideWhenEmpty={hideEmptyWork}
+              />
+            </div>
+            <div className={phoneClass(SAVED_SERVICES_ID)}>
+              <SavedServiceWorkspace
+                locationId={locationId}
+                hideWhenEmpty={hideEmptyWork}
+              />
+            </div>
           </div>
-          <ProductCatalogueHandoff locationId={locationId} />
+          <div className={phoneClass(PRODUCT_CATALOGUE_ID)}>
+            <ProductCatalogueHandoff locationId={locationId} />
+          </div>
         </div>
       </ServiceWorkspaceProvider>
     </LodgingWorkspaceProvider>
@@ -485,6 +506,16 @@ function ProfileEditor({
   const contentWarningAcknowledgement =
     contentWarningsAccepted && contentWarning?.values === JSON.stringify(values)
       ? contentWarning.token
+      : undefined
+  // "Save here" warnings on screen for these values and not yet ticked: a
+  // save would only be refused again, so it waits for the tick (focus is on
+  // the warnings block by then). Publish is not gated here: the review sheet
+  // disables natively, which would drop focus from the button just pressed.
+  const saveWarningUnacknowledged =
+    contentWarning?.action === "save" &&
+    contentWarning.values === JSON.stringify(values) &&
+    !contentWarningsAccepted
+      ? "Acknowledge the content warnings first"
       : undefined
   // The page's warnings block: a refused "Save here" moves focus to it.
   const contentWarningsRef = useRef<HTMLDivElement>(null)
@@ -901,7 +932,7 @@ function ProfileEditor({
       outcome,
       title:
         outcome === "confirmed_applied"
-          ? "Business profile live on Google"
+          ? "Business profile confirmed on Google"
           : "Business profile sent to Google",
     }),
     onSuccess: () => {
@@ -1211,7 +1242,7 @@ function ProfileEditor({
     savesHere: true,
   })
 
-  // Per-field "Changed" marks: what differs from Google right now.
+  // Per-field "Edited" marks: what differs from Google right now.
   const googleOf = (key: ProfileFieldKey) =>
     profile.fields.find((field) => field.key === key)?.googleValue ?? ""
   const differs = (a: unknown, b: unknown) =>
@@ -1268,12 +1299,12 @@ function ProfileEditor({
   // the review, `needsAck` and the publish body don't read it.
   const fieldMark = (key: "name" | "description" | "phone" | "website") => {
     if (!changed[key]) return undefined
-    if (values[key] !== initialValues[key]) return "Changed"
+    if (values[key] !== initialValues[key]) return "Edited"
     const status = profile.fields.find((field) => field.key === key)?.status
     if (status === "google_dirty" || status === "conflict")
       return "Changed on Google"
     if (status === "core_dirty") return "Not on Google yet"
-    return "Changed"
+    return "Edited"
   }
   const additionalPhonesChanged = differs(
     listing.additionalPhones ?? [],
@@ -1301,6 +1332,7 @@ function ProfileEditor({
    * (plus the saved work and catalogue handoff after the editor), so the two
    * can never disagree about order. Blocks without a label are not sections.
    */
+  const phoneSection = usePhoneSection()
   const blocks: {
     id: string
     label?: string
@@ -1677,7 +1709,7 @@ function ProfileEditor({
             saveDisabledReason={
               (serviceStatus.dirty || lodgingDirty) && !valuesDirty
                 ? "Services and lodging are saved through their own review."
-                : saveReason
+                : (saveReason ?? saveWarningUnacknowledged)
             }
             disabledReason={
               lodgingOnly
@@ -1774,7 +1806,21 @@ function ProfileEditor({
           ) : null}
           {blocks.map((block) =>
             block.show ? (
-              <Fragment key={block.id}>{block.render()}</Fragment>
+              block.label ? (
+                // On a phone only the open section shows; the rest stay
+                // mounted so their edits are kept.
+                <div
+                  key={block.id}
+                  className={cn(
+                    "contents",
+                    phoneSectionClass(block.id, phoneSection)
+                  )}
+                >
+                  {block.render()}
+                </div>
+              ) : (
+                <Fragment key={block.id}>{block.render()}</Fragment>
+              )
             ) : null
           )}
         </div>

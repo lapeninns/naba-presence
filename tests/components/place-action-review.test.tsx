@@ -447,7 +447,9 @@ describe("saved booking link work", () => {
     const region = await renderSaved(
       new Date(Date.now() + 7 * 24 * 3_600_000).toISOString()
     )
-    expect(await region.findByText("Approved request")).toBeInTheDocument()
+    expect(
+      await region.findByText("Approved, ready to send")
+    ).toBeInTheDocument()
     expect(region.queryByText(/Approval expires/)).not.toBeInTheDocument()
   })
 
@@ -460,7 +462,9 @@ describe("saved booking link work", () => {
 
   it("tolerates an unreadable approval deadline", async () => {
     const region = await renderSaved("not a date")
-    expect(await region.findByText("Approved request")).toBeInTheDocument()
+    expect(
+      await region.findByText("Approved, ready to send")
+    ).toBeInTheDocument()
   })
 
   it("titles cards by link, keeps the resource secondary, and says an approval expired in local time", async () => {

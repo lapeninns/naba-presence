@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { describe, expect, it, vi } from "vitest"
@@ -27,7 +27,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import DashboardError from "@/app/(dashboard)/error"
 import DashboardLoading from "@/app/(dashboard)/loading"
-import { BoundaryErrorState } from "@/components/app-shell/boundary"
+import {
+  BoundaryErrorState,
+  boundaryButtonClass,
+} from "@/components/app-shell/boundary"
 import DashboardNotFound from "@/app/(dashboard)/not-found"
 import { queryKeys } from "@/lib/queries/keys"
 import GlobalError from "@/app/global-error"
@@ -67,6 +70,53 @@ describe("route error boundary", () => {
     expect(document.querySelector('[data-slot="page-frame"]')).not.toBeNull()
   })
 
+  it("hands focus to the recovered page once a retry succeeds", async () => {
+    const retry = vi.fn()
+    const { rerender } = render(
+      <main id="main" tabIndex={-1}>
+        <DashboardError
+          error={Object.assign(new Error("x"), { digest: "d-1" })}
+          reset={vi.fn()}
+          retry={retry}
+        />
+      </main>
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(retry).toHaveBeenCalledTimes(1)
+    rerender(
+      <main id="main" tabIndex={-1}>
+        <h1>Reports</h1>
+      </main>
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Reports" })
+      ).toHaveFocus()
+    )
+  })
+
+  it("prefers the stable retry, which re-fetches the segment's server data", async () => {
+    const retry = vi.fn()
+    const unstable_retry = vi.fn()
+    const reset = vi.fn()
+    render(
+      <DashboardError
+        error={new Error("x")}
+        reset={reset}
+        retry={retry}
+        unstable_retry={unstable_retry}
+      />
+    )
+    const button = screen.getByRole("button", { name: "Try again" })
+    button.focus()
+    await userEvent.click(button)
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(unstable_retry).not.toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+    expect(button).not.toHaveAttribute("disabled")
+    expect(document.activeElement).toBe(button)
+  })
+
   it("falls back to reset when retry is unavailable", async () => {
     const reset = vi.fn()
     render(<DashboardError error={new Error("x")} reset={reset} />)
@@ -74,6 +124,17 @@ describe("route error boundary", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(reset).toHaveBeenCalledTimes(1)
   })
+})
+
+describe("boundaryButtonClass", () => {
+  it.each(["primary", "outline", "ghost"] as const)(
+    "draws the %s hover fill for a fine pointer only (no sticky hover on touch)",
+    (variant) => {
+      const classes = boundaryButtonClass(variant).split(" ")
+      expect(classes.filter((c) => c.startsWith("hover:"))).toEqual([])
+      expect(classes.some((c) => c.startsWith("hover-fine:hover:"))).toBe(true)
+    }
+  )
 })
 
 describe("BoundaryErrorState", () => {
@@ -123,6 +184,13 @@ describe("root pages", () => {
     )
   })
 
+  it("the root 404 names the product in its banner and offers one way back", () => {
+    render(<NotFound />)
+    expect(screen.getByRole("banner")).toHaveTextContent("NabaPresence")
+    expect(screen.getByRole("main")).not.toHaveTextContent("NabaPresence")
+    expect(screen.getAllByRole("link")).toHaveLength(1)
+  })
+
   it("the global error shows the digest in mono, never the message", () => {
     // global-error renders its own <html>; mount it into the document.
     render(
@@ -144,6 +212,75 @@ describe("root pages", () => {
     expect(document.body.textContent).not.toMatch(/agency|client/i)
     expect(document.body.textContent).toMatch(/in your workspace/)
   })
+
+  it("the global error says nothing was changed, and names the reference only when there is one", () => {
+    const { rerender } = render(
+      <GlobalError error={new Error("x")} reset={vi.fn()} />,
+      { container: document }
+    )
+    expect(document.body.textContent).toMatch(/Nothing was changed\./)
+    expect(document.body.textContent).not.toMatch(/reference/i)
+    rerender(
+      <GlobalError
+        error={Object.assign(new Error("x"), { digest: "g-1" })}
+        reset={vi.fn()}
+      />
+    )
+    expect(screen.getByText(/^Error reference/)).toBeInTheDocument()
+    expect(document.body.textContent).toMatch(/share the error reference/)
+  })
+
+  it("the global error retries with retry first, from a button that is never disabled", () => {
+    const reset = vi.fn()
+    const unstable_retry = vi.fn()
+    const retry = vi.fn()
+    // A document of its own: the roots earlier tests mounted on `document`
+    // would otherwise be the ones that see the click.
+    const own = document.implementation.createHTMLDocument()
+    render(
+      <GlobalError
+        error={new Error("x")}
+        reset={reset}
+        unstable_retry={unstable_retry}
+        retry={retry}
+      />,
+      { container: own, baseElement: own.body }
+    )
+    const button = own.querySelector("button")!
+    expect(button.textContent).toBe("Try again")
+    expect(button.hasAttribute("disabled")).toBe(false)
+    act(() => button.click())
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(unstable_retry).not.toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+  })
+
+  it("the global error has a banner, one main and one primary", () => {
+    render(<GlobalError error={new Error("x")} reset={vi.fn()} />, {
+      container: document,
+    })
+    expect(screen.getByRole("banner")).toHaveTextContent("NabaPresence")
+    expect(screen.getAllByRole("main")).toHaveLength(1)
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Something went wrong" })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Go to Inbox" })).toHaveAttribute(
+      "href",
+      "/inbox"
+    )
+  })
+
+  it("the global error puts back a stored theme, which the root layout would have applied", async () => {
+    window.localStorage.setItem("theme", "dark")
+    try {
+      render(<GlobalError error={new Error("x")} reset={vi.fn()} />, {
+        container: document,
+      })
+      await waitFor(() => expect(document.documentElement).toHaveClass("dark"))
+    } finally {
+      window.localStorage.removeItem("theme")
+    }
+  })
 })
 
 describe("dashboard loading", () => {
@@ -155,6 +292,9 @@ describe("dashboard loading", () => {
     // The list-row shapes are decoration only, hidden from assistive tech.
     const skeletons = status.querySelectorAll('[data-slot="skeleton"]')
     expect(skeletons.length).toBeGreaterThan(0)
+    // The title bar is one page-title line tall, as PageHeader's h1 is.
+    expect(skeletons[0]!.parentElement).toHaveClass("text-page-title")
+    expect(skeletons[0]).toHaveClass("h-lh")
     for (const skeleton of Array.from(skeletons)) {
       expect(skeleton.closest('[aria-hidden="true"]')).not.toBeNull()
     }

@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import {
+  CheckIcon,
   CircleCheckIcon,
   InfoIcon,
   Loader2Icon,
@@ -159,16 +160,17 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
   // `--dir` is the stacking direction: -1 stacks upward from the bottom edge,
   // which is where the stack now sits at every width. Every offset below is
   // multiplied by it so the transforms read as one set. Enter and exit
-  // slide along the same axis on the spring.
+  // slide along the same axis on the spring. The toast takes the toast
+  // radius and the pop shadow (SYSTEM §7.3: float is for menus).
   return (
     <ToastPrimitive.Root
       data-slot="toast"
       className={cn(
-        "group/toast pointer-events-auto absolute right-0 bottom-0 w-full origin-bottom rounded-toast bg-charcoal text-ink-on-charcoal shadow-np-float will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)] forced-colors:focus-ring-inset [[data-base-ui-inert]_&]:pointer-events-none",
+        "group/toast pointer-events-auto absolute right-0 bottom-0 w-full origin-bottom rounded-toast bg-charcoal text-ink-on-charcoal shadow-np-pop will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)] forced-colors:focus-ring-inset [[data-base-ui-inert]_&]:pointer-events-none",
         // design-exempt R4: per-toast order inside the toast layer, from Base UI's --toast-index
         "z-[calc(1000-var(--toast-index))]",
         "[--dir:-1] [--gap:--spacing(2)] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--dir)*(var(--toast-offset-y)+var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))] [--peek:--spacing(3)] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))]",
-        "h-(--height) [transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+var(--dir)*(var(--toast-index)*var(--peek)+var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_var(--np-duration-overlay)_var(--np-ease-spring),opacity_var(--np-duration-standard)_var(--np-ease-standard),height_var(--np-duration-fast)_var(--np-ease-standard)]",
+        "h-(--height) [transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+var(--dir)*(var(--toast-index)*var(--peek)+var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_var(--np-duration-overlay)_var(--np-ease-emphasis),opacity_var(--np-duration-standard)_var(--np-ease-standard),height_var(--np-duration-fast)_var(--np-ease-standard)]",
         // A hover bridge across the gap to the next toast (above this one),
         // so an expanded stack does not collapse while the pointer crosses
         // between rows.
@@ -306,7 +308,7 @@ function ToastClose({
       aria-label="Close toast"
       render={render}
       className={cn(
-        "relative size-7 shrink-0 self-center text-ink-muted-on-charcoal after:absolute after:-inset-2 after:content-[''] hover:bg-ink-on-charcoal/10 hover:text-ink-on-charcoal focus-visible:shadow-none focus-visible:outline-2 focus-visible:outline-ink-on-charcoal desk:after:inset-0 [&_svg]:[stroke-width:1.75]",
+        "relative size-7 shrink-0 self-center text-ink-muted-on-charcoal after:absolute after:-inset-2 after:content-[''] focus-visible:shadow-none focus-visible:outline-2 focus-visible:outline-ink-on-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/15 hover-fine:hover:text-ink-on-charcoal hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/10 desk:after:inset-0 [&_svg]:[stroke-width:1.75]",
         className
       )}
       {...props}
@@ -320,9 +322,17 @@ function ToastClose({
  * The leading status glyph in the family's SOLID step, which reads on the
  * charcoal in both themes (reference `.toast-icon`). Loading uses a spinner
  * in the muted on-charcoal ink: it is not a status, it is the absence of one.
+ * Neutral (done here, nobody acts next, nothing on Google) is a plain tick in
+ * the same muted ink: green is kept for what Google confirmed (SYSTEM §12).
  */
 function ToastIcon({ type }: { type: string | undefined }) {
   let icon: React.ReactNode = null
+
+  if (type === "neutral") {
+    icon = (
+      <CheckIcon className="text-ink-muted-on-charcoal" aria-hidden="true" />
+    )
+  }
 
   if (type === "success") {
     icon = <CircleCheckIcon className="text-success-solid" aria-hidden="true" />
@@ -517,8 +527,14 @@ function useToastManager() {
  */
 export type ToastKind = "local" | "google"
 
-/** The result types; `loading` is the progress phase (`toastProgress`). */
-export type ToastResultType = "success" | "info" | "warning" | "error"
+/**
+ * The result types; `loading` is the progress phase (`toastProgress`).
+ * `neutral` is the app-only result (saved here, copied, moved): nobody acts
+ * next and nothing reached Google. `success` is green and means Google
+ * confirmed it; a caller must ask for it.
+ */
+export type ToastResultType =
+  "neutral" | "success" | "info" | "warning" | "error"
 
 /** Opt-in Undo for a local reversible action. Closes the toast when used. */
 export type ToastUndo = {
@@ -538,7 +554,7 @@ type OutcomeToastBase = {
   id?: string
   title: React.ReactNode
   description?: React.ReactNode
-  /** Default "success". */
+  /** Default "neutral": only a confirmed Google result is "success". */
   type?: ToastResultType
   /** Milliseconds; 0 keeps it until dismissed. Defaults per `withToastDefaults`. */
   timeout?: number
@@ -650,7 +666,7 @@ function outcomeToManagerOptions(
   const resolved = withToastDefaults({
     title,
     description,
-    type: type ?? "success",
+    type: type ?? "neutral",
     data,
     onClose,
     ...(actionProps ? { actionProps } : {}),
@@ -806,7 +822,7 @@ export function toastProgress<K extends ToastKind = "local">(
   return {
     id,
     success: (resultTitle, options) =>
-      settle(resultTitle, options, options?.type ?? "success"),
+      settle(resultTitle, options, options?.type ?? "neutral"),
     error: (resultTitle, options) =>
       settle(resultTitle, options as ResultOptionsFor<K> | undefined, "error"),
     update: (nextTitle, nextDescription) =>

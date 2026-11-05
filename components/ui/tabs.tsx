@@ -172,7 +172,7 @@ function useCurrentInView(
  * to a section of the same page, e.g. a profile's section nav).
  */
 const tabItemClassName = cn(
-  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
+  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-press disabled:pointer-events-none drawn-disabled:text-disabled-ink hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   // An in-page section nav marks its current section `aria-current="location"`.
@@ -190,7 +190,7 @@ const tabItemClassName = cn(
  * a faded, clipped edge rather than squeezing a label.
  */
 const textTabItemClassName = cn(
-  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
+  "relative inline-flex h-11 min-w-(--np-touch) shrink-0 items-center justify-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-press disabled:pointer-events-none drawn-disabled:text-disabled-ink hover-fine:hover:text-ink desk:h-10 desk:min-w-0",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   // An in-page section nav marks its current section `aria-current="location"`.
@@ -366,9 +366,9 @@ export type TabNavItem = {
   disabled?: boolean
 }
 
-/** A disabled tab: muted, no pointer feedback. */
+/** A disabled tab: the disabled ink (never faded), no pointer feedback. */
 const disabledTabClassName =
-  "cursor-not-allowed font-normal opacity-60 hover-fine:hover:text-ink-muted"
+  "cursor-not-allowed font-normal text-disabled-ink hover-fine:hover:text-disabled-ink"
 
 /** The label, reason and count inside a tab, shared by every drawing of it. */
 function TabNavContent({ item }: { item: TabNavItem }) {
@@ -494,7 +494,8 @@ type StripLayout = {
  */
 function fitTabs(
   { widths, gap, more, available }: StripLayout,
-  current: number
+  current: number,
+  max = Infinity
 ): boolean[] {
   const span = (sum: number, count: number) =>
     sum + gap * Math.max(0, count - 1)
@@ -503,12 +504,14 @@ function fitTabs(
     widths.length
   )
   // Not measured (a hidden or unlaid-out row) or it all fits.
-  if (available <= 0 || total <= available + 0.5) return widths.map(() => true)
+  if (available <= 0 || (widths.length <= max && total <= available + 0.5))
+    return widths.map(() => true)
   const room = available - more - gap
   const visible = widths.map(() => false)
   let sum = 0
   let count = 0
   const take = (index: number) => {
+    if (count >= max) return false
     if (span(sum + widths[index], count + 1) > room) return false
     visible[index] = true
     sum += widths[index]
@@ -566,11 +569,13 @@ function TabNavMoreRow({
   itemClassName,
   variant,
   moreLabel,
+  maxVisible,
 }: {
   items: TabNavItem[]
   itemClassName: string
   variant: TabsVariant
   moreLabel: string
+  maxVisible?: number
 }) {
   const rowRef = React.useRef<HTMLUListElement>(null)
   const ghostRef = React.useRef<HTMLUListElement>(null)
@@ -602,7 +607,7 @@ function TabNavMoreRow({
   const currentIndex = items.findIndex((item) => item.current)
   const fits =
     layout && layout.widths.length === items.length
-      ? fitTabs(layout, currentIndex)
+      ? fitTabs(layout, currentIndex, maxVisible)
       : null
   const shown = items.filter((_, index) => fits?.[index] ?? true)
   const overflow = items.filter((_, index) => fits !== null && !fits[index])
@@ -753,10 +758,16 @@ function TabNav({
   variant = "line",
   overflow = "scroll",
   moreLabel = "More",
+  maxVisible,
   prefetch = "viewport",
   className,
   ...props
 }: Omit<React.ComponentProps<"nav">, "children"> & {
+  /**
+   * With `overflow="more"`: at most this many tabs in the desk row, even
+   * when more would fit; the rest go in the menu. The current tab counts.
+   */
+  maxVisible?: number
   items: TabNavItem[]
   /** `text`: Notion Mail text tabs (see `textTabItemClassName`). */
   variant?: TabsVariant
@@ -787,6 +798,7 @@ function TabNav({
             itemClassName={itemClassName}
             variant={variant}
             moreLabel={moreLabel}
+            maxVisible={maxVisible}
           />
         ) : (
           <TabNavScrollRow
@@ -811,6 +823,7 @@ function TextTabs(props: Omit<React.ComponentProps<typeof TabNav>, "variant">) {
 }
 
 export {
+  fitTabs,
   Tabs,
   TabsList,
   TabsTab,

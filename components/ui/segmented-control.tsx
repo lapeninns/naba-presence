@@ -77,7 +77,9 @@ const SegmentedContext = createContext<SegmentedContextValue>({
  * an adopter no longer has to remember to add it. `segmentedThumbClassName`
  * stays exported for the ones that still do; adding it twice is harmless.
  */
-const segmentedThumbClassName = cn("rounded-[7px] bg-surface shadow-np-raised")
+const segmentedThumbClassName = cn(
+  "rounded-(--np-radius-thumb) bg-surface shadow-np-raised"
+)
 
 const segmentedItemClassName = cn(
   // On touch every segment is itself a 44px target (`--np-touch`), so the
@@ -91,14 +93,14 @@ const segmentedItemClassName = cn(
   // is what truncated "Needs attention" to "N" at 360px; now the track
   // scrolls instead. Written as the `flex` shorthand so a caller's
   // `flex-none` still replaces it through tailwind-merge.
-  "relative z-10 inline-flex h-(--np-touch) min-w-(--np-touch) flex-[1_0_auto] snap-start items-center justify-center gap-1.5 rounded-[7px] px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none desk:h-[calc(var(--np-control-h)-2*var(--np-segment-inset))] desk:min-w-0",
+  "relative z-10 inline-flex h-(--np-touch) min-w-(--np-touch) flex-[1_0_auto] snap-start items-center justify-center gap-1.5 rounded-(--np-radius-thumb) px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none desk:h-[calc(var(--np-control-h)-2*var(--np-segment-inset))] desk:min-w-0",
   // The hit area: the visible segment is 6px shorter than the track, so a
   // transparent pseudo-element reaches over the track's padding and the
   // whole track height is tappable, at the desk as on touch. It stays inside the
   // track's padding box, so the scroll container never clips it.
   "after:absolute after:inset-x-0 after:-inset-y-(--np-segment-inset)",
-  "transition-[color,background-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
-  "hover:text-ink",
+  "transition-[color,background-color,box-shadow] duration-(--np-duration-fast) ease-press",
+  "hover-fine:hover:text-ink",
   // Written out in full, not built from a helper: Tailwind only generates
   // classes it can read literally in the source.
   // Selected: the thumb (the non-colour cue) and 600 ink.
@@ -106,7 +108,9 @@ const segmentedItemClassName = cn(
   "data-active:bg-surface data-active:font-semibold data-active:text-ink data-active:shadow-np-raised",
   "data-checked:bg-surface data-checked:font-semibold data-checked:text-ink data-checked:shadow-np-raised",
   "data-pressed:bg-surface data-pressed:font-semibold data-pressed:text-ink data-pressed:shadow-np-raised",
-  "disabled:pointer-events-none disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50",
+  // Disabled: the disabled ink, never faded. A selected segment keeps its
+  // thumb, so a locked value still reads as the chosen one.
+  "disabled:pointer-events-none data-disabled:pointer-events-none drawn-disabled:text-disabled-ink",
   "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
 )
 
@@ -114,7 +118,7 @@ const itemSelector = "[data-slot=segmented-control-item]"
 
 const trackVariants = cva(
   [
-    "relative isolate flex w-full max-w-full min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-[10px] bg-fill p-(--np-segment-inset)",
+    "relative isolate flex w-full max-w-full min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-(--np-radius-track) bg-fill p-(--np-segment-inset)",
     // Snap to segments, and keep 24px of scroll padding so a snapped
     // segment lands just clear of the start fade with the previous one
     // peeking through it — the cue that there is more behind.

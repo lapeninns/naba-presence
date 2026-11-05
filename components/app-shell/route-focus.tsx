@@ -61,9 +61,23 @@ function RouteFocus() {
         heading.classList.add("outline-none")
       }
       heading.focus({ preventScroll: true })
+      // A heading that cannot take focus (inside an inert or collapsed
+      // region) would otherwise leave focus on <body> or the old tab.
+      if (document.activeElement !== heading)
+        main.focus({ preventScroll: true })
     }
 
-    const find = () => main.querySelector<HTMLElement>("h1")
+    // The first h1 that is drawn: a page may hold a second one for another
+    // breakpoint (display:none), and focusing that one does nothing. With no
+    // layout (no boxes at all) the first h1 is the answer.
+    const find = () => {
+      const headings = [...main.querySelectorAll<HTMLElement>("h1")]
+      return (
+        headings.find((heading) => heading.getClientRects().length > 0) ??
+        headings[0] ??
+        null
+      )
+    }
     const heading = find()
     if (heading) {
       focusHeading(heading)

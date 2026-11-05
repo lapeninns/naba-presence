@@ -183,9 +183,15 @@ describe("ReviewList", () => {
     expect(screen.getByRole("button", { name: /First/ })).not.toHaveTextContent(
       "Selected review"
     )
-    // The selection tint ("you are here"), which a hover does not repaint.
-    expect(second).toHaveClass("bg-(--np-selection-bg)")
+    // The neutral fill and the primitive's ink edge ("you are here"), which
+    // a hover does not repaint; no accent tint and no second bar of its own.
+    expect(second).toHaveClass(
+      "bg-(--np-selection-bg)",
+      "shadow-np-edge-select"
+    )
     expect(second.className).not.toContain("bg-surface-alt")
+    expect(second.className).not.toContain("accent")
+    expect(second.closest("li")?.className).not.toContain("before:bg-ink")
 
     // And it follows the selection rather than being painted on once.
     rerender(
@@ -403,7 +409,7 @@ describe("ReviewList", () => {
     expect(
       screen.getByLabelText("Draft checked · Ready to publish")
     ).toHaveTextContent("Ready to publish")
-    expect(screen.getByLabelText("Live on Google")).toHaveTextContent("Replied")
+    expect(screen.getByLabelText("On Google")).toHaveTextContent("Replied")
 
     for (const review of reviews) {
       const expected = deriveReplyStatus(replyStateFromRow(review))
@@ -1030,7 +1036,7 @@ describe("ReviewList row anatomy", () => {
     expect(screen.getByLabelText("No reply yet")).toHaveTextContent(
       "Needs reply"
     )
-    expect(screen.getByLabelText("Live on Google")).toHaveTextContent("Replied")
+    expect(screen.getByLabelText("On Google")).toHaveTextContent("Replied")
   })
 
   // A row in Done that is not published is there only because someone
@@ -1095,7 +1101,7 @@ describe("ReviewList row anatomy", () => {
     ).toBeInTheDocument()
   })
 
-  it("puts the status pill on the venue line, trailing, and the words last", () => {
+  it("puts the status pill at the end of the venue line on a desk and under the words on touch", () => {
     render(
       <ReviewList
         reviews={[row({ id: "a" })]}
@@ -1107,25 +1113,21 @@ describe("ReviewList row anatomy", () => {
     const button = screen.getByRole("button", { name: /^Sam Traveller/ })
     const venue = button.querySelector('[data-slot="review-row-venue"]')!
     const pill = button.querySelector('[data-slot="reply-status"]')!
-    // The venue is the row's subtitle and the pill rides its line, last and
-    // never squeezed (R3 F2-S2, RC3 QA #2): under sm (24rem, any phone up
-    // to ~470px) the pill drops below so the client · location keeps its
-    // width; the location takes the rest with a zero basis, so it never
-    // forces that wrap itself. It is one line (DSK-12): the client gives way
-    // first, with the whole text as the title.
+    // The venue is the row's subtitle; the pill is the row's trailing slot,
+    // placed adaptively (ListRow): at the end of the venue line on a desk,
+    // and on touch below the snippet, so the client · location keeps the
+    // width beside the stars. One element in both places, moved by CSS
+    // order, so nothing is announced twice. It is one line (DSK-12): the
+    // client gives way first, with the whole text as the title.
     const subtitle = venue.closest('[data-slot="list-row-subtitle"]')!
     expect(subtitle).not.toBeNull()
-    expect(venue).toHaveClass("@container/venue")
     const status = pill.closest('[data-slot="review-row-status"]')!
-    expect(venue.contains(status)).toBe(true)
-    expect(status).toHaveClass(
-      "ml-auto",
-      "shrink-0",
-      "self-center",
-      "@max-sm/venue:basis-full"
-    )
+    expect(venue.contains(status)).toBe(false)
+    const trailing = status.closest('[data-slot="list-row-trailing"]')!
+    expect(trailing).toHaveAttribute("data-placement", "adaptive")
+    expect(trailing).toHaveClass("order-1", "desk:order-none", "shrink-0")
+    expect(subtitle.parentElement).toHaveClass("contents", "desk:flex")
     expect(pill).toHaveClass("bg-transparent", "border-0")
-    expect(status.parentElement).toHaveClass("flex-wrap")
     const location = button.querySelector('[data-slot="review-row-location"]')!
     expect(
       location.compareDocumentPosition(status) &
@@ -1154,9 +1156,15 @@ describe("ReviewList row anatomy", () => {
     )
     expect(client.className).not.toMatch(/shrink-\[/)
     expect(location.lastElementChild).toHaveTextContent("Riverside")
-    expect(button.querySelector('[data-slot="list-row-trailing"]')).toBeNull()
 
-    // DOM order is the visual order: name and time, venue, then the words.
+    // DOM order: name and time, venue, status, then the words. The status
+    // is spoken before the words at every size, even where touch draws it
+    // under them.
+    expect(
+      status.compareDocumentPosition(
+        button.querySelector('[data-slot="review-row-preview"]')!
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     const time = button.querySelector("time")!
     const preview = button.querySelector('[data-slot="review-row-preview"]')!
     expect(
@@ -1404,9 +1412,10 @@ describe("ReviewList refresh bar", () => {
     expect(bar).toHaveAttribute("data-slot", "progress")
     expect(bar).toHaveAttribute("data-indeterminate", "true")
     expect(bar).not.toHaveAttribute("aria-valuenow")
-    // Its highlight stops under reduced motion (the one-off pulse did not),
-    // and the section is marked busy as before.
-    expect(bar.querySelector(".animate-shimmer")).toHaveClass(
+    // Its fill pulses only under motion-safe and stills under reduced
+    // motion, and the section is marked busy as before.
+    expect(bar.querySelector('[data-slot="progress-indicator"]')).toHaveClass(
+      "motion-safe:animate-pulse",
       "motion-reduce:animate-none"
     )
     expect(document.querySelector(".animate-pulse")).toBeNull()

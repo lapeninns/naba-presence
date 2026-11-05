@@ -31,6 +31,7 @@ import {
 import * as detailHook from "@/lib/queries/use-review-detail"
 import * as draftMutations from "@/lib/queries/use-draft-mutations"
 import * as reviewsHook from "@/lib/queries/use-reviews"
+import { ApiClientError } from "@/lib/api/client"
 import * as countsHook from "@/lib/queries/use-review-counts"
 import * as connHealthHook from "@/lib/queries/use-connection-health"
 import * as locationsApi from "@/lib/api/locations"
@@ -514,6 +515,31 @@ describe("InboxView — list fetch failure", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }))
     expect(refetch).toHaveBeenCalledTimes(1)
   })
+
+  it("says a refused list is about access, not a load to retry", () => {
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: undefined,
+      error: new ApiClientError(403, "forbidden", "Forbidden"),
+      isPending: false,
+      isError: true,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+
+    renderInbox()
+
+    expect(
+      screen.getByRole("heading", { name: "No reviews are shared with you." })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("We could not load your reviews.")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Try again" })
+    ).not.toBeInTheDocument()
+  })
 })
 
 describe("InboxView — next and previous review", () => {
@@ -809,6 +835,72 @@ describe("InboxView — history", () => {
     await user.click(rowButton!)
     expect(push).not.toHaveBeenCalled()
     expect(replace).toHaveBeenCalledTimes(1)
+  })
+
+  it("goes back from a deep-linked review by replacing, to the same list, onto its row", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    // Arrived on the review (a shared link, a reload): there is no list
+    // entry under it to pop, so Back must not leave the app.
+    currentParams = new URLSearchParams("rating=4&selected=rev-1")
+    const view = renderInbox()
+    const link = await screen.findByRole("link", { name: "Back to Inbox" })
+    expect(link).toHaveAttribute("href", "/inbox?rating=4")
+
+    await user.click(link)
+    expect(back).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toBe("/inbox?rating=4")
+
+    currentParams = new URLSearchParams("rating=4")
+    view.rerender(inboxUi())
+    await waitFor(() =>
+      expect(
+        view.container.querySelector('[data-slot="review-row"]')
+      ).toHaveFocus()
+    )
+  })
+
+  it("returns to the list where it was scrolled", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    // The shell's scrolling column. jsdom has no layout, so its scrollTop
+    // is a plain value here.
+    let columnTop = 0
+    const ui = () => (
+      <div data-testid="column" style={{ overflowY: "auto" }}>
+        {inboxUi()}
+      </div>
+    )
+    const view = render(ui())
+    const column = screen.getByTestId("column")
+    Object.defineProperty(column, "scrollTop", {
+      configurable: true,
+      get: () => columnTop,
+      set: (value: number) => {
+        columnTop = value
+      },
+    })
+    columnTop = 640
+
+    await user.click(
+      view.container.querySelector<HTMLButtonElement>(
+        '[data-slot="review-row"]'
+      )!
+    )
+    currentParams = new URLSearchParams(
+      new URL(push.mock.calls[0][0], "http://x").search
+    )
+    view.rerender(ui())
+    // The review starts at its head…
+    expect(columnTop).toBe(0)
+
+    // …and the OS back gesture (the URL changing under the view) brings the
+    // list back where it was left.
+    currentParams = new URLSearchParams("rating=4")
+    view.rerender(ui())
+    expect(columnTop).toBe(640)
   })
 })
 

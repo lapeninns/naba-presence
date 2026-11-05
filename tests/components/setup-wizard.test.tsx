@@ -154,6 +154,17 @@ describe("SetupWizard", () => {
     )
   })
 
+  it("says once, in the header, that setup can be left and resumed", async () => {
+    stub(fresh)
+    renderWizard()
+    await screen.findByRole("heading", { name: "Connect Google", level: 2 })
+    expect(screen.getByText(/pick this up later/)).toBeInTheDocument()
+    // Neither the rail nor the footer's hidden hint repeats it.
+    expect(
+      screen.queryByText("You can come back to any step later.")
+    ).not.toBeInTheDocument()
+  })
+
   it("keeps a focused field clear of the step bar's measured top", async () => {
     stub(fresh)
     renderWizard()

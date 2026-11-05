@@ -47,6 +47,7 @@ import {
 } from "@/lib/domain/bulk-repreview"
 import { formatDateTime } from "@/lib/format"
 import { formatTimeOfDay } from "@/lib/format/time"
+import { describeOutcome } from "@/lib/editors/outcome"
 import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -57,15 +58,56 @@ import { describeChildChange, maskLabel } from "./bulk-change-summary"
 const CHILD: Record<BulkChild["status"], { label: string; tone: PillTone }> = {
   previewed: { label: "Ready", tone: "info" },
   skipped: { label: "Skipped", tone: "outline" },
-  queued: { label: "Queued", tone: "info" },
-  running: { label: "Sending", tone: "info" },
-  succeeded: { label: "Confirmed", tone: "ok" },
-  failed: { label: "Failed", tone: "bad" },
-  conflict: { label: "Changed on Google", tone: "warn" },
-  ambiguous: { label: "Outcome unknown", tone: "warn" },
-  cancelled: { label: "Cancelled", tone: "outline" },
+  queued: { label: "Sending to Google", tone: "info" },
+  running: { label: "Sending to Google", tone: "info" },
+  // `succeeded` is only "sent": whether Google holds it is the child's
+  // confirmationState (childPill below).
+  succeeded: { label: "Sent", tone: "info" },
+  failed: { label: describeOutcome("failed").label, tone: "bad" },
+  conflict: { label: describeOutcome("conflict").label, tone: "warn" },
+  ambiguous: { label: describeOutcome("uncertain").label, tone: "warn" },
+  cancelled: { label: "Withdrawn", tone: "outline" },
   expired: { label: "Expired, not sent", tone: "outline" },
 }
+/**
+ * A listing's pill. A sent change says On Google only once its write was
+ * confirmed; one parked for an approver says so (DIRECTION §6.3 #4).
+ */
+export function childPill(
+  child: Pick<
+    BulkChild,
+    | "status"
+    | "confirmationState"
+    | "resultCode"
+    | "operation"
+    | "googleReplyState"
+  >
+): { label: string; tone: PillTone } {
+  if (child.operation === "post_draft") {
+    if (child.status === "succeeded")
+      return { label: "Draft saved", tone: "ok" }
+    if (child.status === "queued" || child.status === "running")
+      return { label: "Saving draft", tone: "info" }
+  }
+  if (child.status !== "succeeded") return CHILD[child.status]
+  if (child.resultCode === "submitted_for_approval")
+    return { label: describeOutcome("awaiting_approval").label, tone: "warn" }
+  if (isBulkReviewOperation(child.operation)) {
+    if (child.googleReplyState === "REJECTED")
+      return { label: describeOutcome("rejected").label, tone: "bad" }
+    if (
+      child.confirmationState === "confirmed" &&
+      child.googleReplyState !== "APPROVED"
+    )
+      return { label: "Waiting for Google", tone: "info" }
+  }
+  if (child.confirmationState === "confirmed")
+    return { label: describeOutcome("confirmed_applied").label, tone: "ok" }
+  if (child.confirmationState === "unresolved")
+    return { label: describeOutcome("uncertain").label, tone: "warn" }
+  return { label: describeOutcome("awaiting_confirmation").label, tone: "info" }
+}
+
 const REASON: Record<string, string> = {
   already_applied: "Already shows this change",
   publish_not_allowed: "You can’t publish to this listing",
@@ -364,16 +406,17 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
           ) : null,
           retryable &&
           ["running", "completed_with_failures"].includes(op.status) ? (
+            // Retrying sends to Google again, so it takes the send fill.
             <Button
               key="retry"
-              variant="ghost-dark"
+              variant="send"
               disabled={mutate.isPending}
               onClick={() => {
                 setFailure(null)
                 mutate.mutate("retry")
               }}
             >
-              Retry {retryable} unconfirmed {unit(retryable)}
+              Retry sending to {retryable} {unit(retryable)}
             </Button>
           ) : null,
           canRepreview && repreview ? (
@@ -381,7 +424,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
               key="repreview"
               variant={
                 previewClosed || op.status === "expired"
-                  ? "default"
+                  ? "on-dark"
                   : "ghost-dark"
               }
               pending={prepare.isPending}
@@ -399,7 +442,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
           manager && op.status === "previewed" ? (
             <Button
               key="approve"
-              variant={previewClosed ? "ghost-dark" : "default"}
+              variant={previewClosed ? "ghost-dark" : "on-dark"}
               disabledReason={approveBlocked}
               pending={mutate.isPending}
               onClick={() => {
@@ -413,6 +456,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
           manager && op.status === "approved" ? (
             <Button
               key="start"
+              variant="send"
               pending={mutate.isPending}
               onClick={() => {
                 setFailure(null)
@@ -440,7 +484,11 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
   // Google has confirmed, from the same counts the status line reads. A
   // skipped listing is never sent, so it is not part of the total.
   const total = (op?.children.length ?? 0) - skipped
-  const confirmed = op?.counts.succeeded ?? 0
+  const confirmed =
+    op?.children.filter(
+      (child) =>
+        child.status === "succeeded" && child.confirmationState === "confirmed"
+    ).length ?? 0
   const showProgress =
     Boolean(op) && op?.status !== "previewed" && op?.status !== "expired"
 
@@ -452,14 +500,29 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
             ? `${OPERATION_LABEL[op.operation]} across ${listings} ${listings === 1 ? "listing" : "listings"}`
             : "Bulk change"
         }
-        description="Each listing is read from Google, changed once and confirmed by reading it back. Listings are independent: one failing does not undo another."
+        description={
+          op && isBulkReviewOperation(op.operation)
+            ? "Each reply is sent to Google on its own, then checked there. One failing does not undo another."
+            : "Each listing is read from Google, changed once, then read back to check Google shows it. Listings are independent: one failing does not undo another."
+        }
         actions={
-          <Link
-            href="/listings"
-            className={buttonVariants({ variant: "secondary" })}
-          >
-            Back to listings
-          </Link>
+          // A batch of review replies is started from the inbox; back goes
+          // where it came from.
+          op && isBulkReviewOperation(op.operation) ? (
+            <Link
+              href="/inbox"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to inbox
+            </Link>
+          ) : (
+            <Link
+              href="/listings"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to listings
+            </Link>
+          )
         }
       />
       {/* A failed refresh keeps the last batch the server sent on screen
@@ -499,24 +562,19 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
             >
               <p className="text-ui text-ink" role="status">
                 {op.status === "previewed"
-                  ? "Waiting for approval."
+                  ? `${describeOutcome("awaiting_approval").label}.`
                   : op.status === "approved"
                     ? "Approved. Start it to queue each listing."
                     : op.status === "running"
-                      ? "Running. This page updates on its own; you can leave it."
+                      ? "Sending to Google. This page updates on its own; you can leave it."
                       : op.status === "completed"
-                        ? "Every eligible listing is confirmed."
+                        ? "Every eligible listing was sent. Each one below says whether Google confirmed it."
                         : op.status === "completed_with_failures"
-                          ? "Finished with some listings not changed."
+                          ? "Finished. Some listings didn’t go through or aren’t confirmed; each one below says which."
                           : op.status === "cancelled"
-                            ? "Cancelled. Listings already confirmed keep their change."
+                            ? "Stopped. Listings already sent keep their change; nothing else is sent."
                             : "This change expired. Nothing more will be sent; prepare a new preview."}{" "}
-                {Object.entries(op.counts)
-                  .map(
-                    ([status, count]) =>
-                      `${count} ${CHILD[status as BulkChild["status"]]?.label.toLowerCase() ?? status}`
-                  )
-                  .join(" · ")}
+                {countLine(op.counts)}
               </p>
               {showProgress && total > 0 ? (
                 <div className="flex flex-col gap-1.5">
@@ -595,6 +653,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
               // `statusRow`: the status is a sentence, too long to share a
               // row with the buttons there.
               <ActionBar
+                tone="charcoal"
                 dock
                 statusRow
                 label="Bulk change actions"
@@ -735,8 +794,8 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                       ) : undefined
                     }
                     trailing={
-                      <StatusPill tone={CHILD[child.status].tone}>
-                        {CHILD[child.status].label}
+                      <StatusPill tone={childPill(child).tone}>
+                        {childPill(child).label}
                       </StatusPill>
                     }
                   />
@@ -767,6 +826,25 @@ const clockTime = (ms: number) => {
  * running, or a listing in it is queued or still sending (a cancelled
  * batch's in-flight listing finishes; the runner does not reopen it).
  */
+/**
+ * The server's counts in pill words, one entry per word ("queued" and
+ * "running" are both Sending to Google). Only the first letter is lowered,
+ * so "Google" keeps its capital.
+ */
+export function countLine(counts: Operation["counts"]) {
+  const byLabel = new Map<string, number>()
+  for (const [status, count] of Object.entries(counts)) {
+    if (!count) continue
+    const label = CHILD[status as BulkChild["status"]]?.label ?? status
+    byLabel.set(label, (byLabel.get(label) ?? 0) + count)
+  }
+  return [...byLabel]
+    .map(
+      ([label, count]) => `${count} ${label[0]!.toLowerCase()}${label.slice(1)}`
+    )
+    .join(" · ")
+}
+
 function moving(operation: Operation | undefined) {
   return Boolean(
     operation &&
@@ -872,7 +950,10 @@ function ChildReceipt({
           <OperationReceiptNotice
             receiptId={child.mutationOperationId}
             fallback={
-              child.status === "succeeded" ? "confirmed_applied" : "sent"
+              child.status === "succeeded" &&
+              child.confirmationState === "confirmed"
+                ? "confirmed_applied"
+                : "sent"
             }
           />
           <span className="text-caption break-all text-ink-muted">
@@ -908,7 +989,9 @@ function ChildDetail({
   const note =
     reason(child.skipReason ?? child.resultCode) ??
     (waiting ? "Waits for the earlier changes to this listing" : null) ??
-    (child.status === "succeeded" ? "Google shows the change" : null)
+    (child.status === "succeeded" && child.confirmationState === "confirmed"
+      ? "Google shows the change"
+      : null)
   const rows = describeChildChange(child)
   const fields = child.updateMask.map(maskLabel)
   return (

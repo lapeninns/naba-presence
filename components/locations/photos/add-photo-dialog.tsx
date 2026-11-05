@@ -165,18 +165,19 @@ function revoke(entries: readonly UploadEntry[]) {
 
 const STATUS_PILL: Record<
   UploadStatus,
-  { tone: "ok" | "bad" | "info" | "outline"; label: string }
+  { tone: "ok" | "bad" | "info" | "warn" | "outline"; label: string }
 > = {
   invalid: { tone: "bad", label: "Can’t upload" },
   ready: { tone: "outline", label: "Ready" },
-  uploading: { tone: "info", label: "Uploading" },
+  uploading: { tone: "info", label: describeOutcome("sent").label },
   // The route answered but did not report the write as succeeded (an
   // idempotent replay reports the earlier attempt's own status).
-  sent: { tone: "info", label: "Sent to Google" },
+  sent: { tone: "info", label: describeOutcome("awaiting_confirmation").label },
   done: { tone: "ok", label: describeOutcome("confirmed_applied").label },
   // The upload got no answer or Google's media needs resolving
   // (errorOutcome `uncertain`): it may exist at Google, so not "Failed".
-  unconfirmed: { tone: "info", label: describeOutcome("uncertain").label },
+  // Amber like every uncertain state: a person checks Google next.
+  unconfirmed: { tone: "warn", label: describeOutcome("uncertain").label },
   failed: { tone: "bad", label: describeOutcome("failed").label },
 }
 
@@ -265,8 +266,8 @@ export function AddPhotoDialog({
         outcome,
         title:
           outcome === "confirmed_applied"
-            ? "Photo added on Google"
-            : "Photo sent to Google",
+            ? describeOutcome(outcome).title
+            : describeOutcome("awaiting_confirmation").title,
       }
     },
     onSuccess: () => {
@@ -525,7 +526,7 @@ export function AddPhotoDialog({
             onDrop={onDrop}
             className={cn(
               "flex flex-col items-center gap-3 rounded-lg border-[1.5px] border-dashed border-line-strong bg-surface-alt px-4 py-5 text-center transition-colors duration-(--np-duration-fast)",
-              "data-[dragging]:border-primary data-[dragging]:bg-accent-tint"
+              "data-[dragging]:border-primary data-[dragging]:bg-fill"
             )}
           >
             <input
@@ -753,7 +754,7 @@ export function AddPhotoDialog({
                   variant="secondary"
                   onClick={() => addUrl.mutate()}
                   pending={addUrl.isPending}
-                  pendingLabel="Adding…"
+                  pendingLabel="Sending…"
                   disabled={pickDisabled || url.trim().length === 0}
                 >
                   Add from URL
@@ -784,10 +785,10 @@ export function AddPhotoDialog({
           {/* One button whatever it says, so focus stays on it when the
               run ends and it turns into Done. */}
           <Button
-            variant={finished ? "secondary" : "default"}
+            variant={finished ? "secondary" : "send"}
             onClick={finished ? close : () => void upload(ready)}
             pending={uploading}
-            pendingLabel="Uploading…"
+            pendingLabel="Sending…"
             disabled={!finished && (disabled || ready.length === 0)}
           >
             {finished ? null : <UploadIcon aria-hidden />}

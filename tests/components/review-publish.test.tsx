@@ -110,10 +110,14 @@ describe("aggregate menu review", () => {
       screen.getByRole("button", { name: "Publish 1 area to Google" })
     )
     // In flight: the request left the app and Google hasn't answered.
-    expect(
-      await screen.findByText("Sent to Google — waiting for the answer")
-    ).toBeInTheDocument()
-    expect(screen.queryByText("Live on Google")).toBeNull()
+    expect(await screen.findByText("Sending to Google")).toBeInTheDocument()
+    expect(screen.queryByText("On Google")).toBeNull()
+    // Every send's pending label is "Sending…", never "Publishing…".
+    expect(screen.getByRole("button", { name: /Sending…/ })).toHaveAttribute(
+      "aria-busy",
+      "true"
+    )
+    expect(screen.queryByText(/Publishing…/)).toBeNull()
 
     answer({ status: "published" })
     const finished = () =>
@@ -124,16 +128,31 @@ describe("aggregate menu review", () => {
       expect(finished()).toHaveAttribute("data-state", "confirmed_applied")
     )
     const step = finished()
-    expect(step).toHaveTextContent("Live on Google")
+    expect(step).toHaveTextContent("On Google")
     const toasts = screen.getByRole("region", { name: "Notifications" })
-    expect(await within(toasts).findByText("Live on Google")).toBeVisible()
+    expect(await within(toasts).findByText("Confirmed on Google")).toBeVisible()
     // The page's own result heading, not only the toast's.
     expect(
       screen
-        .getAllByRole("heading", { level: 2, name: "Live on Google" })
+        .getAllByRole("heading", { level: 2, name: "Confirmed on Google" })
         .some((heading) => !toasts.contains(heading))
     ).toBe(true)
     expect(screen.queryByText("Accepted by Google")).toBeNull()
+  })
+  it("marks an area saved here but not sent in neutral, never Google's blue or green", () => {
+    menus.value = state(["A"], ["B"])
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    expect(
+      screen.getByText("Not on Google yet").closest("[data-tone]")
+    ).toHaveAttribute("data-tone", "neutral")
+  })
+  it("says there is nothing to publish in neutral, not as a Google success", () => {
+    ctx.dirty = false
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    const empty = screen
+      .getByRole("heading", { name: "Nothing to publish" })
+      .closest('[data-slot="empty"]')
+    expect(empty).toHaveAttribute("data-tone", "neutral")
   })
   it("docks the publish bar through ActionBar, so its measured height is published", () => {
     menus.value = state(["A"], ["B"])

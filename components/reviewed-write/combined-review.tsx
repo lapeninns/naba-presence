@@ -1,5 +1,6 @@
 "use client"
 
+import { describeOutcome } from "@/lib/editors/outcome"
 import * as React from "react"
 
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
@@ -15,6 +16,7 @@ import {
   stepOutcome,
   type PublishStepResult,
 } from "@/lib/editors/use-publish-flow"
+import { useOpenerFocus } from "./opener-focus"
 import { ReviewedWriteSheet } from "./sheet"
 
 /**
@@ -123,7 +125,7 @@ function stepView(
       state: stepOutcome(step) ?? "failed",
       stateLabel:
         step.code === "google_confirmation_required"
-          ? "Not confirmed"
+          ? describeOutcome("uncertain").label
           : undefined,
       detail: [savedHere ? "Saved here." : null, step.message]
         .filter(Boolean)
@@ -173,7 +175,7 @@ function stepView(
 /**
  * Per-row results: each change in the sheet with the outcome of the steps
  * that carry it. A row carried by a save and then a publish shows the
- * furthest point it reached ("Saved here", then "Live on Google"); a failure
+ * furthest point it reached ("Saved here", then "On Google"); a failure
  * shows on every row it stopped. Steps that carry no row (a publish that
  * found nothing to send) appear only when they did something or failed, so
  * nothing is hidden.
@@ -272,6 +274,7 @@ export function CombinedReviewSheet({
   const diffRows: ChangeRow[] = [...rows]
   const unresolved = rows.filter((row) => row.blocking)
   const conflicts = rows.filter((row) => row.state === "conflict")
+  const finalFocus = useOpenerFocus(open)
   const [acknowledged, setAcknowledged] = React.useState(false)
   // A fresh sheet asks again: a tick carried over from an earlier review
   // would publish an overwrite nobody saw. Reset during render (React's
@@ -329,6 +332,7 @@ export function CombinedReviewSheet({
     <ReviewedWriteSheet
       open={open}
       onOpenChange={onOpenChange}
+      finalFocus={finalFocus}
       title="Review changes"
       description={
         rows.length === 1
@@ -346,6 +350,7 @@ export function CombinedReviewSheet({
           </Button>
           {finished ? null : (
             <Button
+              variant="send"
               onClick={() => void onPublish()}
               disabled={blocked}
               pending={publishing}

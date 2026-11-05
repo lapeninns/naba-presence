@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
-import { ReviewedWriteSteps, type ReviewedWriteStage } from "./steps"
+import {
+  ReviewedWriteSteps,
+  type ReviewedWriteStage,
+  type ReviewedWriteStepsOptions,
+} from "./steps"
 
 /**
  * How long a closing dialog may take to hand focus back to its trigger. The
@@ -40,7 +44,8 @@ export function useClaimFocus(
       if (interacted || !element.isConnected) return
       const active = document.activeElement
       const panel = element.closest("[data-slot=reviewed-write-panel]")
-      if (!active || active === document.body || !panel?.contains(active)) element.focus()
+      if (!active || active === document.body || !panel?.contains(active))
+        element.focus()
     }, OVERLAY_SETTLE_MS)
     return () => {
       window.clearTimeout(timer)
@@ -67,6 +72,8 @@ export function ReviewedWritePanel({
   description,
   stage,
   secondApprover,
+  sending,
+  outcome,
   tone = "default",
   headingLevel: Heading = "h2",
   focusKey,
@@ -80,6 +87,8 @@ export function ReviewedWritePanel({
   /** Shows the step indicator. Omit for a panel with no saved review yet. */
   readonly stage?: ReviewedWriteStage
   readonly secondApprover?: boolean
+  readonly sending?: ReviewedWriteStepsOptions["sending"]
+  readonly outcome?: ReviewedWriteStepsOptions["outcome"]
   /** `danger` draws the edge in the danger ink, for irreversible requests. */
   readonly tone?: "default" | "danger"
   /** The heading level, for a panel inside a section that has its own h2. */
@@ -110,9 +119,17 @@ export function ReviewedWritePanel({
         >
           {title}
         </Heading>
-        {description ? <p className="text-ui text-ink-muted">{description}</p> : null}
+        {description ? (
+          <p className="text-ui text-ink-muted">{description}</p>
+        ) : null}
         {stage ? (
-          <ReviewedWriteSteps stage={stage} secondApprover={secondApprover} className="mt-2" />
+          <ReviewedWriteSteps
+            stage={stage}
+            secondApprover={secondApprover}
+            sending={sending}
+            outcome={outcome}
+            className="mt-2"
+          />
         ) : null}
       </header>
       {children}

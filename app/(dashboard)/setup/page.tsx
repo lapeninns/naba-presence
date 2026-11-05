@@ -31,7 +31,8 @@ export const metadata = { title: "Setup · NabaPresence" }
  * link (it keeps the old button's name, "Resume setup for X"), the client's
  * own mark leads, and the action's word sits on the right. Inside a card the
  * row takes the card's gutter, and the card's own hairlines divide the rows
- * edge to edge as before.
+ * edge to edge as before. The action word is ink, not the accent: green is
+ * kept for what reached Google, and the all-clear below is a local fact.
  */
 const ROW_CLASS = "px-(--np-card-pad)"
 const ROW_WRAPPER_CLASS = "after:hidden"
@@ -40,7 +41,7 @@ const NAME_CLASS = "whitespace-normal break-words"
 
 function RowAction({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-0.5 text-ui font-medium text-accent-ink">
+    <span className="inline-flex items-center gap-0.5 text-ui font-medium text-ink-secondary">
       {children}
       <ChevronRightIcon aria-hidden className="size-4" />
     </span>
@@ -205,7 +206,7 @@ export default async function SetupPage({
           <p className="flex items-start gap-1.5 text-ui text-ink-muted">
             <CircleCheckIcon
               aria-hidden
-              className="mt-0.5 size-4 shrink-0 text-success-ink"
+              className="mt-0.5 size-4 shrink-0 text-ink-muted"
             />
             <span>
               {clients.length === 0

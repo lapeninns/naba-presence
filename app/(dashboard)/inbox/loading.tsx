@@ -7,7 +7,11 @@ import { ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { ViewHeader } from "@/components/ui/view-header"
-import { INBOX_SPLIT_STYLE } from "@/lib/inbox/layout"
+import { INBOX_SPLIT_STYLE, INBOX_TITLE } from "@/lib/inbox/layout"
+import { cn } from "@/lib/utils"
+
+// Needs reply, Approval, Sending, Failed, Done, All.
+const QUEUE_TAB_WIDTHS = ["w-20", "w-16", "w-14", "w-12", "w-10", "w-6"]
 
 /**
  * The workspace in outline while the route loads, in the places the real
@@ -26,6 +30,10 @@ import { INBOX_SPLIT_STYLE } from "@/lib/inbox/layout"
  * layout after hydration: a phone opened on `?selected=` is served the
  * review straight away (inbox-view.tsx keys the layout on `data-view`).
  * Says it is loading in words, not only in grey blocks.
+ *
+ * Carries the page's title as a React `<title>`: on a client navigation the
+ * previous page's streamed title unmounts with it, and the inbox's metadata
+ * only arrives with the page, so without this the document has no title.
  */
 export default function InboxLoading() {
   return (
@@ -33,6 +41,7 @@ export default function InboxLoading() {
       width="workspace"
       className="min-h-0 flex-1 gap-0 pt-0 max-md:px-4 md:px-0 md:pt-0 md:pb-0"
     >
+      <title>{INBOX_TITLE}</title>
       <div
         role="status"
         aria-busy="true"
@@ -76,12 +85,16 @@ export default function InboxLoading() {
                   <Skeleton className="size-(--np-touch) shrink-0 rounded-(--np-radius-pill) desk:size-(--np-control-h)" />
                 </div>
               </InboxBottomToolbar>
-              <div aria-hidden className="flex min-w-0 gap-2 overflow-hidden">
-                {[0, 1, 2, 3, 4].map((index) => (
-                  <Skeleton
+              {/* The queue strip's six text tabs (queue-tabs.tsx): a label
+                  bar in each tab's box, as wide as the words it stands for. */}
+              <div aria-hidden className="flex min-w-0 gap-0.5 overflow-hidden">
+                {QUEUE_TAB_WIDTHS.map((width, index) => (
+                  <span
                     key={index}
-                    className="h-(--np-touch) w-24 shrink-0 rounded-(--np-radius-control) desk:h-(--np-control-h)"
-                  />
+                    className="flex h-11 shrink-0 items-center px-2 desk:h-10"
+                  >
+                    <Skeleton className={cn("h-3", width)} />
+                  </span>
                 ))}
               </div>
             </div>

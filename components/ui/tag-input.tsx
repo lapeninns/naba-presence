@@ -148,7 +148,7 @@ function TagInput({
                 disabled={disabled}
                 onClick={() => remove(index)}
                 aria-label={removeLabel(tag)}
-                className="relative inline-grid size-6 shrink-0 place-items-center rounded-full text-ink-muted focus-halo after:absolute after:-inset-1 after:content-[''] hover:bg-fill hover:text-ink disabled:pointer-events-none"
+                className="relative inline-grid size-6 shrink-0 place-items-center rounded-full text-ink-muted focus-halo after:absolute after:-inset-1 after:content-[''] disabled:pointer-events-none hover-fine:hover:bg-fill hover-fine:hover:text-ink"
               >
                 <X className="size-3.5" strokeWidth={1.75} aria-hidden />
               </button>

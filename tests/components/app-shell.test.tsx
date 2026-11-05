@@ -272,11 +272,35 @@ describe("AppShell", () => {
     ).toBeInTheDocument()
   })
 
-  it("pins the agency's clients into the sidebar", async () => {
-    renderShell()
+  // Clients are no longer pinned beneath Clients (DIRECTION D8): the
+  // sidebar's "Working on" button lists them, with their health, instead.
+  it("puts the Working on scope button at the top of the sidebar", async () => {
+    const harbour = { ...client, id: "c2", name: "Harbour Kitchen" }
+    stubApi({ clients: [client, harbour] })
+    renderStubbedShell()
+    const sidebar = slot("sidebar")
+    const scope = await waitFor(() => {
+      const found = sidebar.querySelector<HTMLElement>(
+        '[data-slot="sidebar-scope"]'
+      )
+      expect(found).not.toBeNull()
+      return found!
+    })
+    // A visible caption, which also starts the button's name.
+    expect(within(scope).getByText("Working on")).toBeVisible()
+    const button = within(scope).getByRole("button", {
+      name: /^Working on All clients, 6 listings · /,
+    })
+    expect(button).toHaveAttribute("data-variant", "sidebar")
+    expect(button).toHaveAttribute("data-mode", "agency")
+    // No client rows pinned in the sidebar any more.
     expect(
-      await screen.findByRole("link", { name: /Old Crown Group/ })
-    ).toHaveAttribute("href", "/clients/c1")
+      within(sidebar)
+        .queryAllByRole("link")
+        .filter((link) => link.getAttribute("href")?.startsWith("/clients/"))
+    ).toHaveLength(0)
+    // The one slot every size of the control keeps, switchable or not.
+    expect(button).toHaveAttribute("data-slot", "scope-control")
   })
 
   it("reports health as a count, not a single worst-case word", async () => {
@@ -306,8 +330,12 @@ describe("AppShell", () => {
     // "2 clients need attention" tells an agency where to look. The old chip
     // said only "disconnected" whenever any connection anywhere was down.
     // A disconnected login outranks delayed data: the count names the clients a
-    // person has to do something for.
-    expect(await screen.findByText("1 client needs action")).toBeInTheDocument()
+    // person has to do something for. The scope control carries it now, in
+    // its name and its second line (the separate chip is retired, D8).
+    const pill = await within(slot("toolbar")).findByRole("button", {
+      name: "Working on All clients, 9 listings · 1 client needs action",
+    })
+    expect(pill).toHaveTextContent("9 listings · 1 client needs action")
   })
 
   const brokenLogin = {
@@ -322,9 +350,11 @@ describe("AppShell", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
   }
 
-  it("scopes the toolbar chip to the page's client", async () => {
-    // The chip is drawn by the shell, above the routed page, so the page's
-    // ClientScopeProvider has to reach up to it.
+  it("scopes the toolbar's scope control to the page's client", async () => {
+    // The control is drawn by the shell, above the routed page, so the
+    // page's ClientScopeProvider has to reach up to it. A listing page is
+    // where the declared client is the scope (the Inbox reads ?clientId=).
+    pathname.current = "/listings/l1"
     stubApi({ clients: [{ ...client, health: "disconnected" }] })
     render(
       <Toaster>
@@ -339,9 +369,34 @@ describe("AppShell", () => {
         </QueryProvider>
       </Toaster>
     )
+    // One client: nothing to switch, so the control is drawn but static,
+    // still naming the client and its health in words.
+    const toolbar = slot("toolbar")
     expect(
-      await screen.findByRole("link", { name: /^Old Crown Group: / })
-    ).toHaveAttribute("href", "/clients/c1")
+      await within(toolbar).findByText(
+        "Working on Old Crown Group, 3 listings · Can’t reach Google"
+      )
+    ).toBeInTheDocument()
+    const control = toolbar.querySelector('[data-slot="scope-control"]')
+    expect(control).toHaveAttribute("data-static", "true")
+    expect(control).toHaveAttribute("data-tone", "at-risk")
+  })
+
+  it("puts the pill scope control first in the toolbar, with no health chip", async () => {
+    const harbour = { ...client, id: "c2", name: "Harbour Kitchen" }
+    stubApi({ clients: [client, harbour] })
+    renderStubbedShell()
+    const toolbar = slot("toolbar")
+    const pill = await within(toolbar).findByRole("button", {
+      name: /^Working on All clients, /,
+    })
+    expect(pill).toHaveAttribute("data-variant", "pill")
+    // The sidebar has its own control from `wide`.
+    expect(pill).toHaveClass("wide:hidden")
+    expect(toolbar.querySelector("[data-slot]")).toBe(pill)
+    // The retired chip (DIRECTION D8): the pill's words carry the health.
+    expect(document.querySelector('[data-slot="health-chip"]')).toBeNull()
+    expect(within(toolbar).queryByRole("link", { name: /client/i })).toBeNull()
   })
 
   it("shows a broken login on every page, with a reconnect for admins", async () => {
@@ -459,8 +514,13 @@ describe("AppShell", () => {
 
   it("has no client switcher for an agency with one client", async () => {
     renderShell()
-    await screen.findByRole("link", { name: /Old Crown Group/ })
-    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    // The control still says what is in scope, but it is not a button.
+    await waitFor(() =>
+      expect(
+        slot("toolbar").querySelector('[data-slot="scope-control"]')
+      ).toHaveAttribute("data-static", "true")
+    )
+    expect(screen.queryByRole("button", { name: /^Working on/ })).toBeNull()
   })
 
   it("puts the client switcher in the toolbar and carries the remembered client in the nav", async () => {
@@ -483,7 +543,7 @@ describe("AppShell", () => {
     const toolbar = slot("toolbar")
     expect(
       await within(toolbar).findByRole("button", {
-        name: "Client: All clients",
+        name: /^Working on All clients, /,
       })
     ).toBeInTheDocument()
     const primary = within(slot("sidebar")).getByRole("navigation", {
@@ -509,9 +569,10 @@ describe("AppShell", () => {
       "href",
       "/clients"
     )
-    expect(
-      await within(slot("app-bar")).findByRole("button", { name: /^Client: / })
-    ).toBeInTheDocument()
+    const chip = await within(slot("app-bar")).findByRole("button", {
+      name: /^Working on /,
+    })
+    expect(chip).toHaveAttribute("data-variant", "chip")
   })
 
   it("offers Switch client commands in the palette", async () => {
@@ -520,7 +581,7 @@ describe("AppShell", () => {
     const user = userEvent.setup()
     renderStubbedShell()
     const toolbar = within(slot("toolbar"))
-    await toolbar.findByRole("button", { name: "Client: All clients" })
+    await toolbar.findByRole("button", { name: /^Working on All clients, / })
     await user.click(
       toolbar.getByRole("button", {
         name: "Search clients, listings, pages and actions",
@@ -569,6 +630,39 @@ describe("AppShell", () => {
       })
       expect(back).toHaveAttribute("href", "/settings")
     }
+  })
+
+  it("lets the navigation column scroll, with a fade, on a short window", () => {
+    renderShell()
+    const column = slot("sidebar-scroll")
+    expect(column).toHaveClass("overflow-y-auto", "min-h-0", "flex-1")
+    const fade = slot("sidebar-scroll-fade")
+    expect(column).toContainElement(fade)
+    expect(fade).toHaveAttribute("aria-hidden", "true")
+    expect(fade).toHaveClass("sticky", "bottom-0")
+    // The account control stays outside the scroll, pinned to the foot.
+    const account = within(slot("sidebar")).getByRole("button", {
+      name: /Aman Shrestha/,
+    })
+    expect(column).not.toContainElement(account)
+  })
+
+  it("scrolls the current row into the column when it sits below the fold", () => {
+    pathname.current = "/settings"
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const box =
+          this.dataset.slot === "sidebar-scroll"
+            ? { top: 60, bottom: 330 }
+            : this.getAttribute("aria-current") === "page"
+              ? { top: 420, bottom: 468 }
+              : { top: 0, bottom: 0 }
+        return { ...box, left: 0, right: 0, width: 0, height: 0 } as DOMRect
+      })
+    renderShell()
+    expect(slot("sidebar-scroll").scrollTop).toBe(468 - 330 + 16)
+    rects.mockRestore()
   })
 })
 

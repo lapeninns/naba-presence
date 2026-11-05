@@ -136,6 +136,46 @@ describe("ClientsIndex", () => {
     )
   })
 
+  it("keeps each empty state to one short sentence and one action", async () => {
+    stub([])
+    renderIndex("owner")
+    const line = await screen.findByText(
+      "A client is a business you look after."
+    )
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
+    const card = line.closest("[data-slot='empty']") ?? line.parentElement!
+    expect(within(card as HTMLElement).getAllByRole("link")).toHaveLength(1)
+  })
+
+  it("keeps a member's empty state to one short sentence", async () => {
+    stub([])
+    renderIndex("member")
+    const line = await screen.findByText(
+      "An owner or admin chooses what you see."
+    )
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
+  })
+
+  it("lets a desk email wrap after its @ rather than mid-word", async () => {
+    stub([
+      {
+        ...base,
+        connections: [
+          {
+            id: "g1",
+            googleEmail: "stub@example.test",
+            status: "active",
+            reconnectRequired: false,
+            lastRefreshAt: null,
+          },
+        ],
+      },
+    ])
+    renderIndex()
+    const email = (await screen.findAllByText(/stub@/))[0]
+    expect(email.innerHTML).toBe("stub@<wbr>example.test")
+  })
+
   it("tells a member who to ask instead of offering a button they cannot use", async () => {
     stub([])
     renderIndex("member")
@@ -471,11 +511,114 @@ describe("ClientsIndex", () => {
       await screen.findByRole("button", { name: "Restore Closed Inn" })
     )
     expect(await screen.findByText("Closed Inn restored")).toBeInTheDocument()
+    // A restore only changes NabaPresence: no success green.
+    const toast = screen
+      .getByText("Closed Inn restored")
+      .closest("[data-slot='toast']")!
+    expect(toast.querySelector(".text-success-solid")).toBeNull()
     const patch = fetchMock.mock.calls.find(
       ([, init]) => init?.method === "PATCH"
     )
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({
       archived: false,
+    })
+  })
+
+  describe("archived clients", () => {
+    const archived = {
+      ...base,
+      id: "00000000-0000-4000-8000-0000000000aa",
+      name: "Closed Inn",
+      archivedAt: "2026-09-01T10:00:00.000Z",
+    }
+    const renderArchived = (
+      onPatch: () => Response,
+      items: ClientSummary[] = [archived],
+      query = "view=archived"
+    ) => {
+      search = new URLSearchParams(query)
+      const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+        if (init?.method === "PATCH") return onPatch()
+        return new Response(
+          JSON.stringify({
+            items: String(input).includes("archived=1") ? items : [base],
+            unassignedLocationCount: 0,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      render(
+        <QueryProvider>
+          <Toaster>
+            <ClientsIndex role="owner" />
+          </Toaster>
+        </QueryProvider>
+      )
+      return fetchMock
+    }
+
+    it("does not say a client wasn't restored when the connection dropped, and re-reads the list", async () => {
+      const fetchMock = renderArchived(() => {
+        throw new TypeError("Failed to fetch")
+      })
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Restore Closed Inn" })
+      )
+      const alert = await screen.findByRole("alert")
+      expect(alert).toHaveTextContent(
+        "We couldn’t confirm Closed Inn was restored"
+      )
+      expect(alert).toHaveTextContent(/Check All clients before trying again/)
+      expect(alert).not.toHaveTextContent(/wasn’t restored/)
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter(
+            ([input, init]) =>
+              init?.method !== "PATCH" && String(input).includes("archived=1")
+          ).length
+        ).toBeGreaterThan(1)
+      )
+    })
+
+    it("says a refused restore left the client archived, without blaming Google", async () => {
+      renderArchived(
+        () =>
+          new Response(
+            JSON.stringify({
+              error: "service_unavailable",
+              message: "Down for a moment.",
+            }),
+            { status: 503 }
+          )
+      )
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Restore Closed Inn" })
+      )
+      const alert = await screen.findByRole("alert")
+      expect(alert).toHaveTextContent("Closed Inn wasn’t restored")
+      expect(alert).toHaveTextContent(/It’s still archived/)
+      expect(alert).not.toHaveTextContent(/Google/)
+    })
+
+    it("says when nothing is archived", async () => {
+      renderArchived(() => new Response(null, { status: 204 }), [])
+      expect(
+        await screen.findByRole("heading", { name: "Nothing archived" })
+      ).toBeInTheDocument()
+    })
+
+    it("says when the filter matches no archived client", async () => {
+      renderArchived(
+        () => new Response(null, { status: 204 }),
+        [archived],
+        "view=archived&q=zzz"
+      )
+      expect(
+        await screen.findByRole("heading", {
+          name: "No archived clients match “zzz”",
+        })
+      ).toBeInTheDocument()
     })
   })
 

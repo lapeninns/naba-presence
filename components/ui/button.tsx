@@ -8,7 +8,13 @@ import { cn } from "@/lib/utils"
 /**
  * The operator's-desk button set (reference np.css `.btn`).
  *
- *   `default`        primary: the accent solid. Once per surface.
+ *   `default`        primary: the ink fill ("ink saves"). Once per surface:
+ *                    Save, Invite, Apply, Create.
+ *   `send`           the green fill ("green sends"): ONLY an action that
+ *                    writes to Google (Publish reply, Approve and publish,
+ *                    Publish N changes, Retry sending). Reads such as
+ *                    "Check Google" are secondaries. On the charcoal
+ *                    dispatch bar it is the one filled button.
  *   `secondary`      white with the 3:1 control edge; the workhorse.
  *   `outline`        the same drawing as secondary (kept for old callers).
  *   `ghost`          no chrome until hover.
@@ -16,8 +22,10 @@ import { cn } from "@/lib/utils"
  *   `danger`         the filled red, for the consequence a dialog confirms.
  *   `danger-outline` red ink on white with a red edge ("Discard edits").
  *   `destructive`    kept for existing callers; drawn as `danger-outline`.
- *   `on-dark`        the light button on the charcoal action bar.
- *   `ghost-dark`     the quiet button on the charcoal action bar.
+ *   `on-dark`        the light button on the charcoal dispatch bar, for a
+ *                    primary there that does not write to Google ("Review
+ *                    changes"); documented as `on-charcoal`.
+ *   `ghost-dark`     the quiet button on the charcoal dispatch bar.
  *   `link`           inline text action.
  *
  * Every hover and pressed colour is a token. Hover only draws under a fine
@@ -25,11 +33,12 @@ import { cn } from "@/lib/utils"
  * the pressed fill (`active:`) is the feedback a thumb gets, one step stronger
  * than hover where the ladder has a step: `secondary`/`outline` hover on
  * `--np-fill-secondary` and press on `--np-fill`. `ghost` has no fill at rest,
- * so it draws relative to whatever surface it sits on (`ink` at 6% hover, 10%
- * pressed, as `ghost-dark` does on charcoal) — a ladder step would vanish on
- * the `surface-alt` dialog footer, which is the same step as `fill-secondary`.
- * The other filled and tinted variants press on the same fill as hover until
- * the token ladder gains an active step. The 1px press is motion-safe only. Transitions name
+ * and hovers on `--np-fill-secondary` and presses on `--np-fill` like the
+ * others (SYSTEM §9.1: no alpha fills). The ink `default` hovers on
+ * `--np-ink-hover` and presses (or holds its menu open) on `--np-ink-active`;
+ * `send` keeps the accent ladder (`accent-hover`, `accent-active`). The other
+ * filled and tinted variants press on the same fill as hover until the token
+ * ladder gains an active step. The 1px press is motion-safe only. Transitions name
  * their properties (colour, edge, shadow, transform), never `all`, at
  * `--np-duration-fast`. Focus is the `focus-halo` utility.
  *
@@ -38,8 +47,10 @@ import { cn } from "@/lib/utils"
  * `bg-disabled` fill with `text-disabled-ink`, and every filled or outlined
  * variant takes the quiet `border-disabled-line`, so a disabled button keeps
  * its shape on `surface-alt` (the dialog footer), which is the same step as
- * `bg-disabled` in light mode; `ghost` and `link` only change ink; and
- * `ghost-dark` keeps a readable muted drawing on the charcoal bar. The rule
+ * `bg-disabled` in light mode; `ghost` and `link` only change ink; and the
+ * charcoal-bar variants (`on-dark`, `ghost-dark`) are drawn on the lifted
+ * charcoal (`--np-disabled-on-charcoal-bg/-ink`, 6.3:1), like a disabled
+ * `send` there, rather than in a faded edge or the surface's light fill. The rule
  * matches every way a button is disabled — the native attribute, Base UI's
  * `data-disabled` (also set when it stays focusable) and a hand-set
  * `aria-disabled="true"` — except a pending button (`aria-busy`): pending is
@@ -75,12 +86,13 @@ import { cn } from "@/lib/utils"
  * frame between disabled and enabled.
  */
 const buttonCva = cva(
-  "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-none duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:transition-[background-color,border-color,color,box-shadow,transform] disabled:pointer-events-none aria-busy:cursor-progress aria-invalid:text-danger-ink motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px drawn-disabled:cursor-not-allowed drawn-disabled:transition-none hover-fine:hover:transition-[background-color,border-color,color,box-shadow,transform] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
+  "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-none duration-(--np-duration-fast) ease-press select-none focus-visible:outline-none active:transition-[background-color,border-color,color,box-shadow,transform] disabled:pointer-events-none aria-busy:cursor-progress aria-invalid:text-danger-ink motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-px drawn-disabled:cursor-not-allowed drawn-disabled:transition-none hover-fine:hover:transition-[background-color,border-color,color,box-shadow,transform] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground active:not-data-disabled:not-aria-disabled:bg-(--np-accent-active) aria-expanded:bg-accent-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-accent-hover",
+          "bg-primary text-primary-foreground active:not-data-disabled:not-aria-disabled:bg-ink-active aria-expanded:bg-ink-active drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-hover",
+        send: "bg-send text-send-foreground active:not-data-disabled:not-aria-disabled:bg-accent-active aria-expanded:bg-accent-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-accent-hover",
         tinted:
           "bg-accent-tint text-accent-ink active:not-data-disabled:not-aria-disabled:bg-(--np-accent-tint-strong) aria-expanded:bg-(--np-accent-tint-strong) drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-(--np-accent-tint-strong)",
         secondary:
@@ -88,7 +100,7 @@ const buttonCva = cva(
         outline:
           "border-line-strong bg-surface text-ink active:not-data-disabled:not-aria-disabled:bg-fill aria-expanded:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary",
         ghost:
-          "bg-transparent text-ink active:not-data-disabled:not-aria-disabled:bg-ink/10 aria-expanded:bg-ink/10 drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink/6",
+          "bg-transparent text-ink active:not-data-disabled:not-aria-disabled:bg-fill aria-expanded:bg-fill drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-fill-secondary",
         danger:
           "bg-danger-solid text-(--np-ink-on-accent) active:not-data-disabled:not-aria-disabled:bg-danger-ink dark:text-(--np-danger-on-solid) drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-danger-ink",
         "danger-outline":
@@ -96,9 +108,9 @@ const buttonCva = cva(
         destructive:
           "border-danger-ink bg-surface text-danger-ink active:not-data-disabled:not-aria-disabled:bg-danger-tint drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-danger-tint",
         "on-dark":
-          "bg-ink-on-charcoal text-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal",
+          "bg-ink-on-charcoal text-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal drawn-disabled:border-transparent drawn-disabled:bg-disabled-on-charcoal drawn-disabled:text-disabled-on-charcoal-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-muted-on-charcoal",
         "ghost-dark":
-          "border-ink-muted-on-charcoal bg-transparent text-ink-on-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/15 drawn-disabled:border-ink-muted-on-charcoal/40 drawn-disabled:text-ink-muted-on-charcoal hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/10",
+          "border-ink-muted-on-charcoal bg-transparent text-ink-on-charcoal active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/15 drawn-disabled:border-transparent drawn-disabled:bg-disabled-on-charcoal drawn-disabled:text-disabled-on-charcoal-ink hover-fine:hover:not-active:not-data-disabled:not-aria-disabled:bg-ink-on-charcoal/10",
         // The press offset is cancelled with the base's own variant chain,
         // so the merge drops the base class instead of both reaching CSS.
         link: "h-auto! border-0 px-0! font-medium text-accent-ink underline decoration-1 underline-offset-3 motion-safe:active:not-disabled:not-data-disabled:not-aria-disabled:translate-y-0 drawn-disabled:text-disabled-ink hover-fine:hover:not-data-disabled:not-aria-disabled:decoration-2",
@@ -195,7 +207,10 @@ type ButtonBaseProps = Omit<React.ComponentProps<"button">, "size"> &
      * so focus is not thrown to the body mid-action.
      */
     pending?: boolean
-    /** The label shown while pending ("Publishing…"). Defaults to children. */
+    /**
+     * The label shown while pending. Defaults to children. Every `send` says
+     * "Sending…" (DIRECTION §6.1).
+     */
     pendingLabel?: React.ReactNode
     /**
      * Why the button cannot be used right now. Disables it but keeps it

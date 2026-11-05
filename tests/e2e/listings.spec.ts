@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page, test } from "@playwright/test"
 import { mediaQuery } from "@/lib/ui/breakpoints"
 
+import { openProfileSectionOnPhone } from "./helpers/profile-section"
 import {
   GOOGLE_READS_TIMEOUT,
   pageSettled,
@@ -114,7 +115,7 @@ test.describe("listings", () => {
     // own status), and one card per area, each with its own way in.
     const google = page.getByRole("region", { name: "Google", exact: true })
     await expect(google.getByText("Google connection")).toBeVisible()
-    await expect(google.getByText("Last published")).toBeVisible()
+    await expect(google.getByText("Last sent to Google")).toBeVisible()
     await expect(google.getByText("Verification", { exact: true })).toHaveCount(
       0
     )
@@ -825,7 +826,7 @@ test.describe("listings", () => {
     await expect(review).toHaveCount(0)
   })
 
-  test("profile section headings at 390: only Identity's is screen-reader text, every other has a normal box (incl. Lodging)", async ({
+  test("phone section headings are drawn for Categories and Lodging, with Identity quiet until desk", async ({
     baseURL,
     page,
   }) => {
@@ -833,43 +834,25 @@ test.describe("listings", () => {
     await applyCookie(page, baseURL, state.cookie)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
-    // The industry sections load after the editor's first paint.
-    await expect(
-      page.getByRole("heading", { name: "Lodging", exact: true })
-    ).toBeAttached({ timeout: GOOGLE_READS_TIMEOUT })
-    // A rendered box, not toBeVisible: an sr-only heading is a 1 px clipped
-    // box and passes that.
-    const headings = await page
-      .locator('[data-slot="settings-group-label"]')
-      .evaluateAll((nodes) =>
-        nodes.map((node) => {
-          const rect = node.getBoundingClientRect()
-          const style = getComputedStyle(node)
-          return {
-            text: node.textContent?.trim() ?? "",
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-            clipped: style.clip !== "auto" || style.clipPath !== "none",
-          }
-        })
-      )
-    const byName = (name: string) => headings.find((item) => item.text === name)
-    expect(byName("Identity")).toMatchObject({ width: 1, height: 1 })
-    for (const name of ["Lodging", "Categories"]) {
-      const heading = byName(name)
-      expect(heading, `${name} heading is on the page`).toBeDefined()
-      expect(heading!.width, `${name} heading width`).toBeGreaterThan(30)
-      expect(heading!.height, `${name} heading height`).toBeGreaterThan(10)
-      expect(heading!.clipped, `${name} heading clipped`).toBe(false)
-    }
-    // And no heading other than Identity's is hidden.
-    expect(
-      headings.filter((item) => item.width <= 1 && item.height <= 1)
-    ).toEqual([expect.objectContaining({ text: "Identity" })])
-
-    // From desk Identity's heading is drawn again.
-    await page.setViewportSize({ width: 1280, height: 800 })
+    await openProfileSectionOnPhone(page, "Identity")
     const identity = page.locator("#section-identity-heading")
+    expect(await identity.boundingBox()).toMatchObject({ width: 1, height: 1 })
+
+    for (const name of ["Categories", "Lodging"]) {
+      await openProfileSectionOnPhone(page, name)
+      const heading = page.getByRole("heading", { name, exact: true })
+      const box = await heading.boundingBox()
+      expect(box!.width).toBeGreaterThan(30)
+      expect(box!.height).toBeGreaterThan(10)
+      expect(
+        await heading.evaluate((element) => {
+          const style = getComputedStyle(element)
+          return style.clip !== "auto" || style.clipPath !== "none"
+        })
+      ).toBe(false)
+    }
+
+    await page.setViewportSize({ width: 1280, height: 800 })
     await expect
       .poll(async () => (await identity.boundingBox())?.height ?? 0)
       .toBeGreaterThan(10)
@@ -877,10 +860,10 @@ test.describe("listings", () => {
 })
 
 test.describe("profile section nav focus at 390", () => {
-  // The section nav's tab moves focus to the section's heading. Identity's
+  // The section index moves focus to the section's heading. Identity's
   // heading is screen-reader text on a phone (a 1 px clipped box, which
   // draws no focus ring), so it must be drawn while it holds keyboard focus.
-  test("Enter on the Identity tab leaves keyboard focus on a drawn, ringed heading; a tap leaves the quiet heading", async ({
+  test("Enter on the Identity entry leaves keyboard focus on a drawn, ringed heading; a tap leaves the quiet heading", async ({
     baseURL,
     page,
   }) => {
@@ -888,9 +871,12 @@ test.describe("profile section nav focus at 390", () => {
     await applyCookie(page, baseURL, state.cookie)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
-    await profileLoadedFromGoogle(page)
     const nav = page.getByRole("navigation", { name: "Profile sections" })
-    const identityTab = nav.getByRole("link", { name: "Identity" })
+    const identityEntry = nav.getByRole("button", { name: "Identity" })
+    const allSections = nav.getByRole("link", {
+      name: "All sections",
+      exact: true,
+    })
     const heading = page.locator("#section-identity-heading")
     const box = () =>
       heading.evaluate((node) => {
@@ -911,22 +897,15 @@ test.describe("profile section nav focus at 390", () => {
         }
       })
 
-    // Negative control: before the jump the heading is the quiet 1 x 1 box,
-    // which is what the rendered-box checks below would catch if the
-    // focus-visible rule were missing.
-    expect(await box()).toMatchObject({ width: 1, height: 1, clipped: true })
-
-    // A tap is not keyboard focus: the heading takes focus but stays quiet,
-    // so a pointer user sees no heading pop in under the tabs.
-    await identityTab.click()
+    // A click focuses the heading while keeping its usual clipped box.
+    await identityEntry.click()
     await expect(heading).toBeFocused()
     expect(await box()).toMatchObject({ width: 1, height: 1, clipped: true })
-    await page.locator("body").click({ position: { x: 5, y: 400 } })
-    await expect(heading).not.toBeFocused()
+    await allSections.click()
+    await expect(identityEntry).toBeFocused()
 
-    // The keyboard path: the tab is focused, then Enter activates it.
-    await identityTab.focus()
-    await page.keyboard.press("Enter")
+    // Keyboard activation must draw the focused heading and its outline.
+    await identityEntry.press("Enter")
     await expect(heading).toBeFocused()
     await expect
       .poll(async () => (await box()).width, {
@@ -935,7 +914,7 @@ test.describe("profile section nav focus at 390", () => {
       .toBeGreaterThan(30)
     expect(await box()).toMatchObject({ clipped: false, ring: true })
     expect((await box()).height).toBeGreaterThan(10)
-    // And it sits clear of the sticky tab strip, not scrolled under it.
+    // And it sits below the section header and back link.
     const strip = await nav.boundingBox()
     expect((await box()).top).toBeGreaterThanOrEqual(
       Math.round(strip!.y + strip!.height)

@@ -5,7 +5,6 @@ import Link from "next/link"
 import { useState } from "react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
-import { EmptyIllustration } from "@/components/ui/empty"
 import {
   CsvDownloadButton,
   ReportExportScope,
@@ -327,9 +326,8 @@ export function KeywordsTab({
           framed
           titleAs="h3"
           variant="empty"
-          // A filter that matched nothing: NM's search-with-no-results
-          // drawing, in place of the glyph.
-          illustration={<EmptyIllustration name="search" />}
+          // A filter that matched nothing: the search glyph says so.
+          icon={<SearchIcon />}
           title="No terms match this filter"
           description="Clear the filter to see every term."
         />

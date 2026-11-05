@@ -1,86 +1,11 @@
-"use client"
-
-import { usePathname } from "next/navigation"
-import * as React from "react"
-
-import {
-  isSettingsAreaCurrent,
-  useVisibleSettingsAreas,
-  WithPrivacyAccess,
-} from "@/components/settings/settings-areas"
-import { TabNav } from "@/components/ui/tabs"
-import type { PrivacyAccess } from "@/lib/settings/gating"
-import { cn } from "@/lib/utils"
-
-type SettingsNavProps = { role: string | null; className?: string }
+import type * as React from "react"
 
 /**
- * Brings the current tab into view in the sideways-scrolling tab row. Each
- * settings page mounts its own nav, so without this a narrow row always
- * opened on its first tabs and never showed where you are
- * (settings-setup-auth-02). `inline: "nearest"` moves the row only as far
- * as it must, `block: "nearest"` leaves the page alone when the row is
- * already on screen, and "instant" keeps the first paint still. The Tabs
- * primitive doesn't do this yet; when it does, this hook goes.
+ * Draws nothing: the settings layout's section list
+ * (components/settings/settings-section-list.tsx) replaced this tab row.
+ * Settings pages still pass it as their header's `tabs` until each drops it.
  */
-function useCurrentTabInView(
-  ref: React.RefObject<HTMLElement | null>,
-  pathname: string | null
-) {
-  React.useLayoutEffect(() => {
-    const link = ref.current?.querySelector<HTMLElement>(
-      "[aria-current='page']"
-    )
-    // jsdom has no scrollIntoView; a real browser always does.
-    link?.scrollIntoView?.({
-      behavior: "instant",
-      block: "nearest",
-      inline: "nearest",
-    })
-  }, [ref, pathname])
-}
-
-function SettingsNavTabs({
-  role,
-  className,
-  privacy,
-}: SettingsNavProps & { privacy: PrivacyAccess }) {
-  const pathname = usePathname()
-  const ref = React.useRef<HTMLDivElement>(null)
-  useCurrentTabInView(ref, pathname)
-  const items = useVisibleSettingsAreas(role, privacy)
-    .filter((area) => !area.indexOnly)
-    .map((area) => ({
-      href: area.href,
-      label: area.label,
-      current: isSettingsAreaCurrent(area, pathname),
-    }))
-
-  return (
-    // Below md the settings home is an index of areas (settings-index.tsx)
-    // and the app bar's "‹ Settings" leads back to it, so there is no tab
-    // row (it can't fit) and no second back link. From md the tab row is
-    // the way round, on every settings page.
-    <div ref={ref} className={cn("min-w-0 max-md:hidden", className)}>
-      <TabNav aria-label="Settings sections" items={items} />
-    </div>
-  )
-}
-
-/**
- * The settings sub-navigation (reference `settings-subnav`): from md, link
- * tabs under each settings page's header, the current one underlined in ink
- * and kept in view; below md, nothing (the app bar's back control returns to
- * the settings index). A member or viewer sees Reply policy and Notifications; Google
- * connections and Operations are for owners and admins, and Data and privacy
- * for owners and admins of an organisation with the area switched on. The
- * areas and their rules live in settings-areas.tsx, shared with the phone's
- * settings index.
- */
-export function SettingsNav(props: SettingsNavProps) {
-  return (
-    <WithPrivacyAccess role={props.role}>
-      {(privacy) => <SettingsNavTabs {...props} privacy={privacy} />}
-    </WithPrivacyAccess>
-  )
-}
+export const SettingsNav: React.FC<{
+  role: string | null
+  className?: string
+}> = () => null

@@ -3,29 +3,13 @@
   "totals": {
     "R1": 12,
     "R2": 9,
-    "R3": 53,
-    "R4": 12,
+    "R3": 40,
+    "R4": 7,
     "R5": 1,
     "R6": 2,
-    "R7": 14
+    "R7": 10
   },
   "files": {
-    "app/(auth)/layout.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[minmax(0,1fr)_minmax(22.5rem,32.5rem)]": 1
-        }
-      }
-    },
-    "app/(dashboard)/setup/loading.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[13.75rem_minmax(0,1fr)]": 1
-        }
-      }
-    },
     "app/design-system/page.tsx": {
       "R1": {
         "total": 5,
@@ -88,12 +72,6 @@
         "patterns": {
           "scroll-pt-[calc(var(--np-toolbar-h)+8px)]": 1
         }
-      },
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "[@media(min-height:620px)]:": 1
-        }
       }
     },
     "components/app-shell/brand-mark.tsx": {
@@ -119,49 +97,11 @@
         }
       }
     },
-    "components/app-shell/client-switcher.tsx": {
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "h-[34px]": 1,
-          "max-w-[min(16rem,32vw)]": 1,
-          "w-[min(320px,calc(100vw-24px))]": 1
-        }
-      }
-    },
-    "components/app-shell/command-palette.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "h-[34px]": 1
-        }
-      }
-    },
-    "components/app-shell/context-health-chip.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "h-[34px]": 1,
-          "max-w-[min(22rem,34vw)]": 1
-        }
-      }
-    },
     "components/app-shell/impersonation-banner.tsx": {
       "R3": {
         "total": 1,
         "patterns": {
           "flex-[1_1_12rem]": 1
-        }
-      }
-    },
-    "components/app-shell/nav.tsx": {
-      "R3": {
-        "total": 4,
-        "patterns": {
-          "inset-y-[7px]": 1,
-          "min-h-[30px]": 1,
-          "min-h-[34px]": 1,
-          "w-[3px]": 1
         }
       }
     },
@@ -226,14 +166,6 @@
         }
       }
     },
-    "components/listings/area-frame.tsx": {
-      "R7": {
-        "total": 3,
-        "patterns": {
-          "[@media(min-height:620px)]:": 3
-        }
-      }
-    },
     "components/locations/photos/photo-preview.tsx": {
       "R3": {
         "total": 1,
@@ -252,25 +184,9 @@
     },
     "components/setup/setup-wizard.tsx": {
       "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[13.75rem_minmax(0,1fr)]": 2
-        }
-      }
-    },
-    "components/ui/chart.tsx": {
-      "R4": {
         "total": 1,
         "patterns": {
-          "rounded-[3px]": 1
-        }
-      }
-    },
-    "components/ui/checkbox.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "rounded-[5px]": 1
+          "grid-cols-[13.75rem_minmax(0,1fr)]": 1
         }
       }
     },
@@ -278,7 +194,7 @@
       "R4": {
         "total": 1,
         "patterns": {
-          "shadow-[inset_0_0_0_1px_var(--np-accent)]": 1
+          "shadow-[inset_0_0_0_1px_var(--np-ink)]": 1
         }
       }
     },
@@ -358,10 +274,8 @@
     },
     "components/ui/segmented-control.tsx": {
       "R4": {
-        "total": 4,
+        "total": 1,
         "patterns": {
-          "rounded-[10px]": 1,
-          "rounded-[7px]": 2,
           "z-10": 1
         }
       }

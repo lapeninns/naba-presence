@@ -301,6 +301,70 @@ describe("typed reviewed lifecycle workflow", () => {
     expect(observed).toHaveAttribute("dateTime", "2026-09-30T08:00:00.000Z")
     expect(within(panel).getByText(/^Approval expires/)).toBeInTheDocument()
   })
+  it("says Sending… only while its own send is in flight", async () => {
+    let finish: (
+      value: ReturnType<typeof lifecycleAttemptFixture>
+    ) => void = () => {}
+    vi.mocked(lifecycle.executeLifecycle).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    )
+    render()
+    await consentAndSend()
+    const sending = await screen.findByRole("button", { name: "Sending…" })
+    expect(sending).toHaveAttribute("aria-busy", "true")
+    expect(screen.getByText("Sending to Google…")).toBeInTheDocument()
+    const steps = screen.getByRole("list", {
+      name: "Steps to send this change",
+    })
+    expect(within(steps).getByText("Sending to Google")).toBeInTheDocument()
+    finish(lifecycleAttemptFixture())
+    expect(
+      await screen.findByRole("region", { name: "Saved lifecycle outcome" })
+    ).toBeInTheDocument()
+  })
+  it("names a confirmed deletion as confirmed on Google and ticks the outcome step", async () => {
+    render()
+    await consentAndSend()
+    const panel = await screen.findByRole("region", {
+      name: "Saved lifecycle outcome",
+    })
+    expect(
+      within(panel).getByText("Deletion confirmed on Google")
+    ).toBeInTheDocument()
+    const step = within(
+      within(panel).getByRole("list", { name: "Steps to send this change" })
+    )
+      .getByText("On Google")
+      .closest("li")
+    expect(step).toHaveAttribute("data-state", "done")
+  })
+  it("says a rejected request changed nothing on Google, never that it is pending", async () => {
+    vi.mocked(lifecycle.executeLifecycle).mockResolvedValue({
+      ...lifecycleAttemptFixture(),
+      executionState: "rejected",
+      confirmationState: "unrecorded",
+      postcondition: "unresolved",
+    })
+    render()
+    await consentAndSend()
+    const panel = await screen.findByRole("region", {
+      name: "Saved lifecycle outcome",
+    })
+    expect(
+      within(panel).getAllByText(/Nothing changed on Google/).length
+    ).toBeGreaterThan(0)
+    expect(
+      within(panel).queryByText(/has not been independently established/)
+    ).not.toBeInTheDocument()
+    expect(within(panel).queryByText("On Google")).not.toBeInTheDocument()
+    expect(
+      within(
+        within(panel).getByRole("list", { name: "Steps to send this change" })
+      ).getByText("Rejected by Google")
+    ).toBeInTheDocument()
+  })
   it("shows the observation time locally on the outcome and refreshes the listing header state once confirmed", async () => {
     const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries")
     render()

@@ -3,6 +3,10 @@
 import * as React from "react"
 
 import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
 import { cn } from "@/lib/utils"
 
 /**
@@ -97,7 +101,13 @@ export function ReportPeriodStrip({
   return (
     <div
       data-slot="report-period-strip"
-      className={cn("flex flex-col gap-1.5 print:hidden", className)}
+      // With no note there is nothing to draw from `md` (the chips are
+      // phone-only), and an empty row would still take the tabs' gap.
+      className={cn(
+        "flex flex-col gap-1.5 print:hidden",
+        !note && "md:hidden",
+        className
+      )}
     >
       <FilterChipStrip role="group" aria-label="Period" className="md:hidden">
         {options.map((option) => (
@@ -120,6 +130,44 @@ export function ReportPeriodStrip({
         </p>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * The period from `md`: the first control of the toolbar's filter row, one
+ * press per period, the chosen one drawn as the segment's thumb. The phone
+ * has `ReportPeriodStrip`'s chips instead, so this is `max-md:hidden`. The
+ * dates are not here: each tab states them from its own figures, in the zone
+ * they were counted in, so the page never shows two periods that disagree.
+ */
+export function ReportPeriodSegments({
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  value: string
+  options: ReadonlyArray<{ id: string; label: string }>
+  onChange: (id: string) => void
+  className?: string
+}) {
+  return (
+    <SegmentedControl
+      semantics="radio"
+      aria-label="Period"
+      fill={false}
+      value={value}
+      onValueChange={(next) => {
+        if (next) onChange(next)
+      }}
+      className={cn("max-md:hidden print:hidden", className)}
+    >
+      {options.map((option) => (
+        <SegmentedControlItem key={option.id} value={option.id}>
+          {option.label}
+        </SegmentedControlItem>
+      ))}
+    </SegmentedControl>
   )
 }
 

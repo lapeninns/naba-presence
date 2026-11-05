@@ -317,7 +317,7 @@ function MemberRows({
           terms,
           before?.locations.length ?? 0
         ),
-        type: "success",
+        type: "info",
       })
     },
   })
@@ -363,7 +363,7 @@ function MemberRows({
           ? `${name} was removed from the team`
           : "Removed from the team",
         description: "Send a new invitation to bring them back.",
-        type: "success",
+        type: "info",
       })
     },
   })
@@ -499,6 +499,7 @@ function MemberRows({
           view.accessReason === null
             ? {
                 label: terms.access,
+                accessibleLabel: `${terms.access}: ${m.displayName}`,
                 icon: <Building2 aria-hidden />,
                 onAction: () => openAccess(m),
                 disabled: busy,
@@ -507,6 +508,7 @@ function MemberRows({
           view.gate.removeReason === null
             ? {
                 label: "Remove",
+                accessibleLabel: `Remove ${m.displayName}`,
                 icon: <Trash2 aria-hidden />,
                 tone: "danger" as const,
                 onAction: () => openRemove(m),

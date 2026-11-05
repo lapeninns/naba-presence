@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
   CheckIcon,
-  CircleAlertIcon,
   ChevronDownIcon,
-  InfoIcon,
   PenLineIcon,
   RotateCcwIcon,
   SparklesIcon,
 } from "lucide-react"
 
+import { ReplyChecks } from "@/components/inbox/detail/reply-checks"
 import { Alert, AlertActions, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,6 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import {
@@ -93,6 +93,34 @@ function isAiNotConfigured(error: unknown): boolean {
   return error instanceof ApiClientError && error.code === "ai_not_configured"
 }
 
+/**
+ * The generate toast's words, from the checks' verdict on the new text: a
+ * reply that failed or has not been checked is written, not ready.
+ */
+export function generatedToast(verdict: string | null): {
+  title: string
+  description: string
+  type: "success" | "info" | "warning"
+} {
+  if (verdict === "pass" || verdict === "warn")
+    return {
+      title: "Reply ready",
+      description: "A fresh reply was written and checked.",
+      type: "success",
+    }
+  if (verdict === "fail")
+    return {
+      title: "Reply written, needs a correction",
+      description: "A check failed. Fix the reply before you publish it.",
+      type: "warning",
+    }
+  return {
+    title: "Reply written, not checked yet",
+    description: "It is checked when you save or publish it.",
+    type: "info",
+  }
+}
+
 function ReplyComposer({ reviewId }: { reviewId: string }) {
   const detail = useReviewDetail(reviewId)
   const review = detail.data?.review
@@ -132,6 +160,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // then the persisted review.latestVerification stands.
   const [mutationVerification, setMutationVerification] =
     useState<LatestVerification | null>(null)
+  // The text that verification was produced for.
+  const [checkedBody, setCheckedBody] = useState<string | null>(null)
   // The checks' verdict is about the text that was checked. Typing makes it
   // stale, so the message under the editor goes until the next check.
   const [verdictStale, setVerdictStale] = useState(false)
@@ -172,6 +202,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     setRestoredBody(null)
     setDiscardedBody(null)
     setMutationVerification(null)
+    setCheckedBody(null)
     setVerdictStale(false)
   } else if (
     // A newer draft for the review already on screen: someone else saved
@@ -377,15 +408,18 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       if (!mounted.current) return
       setBody(result.body)
       setMutationVerification(result.verification)
+      setCheckedBody(result.body)
       setVerdictStale(false)
       const restorable =
         previous.trim() !== "" && previous !== result.body ? previous : null
       const toastId = toasts.add({
-        title: "Reply ready",
-        description: restorable
-          ? "A fresh reply replaced the previous text. Undo puts it back as an unsaved edit."
-          : "A fresh reply was written and checked.",
-        type: "success",
+        ...generatedToast(result.verification?.verdict ?? null),
+        ...(restorable
+          ? {
+              description:
+                "A fresh reply replaced the previous text. Undo puts it back as an unsaved edit.",
+            }
+          : {}),
         ...(restorable
           ? {
               actionProps: {
@@ -443,6 +477,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     try {
       const result = await generateOrSave.mutateAsync({ body, tone })
       setMutationVerification(result.verification)
+      setCheckedBody(body)
       setVerdictStale(false)
       if (result.verification.verdict === "fail") focusEditor()
       return { draftId: result.draftId, verification: result.verification }
@@ -465,21 +500,21 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     isAllowedReviewTransition(review.workflowStatus, "drafted")
   const editable = canEdit && canDraft
   const bytes = byteLength(body)
+  // The box shows the newest saved draft as it was saved: only then may the
+  // card say where that text came from and when it was saved.
+  const holdsSavedDraft =
+    !isDirty && draftBody !== null && draftBody === latestDraft?.body
   const overLimit = bytes > BYTE_LIMIT
   const nearLimit = !overLimit && bytes >= BYTE_WARN_AT
   const canGenerate = editable && !generateOrSave.isPending && !creditsExhausted
   const verification = verdictStale
     ? null
     : (mutationVerification ?? review.latestVerification)
-  const failing =
-    verification?.verdict === "fail"
-      ? verification.reasons.filter((reason) => reason.severity === "fail")
-      : []
-  const warnings =
-    verification?.verdict === "warn"
-      ? verification.reasons.filter((reason) => reason.severity === "warn")
-      : []
-  const showFail = verification?.verdict === "fail"
+  // A verdict speaks for the saved text only: once the words differ from it,
+  // no card (pass, note or fail) may vouch for or against what is typed.
+  const checkedText = mutationVerification ? checkedBody : draftBody
+  const savedVerification = body === checkedText ? verification : null
+  const showFail = savedVerification?.verdict === "fail"
   const empty = body.trim() === ""
   // Credits are for Generate: with no AI to spend them on, they are noise.
   const showCredits = Boolean(aiCredits.data) && editable && !aiUnavailable
@@ -641,15 +676,15 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       ) : null}
       {generateErrorNote}
 
-      {/* The editor surface under the "Reply as …" header row: a quiet
-          hairline edge at rest (where the field ends must stay visible),
-          a stronger edge and halo while the words are focused. The words
-          come first, so on a phone the box is where the eye lands; what
-          acts on them (Generate, the count) and what advises (guidance,
-          credits) sit beneath. */}
+      {/* The reply card under the "Reply as …" header row: a hairline
+          edge at rest (where the field ends must stay visible) and the
+          fields' one focus language while the words are focused (the
+          accent edge and halo of field.tsx). The words come first, so on a
+          phone the box is where the eye lands; what acts on them (Generate,
+          the count) and what advises (guidance, credits) sit beneath. */}
       <div
         data-slot="reply-editor"
-        className="flex min-w-0 flex-col rounded-(--np-radius-control) border border-transparent transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line focus-within:ring-3 focus-within:ring-fill has-[[aria-invalid=true]]:border-danger-ink motion-reduce:transition-none"
+        className="flex min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-accent-solid focus-within:shadow-(--np-focus-halo) has-[[aria-invalid=true]]:border-danger-ink has-[[aria-invalid=true]]:focus-within:shadow-np-focus-danger motion-reduce:transition-none"
       >
         {/* Grows with the reply from six lines, then scrolls inside itself:
             the publish bar and the keyboard below it stay where they are. */}
@@ -696,7 +731,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           }
           className={cn(
             // text-body is 16px on touch, so iOS does not zoom into the box.
-            "rounded-none border-0 bg-transparent px-1 pt-3 pb-4 text-reading shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
+            "rounded-none border-0 bg-transparent px-3 pt-3 pb-4 text-reading shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
             generateOrSave.isPending &&
               !saving &&
               "animate-pulse motion-reduce:animate-none"
@@ -707,7 +742,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             back, and the count. */}
         <div
           data-slot="composer-prompt-bar"
-          className="flex flex-wrap items-center gap-x-1.5 gap-y-2 border-t border-line-subtle px-1 py-2"
+          className="flex flex-wrap items-center gap-x-1.5 gap-y-2 border-t border-line-subtle px-2 py-2"
         >
           {generateControl}
           {editable && isDirty && seededBody !== "" ? (
@@ -726,14 +761,32 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           <span aria-hidden className="flex-1" />
           {empty ? null : (
             <span
-              data-slot="char-count"
-              // Neutral on purpose: Google's limit is in bytes, which the
-              // foot's length note states; a red character count would claim a
-              // limit in a unit it does not show.
-              className="px-1 text-count whitespace-nowrap text-ink-muted tabular-nums"
+              data-slot="reply-meta"
+              className="flex flex-wrap items-center gap-x-1.5 px-1 text-count text-ink-muted"
             >
-              {body.length.toLocaleString("en-GB")}{" "}
-              {body.length === 1 ? "character" : "characters"}
+              <span
+                data-slot="char-count"
+                // In the unit Google counts, and neutral: the foot's length
+                // note is the one that warns, in words as well as colour.
+                className="whitespace-nowrap tabular-nums"
+              >
+                {bytes.toLocaleString("en-GB")} of{" "}
+                {BYTE_LIMIT.toLocaleString("en-GB")} bytes
+              </span>
+              {holdsSavedDraft && latestDraft?.source === "ai" ? (
+                <span data-slot="draft-source" className="whitespace-nowrap">
+                  <span aria-hidden>· </span>Written with AI
+                </span>
+              ) : null}
+              {holdsSavedDraft && latestDraft ? (
+                <RelativeTime
+                  data-slot="draft-saved"
+                  iso={latestDraft.createdAt}
+                  timeZone={review.timezone}
+                  prefix="· Saved here "
+                  className="whitespace-nowrap tabular-nums"
+                />
+              ) : null}
             </span>
           )}
         </div>
@@ -741,7 +794,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         {guidance.length > 0 || nearLimit || overLimit || showCredits ? (
           <div
             data-slot="composer-foot"
-            className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line-subtle px-1 py-3"
+            className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line-subtle px-3 py-3"
           >
             {guidance.length > 0 ? (
               <div
@@ -779,7 +832,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                           aria-hidden
                           className="flex size-3.5 shrink-0 items-center justify-center"
                         >
-                          <span className="size-1 rounded-(--np-radius-pill) bg-ink-faint" />
+                          <span className="size-1 rounded-(--np-radius-pill) bg-ink-muted" />
                         </span>
                       )}
                       {item.label}
@@ -830,37 +883,10 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         </span>
       </div>
 
-      {showFail ? (
-        <p
-          id={`${fieldId}-problem`}
-          role="alert"
-          data-slot="reply-problem"
-          className="flex items-start gap-2 rounded-(--np-radius-control) bg-danger-tint px-3 py-2 text-caption text-ink"
-        >
-          <CircleAlertIcon
-            aria-hidden
-            strokeWidth={1.75}
-            className="mt-px size-4 shrink-0 text-danger-ink"
-          />
-          <span>
-            <strong className="font-semibold">Can&rsquo;t publish yet.</strong>{" "}
-            {failing.map((reason) => reason.message).join(" ")} Edit the reply
-            and try again.
-          </span>
-        </p>
-      ) : warnings.length > 0 ? (
-        <p
-          data-slot="reply-note"
-          className="flex items-start gap-1.5 text-caption text-ink-muted"
-        >
-          <InfoIcon
-            aria-hidden
-            strokeWidth={1.75}
-            className="mt-px size-3.5 shrink-0"
-          />
-          <span>{warnings.map((reason) => reason.message).join(" ")}</span>
-        </p>
-      ) : null}
+      <ReplyChecks
+        verification={savedVerification}
+        problemId={`${fieldId}-problem`}
+      />
     </div>
   )
 }

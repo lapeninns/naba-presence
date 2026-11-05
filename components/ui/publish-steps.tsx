@@ -17,12 +17,12 @@ import { cn } from "@/lib/utils"
  *
  * States
  *   pending   "Not sent yet"   — queued, nothing has left the app
- *   skipped   "Skipped"        — deliberately not sent (unchanged, or
+ *   skipped   "Not needed"     — deliberately not sent (unchanged, or
  *                                blocked by an earlier failure)
  *   and every operation outcome (lib/editors/outcome.ts), in its shared
- *   words: `saved_locally` "Saved here", `sent` "Sent to Google" (never
- *   shown as success), `awaiting_confirmation`, `confirmed_applied` "Live on
- *   Google" (only with readback or verification evidence), `rejected`,
+ *   words: `saved_locally` "Draft saved", `sent` "Sending to Google"
+ *   (never shown as success), `awaiting_confirmation`, `confirmed_applied`
+ *   "On Google" (only with readback or verification evidence), `rejected`,
  *   `failed` and `uncertain`. A failed step's error code is folded behind
  *   "Details for support", not shown beside the state.
  *
@@ -72,7 +72,7 @@ const STATE_META: Record<PublishStepState, StepMeta> = {
     icon: <CircleDashed />,
   },
   skipped: {
-    word: "Skipped",
+    word: "Not needed",
     tone: "outline",
     mark: "bg-fill text-ink-muted",
     icon: <Minus />,

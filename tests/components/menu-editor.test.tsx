@@ -125,9 +125,11 @@ function Harness({
   initial = fixture(),
   disabled = false,
   onChange = vi.fn(),
+  changedPaths,
 }: {
   initial?: FoodMenu[]
   disabled?: boolean
+  changedPaths?: string[]
   onChange?: (next: FoodMenu[]) => void
 }) {
   const [menus, setMenus] = useState(initial)
@@ -144,6 +146,7 @@ function Harness({
       <MenuEditor
         menus={menus}
         disabled={disabled}
+        changedPaths={changedPaths}
         problems={problems}
         validationAttempt={attempt}
         navigatorRef={navigator}
@@ -245,6 +248,40 @@ describe("MenuEditor structured workspace", () => {
       "aria-invalid",
       "true"
     )
+  })
+
+  it("draws the price problem as a field error, and says in the sheet where edits go", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    const sheet = await openItem(user, "Soup")
+    expect(sheet).toHaveAccessibleDescription(
+      expect.stringContaining(
+        "Edits stay here until you save; nothing changes on Google until you publish."
+      )
+    )
+    fireEvent.change(screen.getByLabelText("Price (EUR)"), {
+      target: { value: "12,50" },
+    })
+    await closeItem(user)
+    await user.click(screen.getByRole("button", { name: "Validate" }))
+    await openItem(user, "Soup")
+    const error = document.getElementById(
+      screen.getByLabelText("Price (EUR)").getAttribute("aria-describedby")!
+    )!
+    expect(error).toHaveAttribute("data-slot", "field-error")
+    expect(error.querySelector("svg")).not.toBeNull()
+  })
+
+  it("marks an item that differs from Google with an ink edge and the word Edited", () => {
+    render(
+      <Harness changedPaths={["menus[0].sections[0].items[1].attributes"]} />
+    )
+    const salad = screen.getByRole("button", { name: "Edit Salad" })
+    expect(salad).toHaveAccessibleDescription(expect.stringContaining("Edited"))
+    expect(salad.closest("li")).toHaveClass("shadow-np-edge-select")
+    expect(
+      screen.getByRole("button", { name: "Edit Soup" }).closest("li")
+    ).not.toHaveAttribute("data-edited")
   })
 
   it("keeps the currency when a price is cleared and re-entered", async () => {

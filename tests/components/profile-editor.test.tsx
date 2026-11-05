@@ -388,7 +388,7 @@ describe("ProfileTab", () => {
     )
     const footer = screen.getByRole("region", { name: "Editor actions" })
     expect(
-      await within(footer).findByText("1 change not on Google")
+      await within(footer).findByText("1 unsaved change")
     ).toBeInTheDocument()
     // Lodging has its own review: Save here is left out, with the reason.
     expect(
@@ -1227,7 +1227,7 @@ describe("ProfileTab save and review boundaries", () => {
     const wifiRow = rows.find((row) => row.textContent?.includes("Wi-Fi"))
     // Business information compares its readback before success, so the
     // finished row says live.
-    expect(storeRow).toHaveTextContent("Live on Google")
+    expect(storeRow).toHaveTextContent("On Google")
     // Google's own 403 refusal is its verdict, so the row says so rather
     // than a bare "Failed" (lib/errors/action-errors.ts errorOutcome).
     expect(wifiRow).toHaveTextContent("Rejected by Google")
@@ -1917,7 +1917,7 @@ describe("ProfileTab one review sheet (L14)", () => {
     // The server's answer, not a client guess: held for approval, not sent.
     expect(rows[0]).toHaveTextContent("Business name")
     expect(rows[0]).toHaveTextContent("Awaiting approval")
-    expect(rows[0]).not.toHaveTextContent(/Sent to Google|Live on Google/)
+    expect(rows[0]).not.toHaveTextContent(/Sent to Google|On Google/)
     expect(
       calls.filter(
         ({ method, url }) => method === "POST" && url.includes("/profile")
@@ -1926,7 +1926,7 @@ describe("ProfileTab one review sheet (L14)", () => {
     expect(
       await within(
         screen.getByRole("region", { name: "Notifications" })
-      ).findByText("Sent for approval")
+      ).findByText("Awaiting approval")
     ).toBeVisible()
     await userEvent.click(done)
     await waitFor(() =>
@@ -2067,10 +2067,10 @@ describe("ProfileTab field marks", () => {
     expect(markOf("profile-name")).toHaveTextContent("Changed on Google")
     expect(markOf("profile-phone")).toHaveTextContent("Not on Google yet")
     expect(markOf("profile-website")).not.toHaveTextContent(
-      /Changed|Not on Google/
+      /Changed|Edited|Not on Google/
     )
     await userEvent.type(name, "s")
-    expect(markOf("profile-name")).toHaveTextContent("Changed")
+    expect(markOf("profile-name")).toHaveTextContent("Edited")
     expect(markOf("profile-name")).not.toHaveTextContent("Changed on Google")
   })
 })
@@ -2214,6 +2214,12 @@ describe("ProfileTab content warnings", () => {
       name: "I have reviewed these content warnings.",
     })
     expect(checkbox).toHaveAccessibleDescription("Tick this, then save again.")
+    // A save would only be refused again: it waits for the tick, and the
+    // bar says why.
+    expect(screen.queryByRole("button", { name: "Save here" })).toBeNull()
+    expect(
+      screen.getByText("Acknowledge the content warnings first")
+    ).toBeInTheDocument()
     const block = document.querySelector<HTMLElement>(
       '[data-slot="content-warnings"]'
     )

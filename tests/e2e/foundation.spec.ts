@@ -1,12 +1,34 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, type Page, test } from "@playwright/test"
+import { expect, type Locator, type Page, test } from "@playwright/test"
 
 import { pageSettled, transitionsSettled } from "./helpers/settled"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
-/** The health chip's words: agency wording, then business (lib/clients/health.ts). */
+/**
+ * The scope's health in words (lib/clients/health.ts): the agency and
+ * business roll-ups (`summariseHealth`), one client's words (`healthLabel`),
+ * a business location's words (`locationStatusWords`) and the stale-refetch
+ * words. The retired health chip's words now live in the scope control's
+ * name ("Working on <scope>, <listings> · <health>") and the More sheet.
+ */
 const HEALTH_WORDS =
-  /All clients up to date|clients? needs? (?:action|attention)|data delayed|Importing reviews|No clients yet|Not connected yet|Needs action|Needs attention|All in sync/
+  /All (?:clients )?in sync|clients? needs? (?:action|attention|checking)|Some listings need checking|Changes to publish|Importing(?: reviews)?|No clients yet|Not connected yet|Needs action|Needs attention|In sync|Not checked|Some listings not checked yet|Can’t reach Google|Not set up|Not linked|Not verified|Data may be stale/
+
+/** The scope control's accessible name, with its health words after the scope. */
+const SCOPE_NAME = new RegExp(`^Working on .+, .*(?:${HEALTH_WORDS.source})`)
+
+/**
+ * The scope control's name: a button's own name, or, when there is nothing
+ * to switch (one client, one location), the static control's screen-reader
+ * words (components/app-shell/client-switcher.tsx `ScopeStatic`).
+ */
+async function expectScopeName(control: Locator) {
+  if ((await control.getAttribute("data-static")) === "true") {
+    await expect(control.locator(".sr-only").first()).toHaveText(SCOPE_NAME)
+  } else {
+    await expect(control).toHaveAccessibleName(SCOPE_NAME)
+  }
+}
 
 /** "Inbox", or "Inbox, 2 need a reply" / "Inbox, 1 awaiting your approval" (components/app-shell/use-needs-reply-count.ts). */
 const INBOX_TAB =
@@ -52,25 +74,35 @@ test.describe("rebuild foundation", () => {
     })
   }
 
-  test("the health chip reports the agency, not one connection", async ({
+  test("the scope control reports the agency's health, not one connection", async ({
     page,
   }) => {
     // The old chip collapsed every connection in the organisation to
     // connected/disconnected, which hid one client's broken login behind
-    // another client's working one. It now reports a count.
+    // another client's working one. It reported a count; the separate chip
+    // is retired (DIRECTION D8) and the scope control now carries the
+    // scope's health in words.
     await page.goto("/inbox")
-    // The chip is the desk toolbar's link (from 768px); the home page's own
-    // "Work by client" empty state can say "No clients yet" too, so match
-    // the chip rather than any text on the page.
-    const chip = page.locator(
-      'header[data-slot="toolbar"] [data-slot="health-chip"]'
+    // From 1180px the control is the sidebar's "Working on" button; the
+    // home page's own "Work by client" empty state can say "No clients yet"
+    // too, so match the control rather than any text on the page.
+    const sidebarScope = page.locator(
+      'aside[data-slot="sidebar"] [data-slot="sidebar-scope"]'
     )
-    await expect(chip).toBeVisible({ timeout: 10_000 })
+    await expect(sidebarScope).toBeVisible({ timeout: 10_000 })
+    await expect(sidebarScope).toContainText("Working on")
+    const control = sidebarScope.locator('[data-slot="scope-control"]')
+    await expect(control).toHaveAttribute("data-variant", "sidebar")
     // Agency wording, then the business wording (lib/clients/health.ts).
-    await expect(chip).toHaveAccessibleName(HEALTH_WORDS)
+    await expectScopeName(control)
+    // One scope control per size: the toolbar's pill is for 768 to 1180.
+    await expect(
+      page.locator('header[data-slot="toolbar"] [data-slot="scope-control"]')
+    ).toBeHidden()
+    await expect(page.locator('[data-slot="health-chip"]')).toHaveCount(0)
   })
 
-  test("phones carry health as a row in More, not a chip in the bar", async ({
+  test("phones carry health in the scope chip and in More, not a separate chip", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 })
@@ -78,17 +110,33 @@ test.describe("rebuild foundation", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Inbox" })
     ).toBeVisible()
-    await expect(page.locator('[data-slot="health-chip"]')).toBeHidden()
+    await expect(page.locator('[data-slot="health-chip"]')).toHaveCount(0)
+    // The app bar leads with the scope chip on a top-level scoped page; its
+    // health words are in its name.
+    const chip = page.locator(
+      'header[data-slot="app-bar"] [data-slot="scope-control"]'
+    )
+    await expect(chip).toBeVisible({ timeout: 10_000 })
+    await expect(chip).toHaveAttribute("data-variant", "chip")
+    await expectScopeName(chip)
     await page
       .getByRole("navigation", { name: "Primary" })
       .getByRole("button", { name: "More", exact: true })
       .click()
     const sheet = page.getByRole("dialog", { name: "More" })
     await expect(sheet).toBeVisible()
-    const row = sheet.locator('[data-slot="health-row"]')
-    await expect(row).toBeVisible({ timeout: 10_000 })
-    await expect(row).toContainText("Connections")
-    await expect(row).toContainText(HEALTH_WORDS)
+    // With a scope to switch, More's scope row carries the health words in
+    // its name; with nothing to switch, the Connections row says them.
+    const scopeRow = sheet.locator('[data-slot="more-scope"]')
+    const healthRow = sheet.locator('[data-slot="health-row"]')
+    await expect(scopeRow.or(healthRow)).toBeVisible({ timeout: 10_000 })
+    if (await scopeRow.isVisible()) {
+      await expect(scopeRow).toHaveAccessibleName(SCOPE_NAME)
+      await expect(healthRow).toHaveCount(0)
+    } else {
+      await expect(healthRow).toContainText("Connections")
+      await expect(healthRow).toContainText(HEALTH_WORDS)
+    }
   })
 
   test("phones navigate with a tab bar and a More sheet", async ({ page }) => {

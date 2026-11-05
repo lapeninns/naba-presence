@@ -31,8 +31,10 @@ const actionCopy = {
     "We couldn’t tell what Google needs next. Check the listing in Google.",
 } satisfies Record<ObservedMerchantState["action"], string>
 
+// Pending verification is amber: the owner still has to act (enter the PIN,
+// wait out Google's review), so it is not a with-Google blue state.
 const phasePresentation = {
-  pending: { label: "Pending with Google", tone: "pending" },
+  pending: { label: "Pending with Google", tone: "attention" },
   completed: { label: "Request completed", tone: "healthy" },
   failed: { label: "Request failed", tone: "at-risk" },
   unknown: { label: "Request state unknown", tone: "neutral" },
@@ -75,7 +77,7 @@ export function verificationStandingPill(
   if (merchant?.hasVoiceOfMerchant === false)
     return merchant.hasPendingVerification === true ||
       merchant.action === "wait"
-      ? { label: "In progress", tone: "pending" }
+      ? { label: "In progress", tone: "attention" }
       : { label: "Not verified", tone: "attention" }
   return { label: "Unknown", tone: "neutral" }
 }

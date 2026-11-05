@@ -87,7 +87,7 @@ export function MenuPreview({ menu }: { menu: EditorMenu }) {
         <Empty
           size="sm"
           title="Your preview is empty"
-          description="Switch to Edit menu and add your first section."
+          description="Add a section under Edit menu first."
         />
       )}
     </section>

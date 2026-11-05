@@ -328,7 +328,7 @@ function AreaCards({
               <ChevronRightIcon
                 aria-hidden
                 strokeWidth={1.75}
-                className="size-5 text-ink-faint @xl/areas:hidden"
+                className="size-5 text-ink-muted @xl/areas:hidden"
               />
             </ShellLink>
           )

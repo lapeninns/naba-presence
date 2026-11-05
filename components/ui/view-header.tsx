@@ -150,7 +150,7 @@ function ViewHeaderBack({
       // The visible destination stays in the name (label in name, 2.5.3).
       aria-label={`Back to ${label}`}
       className={cn(
-        "-ms-2 inline-flex min-h-(--np-touch) shrink-0 items-center gap-0.5 rounded-(--np-radius-control) ps-1 pe-2 text-ui font-medium text-ink-secondary no-underline focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy hover-fine:hover:text-ink",
+        "-ms-2 inline-flex min-h-(--np-touch) shrink-0 items-center gap-0.5 rounded-(--np-radius-control) ps-1 pe-2 text-ui font-medium text-ink-secondary no-underline focus-halo transition-colors duration-(--np-duration-fast) ease-press hover-fine:hover:text-ink",
         className
       )}
     >

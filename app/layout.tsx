@@ -5,6 +5,7 @@ import "./globals.css"
 import { ViewportInsets } from "@/components/app-shell/viewport-insets"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toast"
+import { THEME_COLOR } from "@/lib/ui/theme-color"
 import { cn } from "@/lib/utils"
 
 // The interface uses the platform sans and the serif stack declared in
@@ -60,16 +61,13 @@ export const viewport: Viewport = {
   // bottom bars sit above it. iOS ignores this and overlays the keyboard;
   // <ViewportInsets> covers that case with --np-keyboard-inset.
   interactiveWidget: "resizes-content",
-  // The browser chrome matches the canvas (--np-surface-canvas). Hex because
-  // not every browser takes oklch here: #f6f9fc ≈ oklch(0.98 0.005 250),
-  // #0d1216 ≈ oklch(0.18 0.012 240). These follow the system preference; a
-  // user who forces the other theme in-app keeps the system's bar colour.
-  // design-exempt-start R2: meta theme-color is read before any CSS loads
+  // The browser chrome matches the canvas (lib/ui/theme-color.ts). These
+  // follow the system preference until hydration; ThemeProvider then
+  // repoints both at an in-app choice.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f9fc" },
-    { media: "(prefers-color-scheme: dark)", color: "#0d1216" },
+    { media: "(prefers-color-scheme: light)", color: THEME_COLOR.light },
+    { media: "(prefers-color-scheme: dark)", color: THEME_COLOR.dark },
   ],
-  // design-exempt-end
   // Both schemes are built (globals.css sets color-scheme per theme class),
   // so the browser may draw its pre-CSS canvas and form controls in either.
   colorScheme: "light dark",
@@ -80,7 +78,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
-      lang="en"
+      // The product writes British English (organisation, en-GB dates), and
+      // global-error.tsx, which replaces this document, says the same.
+      lang="en-GB"
       suppressHydrationWarning
       className={cn(
         "font-sans antialiased",

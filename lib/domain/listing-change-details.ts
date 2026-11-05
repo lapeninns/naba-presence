@@ -21,23 +21,46 @@ export const MAX_LISTING_CHANGE_DETAIL_CHARS = 1_000
 
 /**
  * Body fields that are bookkeeping rather than content: the confirmation
- * literal, the baseline hashes (checked at dispatch) and the field masks
- * (shown separately as `fieldMask`).
+ * literal, the field masks (shown separately as `fieldMask`) and every
+ * `expected*` baseline -- hashes, per-part hashes and the saved revision --
+ * which dispatch checks against the current state. The saved revision is
+ * never shown elsewhere, and a saved-copy publish already says it sends the
+ * saved copy (any save cancels the request), so a bare number adds nothing.
  */
 function isBookkeeping(key: string): boolean {
   return (
     key === "confirmation" ||
     key === "selectedFields" ||
-    /^expected.*Hash$/.test(key) ||
+    /^expected[A-Z]/.test(key) ||
     /Mask$/.test(key)
   )
+}
+
+/** `dayOfWeek` values (0 = Sunday), as an hours selection names them. */
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+]
+
+/** Values that read better under a name than as stored. */
+function readable(key: string, value: unknown): unknown {
+  if (key === "regularDays" && Array.isArray(value)) {
+    return value.map((day) =>
+      typeof day === "number" && WEEKDAYS[day] ? WEEKDAYS[day] : day
+    )
+  }
+  return value
 }
 
 /** Wrappers whose children read better at the top level. */
 const FLATTENED = new Set(["payload"])
 
 const LABELS: Record<string, string> = {
-  expectedCanonicalRevision: "Saved version",
   confirmOverwriteGoogleChanges: "Overwrite changes made on Google",
   confirmOverwriteCanonicalChanges: "Overwrite saved changes",
   confirmFullReplacement: "Replace everything on Google",
@@ -105,7 +128,7 @@ function flatten(
     for (const [key, child] of entries) {
       const lift =
         FLATTENED.has(key) && path.length === 0 && isPlainObject(child)
-      flatten(child, lift ? [] : [...path, humanise(key)], rows)
+      flatten(readable(key, child), lift ? [] : [...path, humanise(key)], rows)
     }
     return
   }

@@ -52,16 +52,17 @@ function setLocation(href: string) {
 
 function renderWithSession(
   area = "Google connections",
-  extra: Partial<ComponentProps<typeof AccessDenied>> = {}
+  extra: Partial<ComponentProps<typeof AccessDenied>> = {},
+  role: "viewer" | "member" = "viewer"
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
   client.setQueryData(queryKeys.session, {
     session: {
-      role: "viewer",
+      role,
       workspaceMode: "agency",
-      displayName: "Sam Viewer",
+      displayName: role === "viewer" ? "Sam Viewer" : "Mo Member",
       email: "sam@example.com",
       organisationName: "Acme Agency",
     },
@@ -163,9 +164,31 @@ describe("AccessDenied", () => {
     expect(copied).toContain("Sam Viewer")
     expect(copied).toContain("https://app.example.com/settings/connections")
     expect(toastAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Request copied", type: "success" })
+      expect.objectContaining({ title: "Request copied", type: "neutral" })
     )
   })
+
+  it.each([
+    ["viewer", "Viewer", "Sam Viewer"],
+    ["member", "Member", "Mo Member"],
+  ] as const)(
+    "tells a %s their own role and who can grant access",
+    async (role, label, name) => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      setNavigator({ clipboard: { writeText } as unknown as Clipboard })
+      renderWithSession("Team", {}, role)
+      expect(screen.getByText(label)).toBeInTheDocument()
+      expect(
+        screen.getByText(/Owners and admins in Acme Agency/)
+      ).toBeInTheDocument()
+      await userEvent.click(
+        screen.getByRole("button", { name: "Ask for access" })
+      )
+      expect(writeText.mock.calls[0][0]).toContain(
+        `I'm ${name} (sam@example.com), currently a ${label.toLowerCase()} in Acme Agency.`
+      )
+    }
+  )
 
   it("offers one copy path, not a second near-duplicate button", () => {
     renderWithSession()
@@ -278,6 +301,27 @@ describe("AccessDenied", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).not.toContain(
       "/settings/connections"
     )
+  })
+
+  it("names who can open it apart from who to ask, when they differ", () => {
+    renderWithSession("Outbox", {
+      whoCanOpen: "an owner, admin or member",
+    })
+    expect(
+      screen.getByText(
+        "Outbox is limited to an owner, admin or member. Ask an owner or admin in your agency if you need it."
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText("Owner, admin or member")).toBeInTheDocument()
+  })
+
+  it("says who can open it with whoCanHelp when whoCanOpen is not given", () => {
+    render(<AccessDenied area="Billing" whoCanHelp="the owner" />)
+    expect(
+      screen.getByText(
+        "Billing is limited to the owner. Ask the owner in your agency if you need it."
+      )
+    ).toBeInTheDocument()
   })
 
   it("names who can grant access, defaulting to owners and admins", () => {

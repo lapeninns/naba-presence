@@ -42,7 +42,10 @@ const LEGAL_LINKS = [
  * list: plain fragment links, so it needs no JavaScript, and each page builds
  * it from the same object its `LegalSection`s read, so the two cannot drift.
  * Printing keeps only the document itself: the brand link, the contents and
- * the footer stay on screen.
+ * the footer stay on screen. *
+ * The bar is at least the app bar's height, never exactly it, so the brand
+ * link can grow with enlarged text instead of being clipped; its back link is
+ * chrome, drawn in ink like every back link.
  */
 function LegalDocument({
   title,
@@ -68,10 +71,10 @@ function LegalDocument({
       >
         Skip to content
       </a>
-      <header className="mx-auto flex h-(--np-appbar-h) w-full max-w-3xl items-center px-2 sm:mt-6 sm:px-4 print:hidden">
+      <header className="mx-auto flex min-h-(--np-appbar-h) w-full max-w-3xl items-center px-2 sm:mt-6 sm:px-4 print:hidden">
         <Link
           href="/"
-          className="inline-flex min-h-(--np-touch) items-center gap-1 rounded-md px-2 text-ink-secondary focus-halo focus-visible:outline-none hover-fine:bg-fill"
+          className="inline-flex min-h-(--np-touch) items-center gap-1 rounded-md px-2 text-ui font-medium text-ink focus-halo focus-visible:outline-none hover-fine:bg-fill"
           aria-label="NabaPresence home"
         >
           <ChevronLeft aria-hidden className="size-5" strokeWidth={1.5} />
@@ -84,7 +87,9 @@ function LegalDocument({
         className="mx-auto flex w-full max-w-3xl min-w-0 flex-col pt-2 pb-4 outline-none sm:px-6 sm:pt-4"
       >
         <article className="flex min-w-0 flex-col gap-8 px-4 py-4 wrap-break-word sm:rounded-(--np-radius-panel) sm:bg-surface sm:p-10 print:bg-transparent print:p-0 [&_code]:font-mono [&_code]:wrap-anywhere">
-          <header className="flex flex-col gap-2">
+          {/* A plain block, not a second <header>: some assistive tech
+              announces any header as a banner, and the page has one. */}
+          <div className="flex flex-col gap-2">
             <h1 className="text-page-title font-semibold text-balance text-ink">
               {title}
             </h1>
@@ -92,7 +97,7 @@ function LegalDocument({
               Effective {LEGAL_OPERATOR.effectiveDate}
             </p>
             <div className="max-w-prose text-body text-ink">{summary}</div>
-          </header>
+          </div>
           {contents.length > 0 ? (
             <nav aria-labelledby="legal-contents" className="print:hidden">
               <h2

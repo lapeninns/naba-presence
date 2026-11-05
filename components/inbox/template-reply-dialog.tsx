@@ -48,9 +48,13 @@ type Phase =
 
 type Outcome = {
   draftId?: string
-  /** The draft passed its checks and may be published. */
+  /** The draft passed its checks and may be sent. */
   ready?: boolean
-  sent?: "published" | "submitted"
+  /**
+   * Sent to Google (it may still be waiting on Google's own check, so never
+   * "published"), or parked for an approver.
+   */
+  sent?: "sent" | "submitted"
   problem?: string
 }
 
@@ -245,8 +249,7 @@ function TemplateReplyDialog({
             expectedReviewUpdateTime: row.updateTime,
           })
           record(row.id, {
-            sent:
-              result.status === "awaiting_approval" ? "submitted" : "published",
+            sent: result.status === "awaiting_approval" ? "submitted" : "sent",
           })
         } catch (error) {
           fail(row.id, error)
@@ -292,8 +295,8 @@ function TemplateReplyDialog({
     )
 
   const problems = batch.filter((row) => outcomes[row.id]?.problem)
-  const published = batch.filter(
-    (row) => outcomes[row.id]?.sent === "published"
+  const sentCount = batch.filter(
+    (row) => outcomes[row.id]?.sent === "sent"
   ).length
   const submitted = batch.filter(
     (row) => outcomes[row.id]?.sent === "submitted"
@@ -326,7 +329,7 @@ function TemplateReplyDialog({
           <DialogTitle>Reply with the rating template</DialogTitle>
           <DialogDescription>
             For reviews with stars and no words. Each reply is checked before it
-            can be published, exactly as one you write yourself.
+            can be sent, exactly as one you write yourself.
           </DialogDescription>
         </DialogHeader>
 
@@ -345,7 +348,7 @@ function TemplateReplyDialog({
             {bulkEngine ? (
               <p className="text-body">
                 One press sends them all: each reply is drafted, checked and
-                then published to Google, or submitted for approval where that’s
+                then sent to Google, or submitted for approval where that’s
                 needed, in the background. There’s no second step. The batch
                 page shows each result.
               </p>
@@ -439,7 +442,7 @@ function TemplateReplyDialog({
               value={done}
               max={Math.max(total, 1)}
               label={
-                phase === "drafting" ? "Draft progress" : "Publish progress"
+                phase === "drafting" ? "Draft progress" : "Sending progress"
               }
             />
           </div>
@@ -451,7 +454,7 @@ function TemplateReplyDialog({
             {readyRows.length === 1 ? "draft is" : "drafts are"} checked and
             ready.{" "}
             {submitters > 0 && publishers.length > 0
-              ? `${publishers.length} will be published and ${submitters} submitted for approval, because you can't publish for every venue in this selection.`
+              ? `${publishers.length} will be sent to Google and ${submitters} submitted for approval, because you can't publish for every venue in this selection.`
               : submitters > 0
                 ? "They go for approval before anything reaches Google."
                 : "Publishing sends them to Google straight away, under each business's name."}{" "}
@@ -462,9 +465,9 @@ function TemplateReplyDialog({
 
         {phase === "done" ? (
           <p className="text-body" role="status">
-            {published > 0 ? `${published} sent to Google. ` : ""}
+            {sentCount > 0 ? `${sentCount} sent to Google. ` : ""}
             {submitted > 0 ? `${submitted} submitted for approval. ` : ""}
-            {published + submitted === 0 ? "Nothing was sent. " : ""}
+            {sentCount + submitted === 0 ? "Nothing was sent. " : ""}
             {problems.length > 0
               ? `${problems.length} need${problems.length === 1 ? "s" : ""} a look and stay${problems.length === 1 ? "s" : ""} selected.`
               : ""}
@@ -502,6 +505,7 @@ function TemplateReplyDialog({
               nothing to stop, and the footer is not left empty. */}
           {phase === "setup" || phase === "starting" ? (
             <Button
+              variant={bulkEngine ? "send" : "default"}
               pending={phase === "starting"}
               pendingLabel="Queuing…"
               disabled={eligible.length === 0}
@@ -536,6 +540,7 @@ function TemplateReplyDialog({
                 Leave as drafts
               </Button>
               <Button
+                variant={publishers.length > 0 ? "send" : "default"}
                 disabled={readyRows.length === 0}
                 disabledReason={
                   readyRows.length === 0
@@ -579,7 +584,7 @@ function QueuedSummary({
       <p className="text-body">
         <strong className="tabular-nums">{queued.length}</strong>{" "}
         {queued.length === 1 ? "reply is" : "replies are"} queued. Each is
-        drafted, checked and published (or submitted for approval) in the
+        drafted, checked and sent to Google (or submitted for approval) in the
         background; you can close this tab.{" "}
         {result.operationId ? (
           <Link

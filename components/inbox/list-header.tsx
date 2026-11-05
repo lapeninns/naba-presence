@@ -86,6 +86,22 @@ function ListHeader({
     ;(target ?? selectButtonRef.current)?.focus()
   }, [selecting, desk])
 
+  // The selection bar unmounts with the last tick (Escape, a bar action),
+  // and focus on it falls to the page. Catch it here, but never take it
+  // from wherever the operator has moved it.
+  const tickedCount = ticked.length
+  const hadTicks = useRef(false)
+  useEffect(() => {
+    const had = hadTicks.current
+    hadTicks.current = tickedCount > 0
+    if (!had || tickedCount > 0) return
+    const active = document.activeElement
+    if (active && active !== document.body) return
+    const target =
+      desk === true ? selectAllRef.current : selectButtonRef.current
+    ;(target ?? selectButtonRef.current)?.focus()
+  }, [tickedCount, desk])
+
   return (
     <div
       data-slot="inbox-list-header"
@@ -157,10 +173,10 @@ function ListHeader({
       <span aria-hidden className="flex-1" />
       <GoogleFreshness
         clientId={clientId}
-        // On a phone too: members and viewers have no Sync button, so this
+        // On a phone too: members and viewers cannot sync from Google, so this
         // is the only sign of how fresh the list is. It steps aside for the
         // selection count, below the desk, where the width is short.
-        className={cn("min-w-0 truncate", selecting && "max-desk:hidden")}
+        className={cn("min-w-0 truncate", selecting && "hidden desk:block")}
       />
       {loaded ? (
         // `refreshed` reads the viewer's clock, so it is null until

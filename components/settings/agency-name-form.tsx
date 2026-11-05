@@ -106,7 +106,7 @@ export function AgencyNameForm({
       void queryClient.invalidateQueries({ queryKey: ["organisations"] })
       setDraft(null)
       setError(null)
-      toast.add({ title: `${terms.orgName} saved`, type: "success" })
+      toast.add({ title: `${terms.orgName} saved`, type: "neutral" })
       router.refresh()
     },
     onError: (caught) => setError(describeActionError(caught)),

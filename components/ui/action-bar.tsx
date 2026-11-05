@@ -9,6 +9,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { StatusGlyph } from "@/components/ui/status-glyph"
+import {
+  describeOutcome,
+  statusText,
+  type PresentedState,
+} from "@/lib/editors/outcome"
+import type { StatusTone } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
 /**
@@ -57,9 +64,16 @@ export type ActionBarAction = {
  *              from `md`; one "More actions" overflow menu on a phone.
  *   actions    free-form buttons, drawn as given at every width (the
  *              original API; prefer `primary` + `secondaryActions`).
- *   tone       "charcoal" (default): the one dark bar per screen, for the
- *              action that reaches Google. "surface": the light bar, for a
- *              local save or a selection — every other bar.
+ *   tone       "surface" (default): the SAVE BAR, white with a 1px line,
+ *              for a local save or a selection: its primary is an ink
+ *              `default` button. "charcoal": the DISPATCH BAR, the one dark
+ *              bar per screen, only when its subject is a change bound for
+ *              Google (its status line carries a lifecycle state); its
+ *              primary, if any, is `variant="send"`, and it may carry only
+ *              `on-charcoal` secondaries ("Withdraw", "View on Google"). An
+ *              ink button never sits on charcoal (1.05:1). Prefer the
+ *              `DispatchBar` and `SaveBar` wrappers, which fix the tone and
+ *              draw the status line in the shared words.
  *   dock       on a phone (below `md`), fix the bar to the bottom edge of
  *              the screen (see "Docking" below). Ignored from `md`, where the
  *              bar is inline or `sticky` as before.
@@ -99,7 +113,7 @@ function ActionBar({
   primary,
   secondaryActions,
   overflowLabel = "More actions",
-  tone = "charcoal",
+  tone = "surface",
   dock = false,
   statusRow = false,
   visible = true,
@@ -129,6 +143,7 @@ function ActionBar({
 }) {
   if (!visible) return null
   const charcoal = tone === "charcoal"
+  if (charcoal) warnInkOnCharcoal(primary)
   const secondaries = secondaryActions?.length ? secondaryActions : null
   const hasActions =
     actions !== undefined || primary !== undefined || secondaries !== null
@@ -148,7 +163,9 @@ function ActionBar({
         sticky && !dock && STICKY_ABOVE_TAB_BAR,
         safeArea && "pb-[max(--spacing(3),var(--np-safe-bottom))]",
         dock && DOCKED_CLASS,
-        dock && statusRow && "max-md:flex-wrap max-md:gap-y-2",
+        // Docked, the bar wraps only when the status can't keep its room
+        // (statusRow, or the min-w-28 below on a narrow phone).
+        dock && "max-md:flex-wrap max-md:gap-y-2",
         className
       )}
       {...props}
@@ -166,10 +183,22 @@ function ActionBar({
             // wraps to more rows is still covered: DockSpacer measures it.)
             // The clamp is visual only; the full words stay in the
             // accessibility tree and in the polite announcement.
+            //
+            // A headline + sub-line status (DispatchBar, SaveBar) clamps the
+            // headline alone: clamping their shared wrapper would draw it as
+            // one -webkit-box and run the two together. The two lines are
+            // the headline's, so the sub-line is for assistive tech there.
+            // Under 7rem beside the buttons (a phone narrower than 360px)
+            // the status wraps to its own row rather than clamp to a word.
             dock &&
               (statusRow
                 ? "max-md:basis-full"
-                : "max-md:basis-0 max-md:[&>:not(svg)]:line-clamp-2")
+                : cn(
+                    "max-md:min-w-28 max-md:basis-0",
+                    "max-md:[&>:not(svg):not([data-slot=action-bar-status-text])]:line-clamp-2",
+                    "max-md:[&_[data-slot=action-bar-status-title]]:line-clamp-2",
+                    "max-md:[&_[data-slot=action-bar-status-detail]]:sr-only"
+                  ))
           )}
         >
           {status}
@@ -209,6 +238,164 @@ function ActionBar({
       <DockSpacer />
       {bar}
     </>
+  )
+}
+
+/**
+ * An ink (`default`) button on charcoal is 1.05:1, so it ships invisible.
+ * The dispatch bar's primary is `send` (or an `on-dark` secondary); say so
+ * loudly outside production rather than draw a blank button.
+ */
+function warnInkOnCharcoal(primary: React.ReactNode) {
+  if (process.env.NODE_ENV === "production") return
+  if (!React.isValidElement<{ variant?: string }>(primary)) return
+  if (primary.type !== Button) return
+  const variant = primary.props.variant ?? "default"
+  if (variant === "default")
+    console.error(
+      'ActionBar: an ink (default) button cannot be the primary of a charcoal dispatch bar. Use variant="send" for a Google write, or a surface SaveBar for a local save.'
+    )
+}
+
+/** The on-charcoal ink for each tone's glyph on the dispatch bar. */
+const ON_CHARCOAL_TONE: Record<StatusTone, string> = {
+  healthy: "text-success-on-charcoal",
+  attention: "text-warning-on-charcoal",
+  "at-risk": "text-danger-on-charcoal",
+  pending: "text-info-on-charcoal",
+  neutral: "text-ink-muted-on-charcoal",
+}
+
+type BarProps = Omit<React.ComponentProps<typeof ActionBar>, "tone" | "status">
+
+/**
+ * The DISPATCH BAR: the one charcoal bar per screen, for a change bound for
+ * Google. Its status line is the change's lifecycle state in the shared
+ * words (lib/editors/outcome.ts), with the state's glyph in its
+ * on-charcoal tone, and one sub-line. Its primary, if any, is a `send`
+ * button; it may instead carry only `on-dark` secondaries ("Withdraw",
+ * "View on Google").
+ *
+ * Props
+ *   state    the lifecycle state the status line reports.
+ *   values   fills the state's `{n}`, `{time}` and `{name}` slots.
+ *   title    overrides the state's long form ("Opening hours: 3 changes").
+ *   detail   the one sub-line: what to do next, or who acts next.
+ */
+function DispatchBar({
+  state,
+  values,
+  title,
+  detail,
+  label = "Send to Google",
+  ...props
+}: BarProps & {
+  state: PresentedState
+  values?: Parameters<typeof statusText>[1]
+  title?: React.ReactNode
+  detail?: React.ReactNode
+}) {
+  const presentation = describeOutcome(state)
+  return (
+    <ActionBar
+      tone="charcoal"
+      label={label}
+      data-state={state}
+      status={
+        <>
+          <StatusGlyph
+            glyph={presentation.glyph}
+            className={ON_CHARCOAL_TONE[presentation.tone]}
+          />
+          <span
+            data-slot="action-bar-status-text"
+            className="flex min-w-0 flex-col"
+          >
+            <span data-slot="action-bar-status-title" className="font-semibold">
+              {title ?? statusText(presentation.title, values)}
+            </span>
+            {detail ? (
+              <ActionBarMuted data-slot="action-bar-status-detail">
+                {detail}
+              </ActionBarMuted>
+            ) : null}
+          </span>
+        </>
+      }
+      {...props}
+    />
+  )
+}
+
+/**
+ * The SAVE BAR: a surface bar for a local save, which never reaches
+ * Google. A dashed glyph and "N unsaved changes", then where a save keeps
+ * them; a ghost Discard and an ink Save as the caller passes them.
+ *
+ * Props
+ *   count    unsaved changes, for "N unsaved changes"; omit for "Unsaved
+ *            changes".
+ *   title    overrides the headline.
+ *   detail   overrides the sub-line ("Saving keeps them in NabaPresence
+ *            only"): what changed, or why Save is unavailable.
+ *   saving   a save is on its way: the headline reads "Saving…".
+ *   error    a refused save, in words: the headline reads "Not saved" with
+ *            the danger glyph, and this is the sub-line.
+ */
+function SaveBar({
+  count,
+  title,
+  detail = "Saving keeps them in NabaPresence only",
+  saving = false,
+  error,
+  label = "Save changes",
+  ...props
+}: BarProps & {
+  count?: number
+  title?: React.ReactNode
+  detail?: React.ReactNode
+  saving?: boolean
+  error?: React.ReactNode
+}) {
+  const unsaved = describeOutcome("unsaved")
+  const failed = Boolean(error) && !saving
+  return (
+    <ActionBar
+      tone="surface"
+      label={label}
+      data-state={failed ? "failed" : "unsaved"}
+      status={
+        <>
+          <StatusGlyph
+            glyph={failed ? "triangle-alert" : unsaved.glyph}
+            className={failed ? "text-danger-ink" : "text-ink-muted"}
+          />
+          <span
+            data-slot="action-bar-status-text"
+            className="flex min-w-0 flex-col"
+          >
+            <span data-slot="action-bar-status-title" className="font-semibold">
+              {failed
+                ? "Not saved"
+                : saving
+                  ? "Saving…"
+                  : (title ?? statusText(unsaved.title, { n: count }))}
+            </span>
+            {failed ? (
+              // Why the save failed stays on screen, even if the bar grows.
+              <ActionBarMuted data-slot="action-bar-status-error">
+                {error}
+              </ActionBarMuted>
+            ) : detail ? (
+              <ActionBarMuted data-slot="action-bar-status-detail">
+                {detail}
+              </ActionBarMuted>
+            ) : null}
+          </span>
+        </>
+      }
+      {...props}
+    />
   )
 }
 
@@ -430,4 +617,4 @@ function ActionBarMuted({ className, ...props }: React.ComponentProps<"span">) {
   )
 }
 
-export { ActionBar, ActionBarMuted, DockSpacer }
+export { ActionBar, ActionBarMuted, DispatchBar, DockSpacer, SaveBar }

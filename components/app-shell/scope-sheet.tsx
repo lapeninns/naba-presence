@@ -15,7 +15,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { healthLabel } from "@/lib/clients/health"
+import { clientScopeWords, listingCountWords } from "@/lib/clients/scope-words"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import type { DirectoryEntry } from "@/lib/locations/directory"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
@@ -249,6 +249,11 @@ function ClientRows({
             name: "All clients",
             checked: scoped === null,
             mark: <Building2 />,
+            sub: {
+              words: listingCountWords(
+                clients.reduce((sum, entry) => sum + entry.locationCount, 0)
+              ),
+            },
             onChoose: () => onChoose(null),
           },
         ]
@@ -259,7 +264,7 @@ function ClientRows({
       checked: entry.id === scoped,
       mark: <ClientAvatar name={entry.name} colour={entry.colour} size="xs" />,
       sub: {
-        words: healthLabel(entry.health),
+        words: clientScopeWords(entry),
         dot: <HealthDot client={entry} />,
       },
       onChoose: () => onChoose(entry.id),
@@ -368,6 +373,39 @@ function ClientLocations({
 }
 
 function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent variant="inset">
+        <SheetHeader>
+          <SheetTitle>Working on</SheetTitle>
+          <SheetDescription>
+            Inbox and Reports narrow to the location you choose; anywhere else
+            opens its listing.
+          </SheetDescription>
+        </SheetHeader>
+        <SheetBody>
+          <BusinessScopeList open={open} onDone={() => onOpenChange(false)} />
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+/**
+ * A business's scopes: All locations and each location, a search field
+ * past eight. The phone sheet and the desk "Working on" popover
+ * (client-switcher.tsx) both draw this, so choosing behaves the same at
+ * every size: through the leave guard, then a toast naming the scope.
+ */
+function BusinessScopeList({
+  open,
+  onDone,
+}: {
+  /** Whether the surface holding the list is open (resets the search). */
+  open: boolean
+  /** Closes the surface once a choice is made. */
+  onDone: () => void
+}) {
   const [query, setQuery] = useSheetQuery(open)
   const locations = useLocationSwitch("business")
   const directory = useLocationDirectory(useSessionRole())
@@ -381,11 +419,11 @@ function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
   const showAll = !needle || "all locations".includes(needle)
 
   const chooseAll = () => {
-    onOpenChange(false)
+    onDone()
     locations.clearLocation(() => announceSwitch("All locations"))
   }
   const choose = (entry: DirectoryEntry) => {
-    onOpenChange(false)
+    onDone()
     locations.chooseLocation(entry, () => announceSwitch(entry.name))
   }
 
@@ -397,6 +435,7 @@ function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
             name: "All locations",
             checked: !located,
             mark: <Building2 />,
+            sub: { words: listingCountWords(list.length) },
             onChoose: chooseAll,
           },
         ]
@@ -411,42 +450,30 @@ function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
     })),
   ]
 
+  if (!directory.data) {
+    return (
+      <NoMatch>
+        {directory.isError
+          ? "Couldn’t load the locations. Close this and try again."
+          : "Loading locations…"}
+      </NoMatch>
+    )
+  }
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent variant="inset">
-        <SheetHeader>
-          <SheetTitle>Working on</SheetTitle>
-          <SheetDescription>
-            Inbox and Reports narrow to the location you choose; anywhere else
-            opens its listing.
-          </SheetDescription>
-        </SheetHeader>
-        <SheetBody>
-          {!directory.data ? (
-            <NoMatch>
-              {directory.isError
-                ? "Couldn’t load the locations. Close this and try again."
-                : "Loading locations…"}
-            </NoMatch>
-          ) : (
-            <>
-              {list.length > SEARCH_THRESHOLD ? (
-                <SearchField
-                  label="Search locations"
-                  value={query}
-                  onChange={setQuery}
-                />
-              ) : null}
-              {rows.length ? (
-                <ScopeOptions label="Location" rows={rows} />
-              ) : (
-                <NoMatch>No location matches that.</NoMatch>
-              )}
-            </>
-          )}
-        </SheetBody>
-      </SheetContent>
-    </Sheet>
+    <>
+      {list.length > SEARCH_THRESHOLD ? (
+        <SearchField
+          label="Search locations"
+          value={query}
+          onChange={setQuery}
+        />
+      ) : null}
+      {rows.length ? (
+        <ScopeOptions label="Location" rows={rows} />
+      ) : (
+        <NoMatch>No location matches that.</NoMatch>
+      )}
+    </>
   )
 }
 
@@ -651,7 +678,7 @@ function ScopeOptions({
             style={{ "--scope-row": index + 1 } as React.CSSProperties}
             className={cn(
               "col-start-2 row-start-(--scope-row) flex size-11 shrink-0 items-center justify-center self-center rounded-(--np-radius-pill) text-ink-muted",
-              "transition-colors duration-(--np-duration-fast) hover:bg-fill active:bg-fill",
+              "transition-colors duration-(--np-duration-fast) active:bg-fill hover-fine:hover:bg-fill",
               "focus-halo focus-visible:outline-none"
             )}
           >
@@ -663,4 +690,4 @@ function ScopeOptions({
   )
 }
 
-export { LocationMark, ScopeSheet }
+export { BusinessScopeList, LocationMark, ScopeSheet }

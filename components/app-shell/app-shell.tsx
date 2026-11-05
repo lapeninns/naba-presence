@@ -3,7 +3,14 @@
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Suspense, useEffect, useMemo, useRef, useState } from "react"
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react"
 
 import { MfaStepUpHost } from "@/components/auth/mfa-step-up-host"
 import { BrandMark } from "@/components/app-shell/brand-mark"
@@ -11,12 +18,13 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { fetchSession } from "@/lib/api/session"
 import { withClientScope } from "@/lib/clients/scope"
 import {
+  hasOutbox,
   isActivePath,
   type NavigationContext,
 } from "@/lib/navigation/destinations"
+import { OUTBOX_ROUTE_READY } from "@/lib/navigation/outbox"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
-import { useClients } from "@/lib/queries/use-clients"
 import { useShellStatus } from "@/lib/queries/use-shell-status"
 import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
@@ -26,7 +34,11 @@ import { AccountMenu } from "./account-menu"
 import { AppBar } from "./app-bar"
 import { BillingBanner } from "./billing-banner"
 import { ClientScopeRoot, useRememberedClient } from "./client-context"
-import { ClientScopeSheet, ClientScopeSync } from "./client-switcher"
+import {
+  ClientScopeSheet,
+  ClientScopeSync,
+  ScopeControlView,
+} from "./client-switcher"
 import { CommandPalette, useCommandPalette } from "./command-palette"
 import { ShellHealthAnnouncer } from "./context-health-chip"
 import { ImpersonationBanner } from "./impersonation-banner"
@@ -42,6 +54,7 @@ import { TabBar } from "./tab-bar"
 import { Toolbar } from "./topbar"
 import type { ShellSession } from "./shell-session"
 import { useInboxWaiting } from "./use-needs-reply-count"
+import { useOutboxFailures } from "./use-outbox-failures"
 
 // The shell's session props are display fields only (shell-session.ts):
 // the dashboard layout projects its server `Session` with `toShellSession`.
@@ -87,43 +100,66 @@ function useSessionReady(session: ShellSession | null) {
   return ready
 }
 
-/** Reads the client list the sidebar pins beneath Clients. */
+/** The navigation with the Inbox's waiting count and the remembered client. */
 function SidebarNav({
   role,
   mode,
   hideCalendar,
+  showOutbox,
 }: {
   role: string | null
   mode: WorkspaceMode
   hideCalendar: boolean
+  showOutbox: boolean
 }) {
-  const clients = useClients()
   const waiting = useInboxWaiting()
+  const outboxFailures = useOutboxFailures(
+    hasOutbox({ role, mode, hideCalendar, showOutbox })
+  )
   const { remembered } = useRememberedClient()
   return (
     <Nav
       role={role}
       mode={mode}
       hideCalendar={hideCalendar}
+      showOutbox={showOutbox}
       scopeClientId={mode === "business" ? null : remembered}
       waiting={waiting}
-      clients={
-        clients.data?.items.map((client) => ({
-          id: client.id,
-          name: client.name,
-          health: client.health,
-        })) ?? []
-      }
+      outboxFailures={outboxFailures}
     />
   )
 }
 
 /**
- * The persistent column from 768px: the organisation at the top, the
- * navigation that scrolls, the account row at the bottom. One markup draws
- * both widths: the full 240px sidebar from 1180px (`wide`) and the
- * labelled rail from 768 to 1180, restyled by CSS so the first paint is
- * right on every device.
+ * Scrolls the navigation column so the current row is in view. On a short
+ * window Team or Settings can sit below the column's fold, and the current
+ * place would then be hidden on the very page it names. Moves only the
+ * column's own scroll position, never the document.
+ */
+function useRevealCurrentRow(ref: RefObject<HTMLDivElement | null>) {
+  const pathname = usePathname()
+  useEffect(() => {
+    const column = ref.current
+    const row = column?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (!column || !row) return
+    const view = column.getBoundingClientRect()
+    const box = row.getBoundingClientRect()
+    if (box.bottom > view.bottom) {
+      column.scrollTop += box.bottom - view.bottom + 16
+    } else if (box.top < view.top) {
+      column.scrollTop -= view.top - box.top
+    }
+  }, [ref, pathname])
+}
+
+/**
+ * The persistent column from 768px (DIRECTION §7.2): the organisation at
+ * the top, then (sidebar only) the "Working on" scope button, the
+ * navigation that scrolls with its Workspace group, and the account at the
+ * foot. One markup draws both widths: the full 240px sidebar from 1180px
+ * (`wide`) and the 72px labelled rail from 768 to 1180, restyled by CSS so
+ * the first paint is right on every device. The rail has no scope button:
+ * the tablet's scope is the pill at the start of the top bar.
  */
 function SidebarBody({
   session,
@@ -132,6 +168,7 @@ function SidebarBody({
   role,
   mode,
   hideCalendar,
+  showOutbox,
 }: {
   session: ShellSession | null
   sessionReady: boolean
@@ -139,8 +176,11 @@ function SidebarBody({
   role: string | null
   mode: WorkspaceMode
   hideCalendar: boolean
+  showOutbox: boolean
 }) {
   const { remembered } = useRememberedClient()
+  const navScrollRef = useRef<HTMLDivElement>(null)
+  useRevealCurrentRow(navScrollRef)
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Link
@@ -150,7 +190,7 @@ function SidebarBody({
         // The sidebar's Inbox row already prefetches on intent; the brand
         // mark is a second way to the same page.
         prefetch={false}
-        className="m-1 flex min-w-0 shrink-0 items-center rounded-md px-3 pt-4 pb-3 focus-halo focus-visible:outline-none md:max-wide:justify-center md:max-wide:px-0"
+        className="m-1 flex min-w-0 shrink-0 items-center rounded-md px-3 pt-4 pb-3 focus-halo focus-visible:outline-none md:max-wide:justify-center md:max-wide:px-0 short:pt-2 short:pb-2"
       >
         <BrandMark
           title={
@@ -168,10 +208,43 @@ function SidebarBody({
         />
       </Link>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-3 md:max-wide:px-1">
+      {sessionReady ? (
+        // Reads the address; the boundary keeps a prerendered page from
+        // bailing the whole sidebar out to client rendering.
+        <Suspense fallback={null}>
+          <ScopeControlView
+            variant="sidebar"
+            mode={mode}
+            organisationName={organisationName}
+            className="hidden shrink-0 px-2 pb-3 wide:flex"
+          />
+        </Suspense>
+      ) : null}
+
+      <div
+        ref={navScrollRef}
+        data-slot="sidebar-scroll"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 pt-1 md:max-wide:px-1"
+      >
         {sessionReady ? (
-          <SidebarNav role={role} mode={mode} hideCalendar={hideCalendar} />
+          <SidebarNav
+            role={role}
+            mode={mode}
+            hideCalendar={hideCalendar}
+            showOutbox={showOutbox}
+          />
         ) : null}
+        {/* A short window (a landscape phone at 390px, a 600px laptop)
+            cannot fit every labelled tile, and overlay scrollbars draw
+            nothing until a scroll starts, so the column fades into the
+            account row to show it continues. Sticky, so it rides the bottom
+            edge while there is more and settles into the end padding when
+            there is not. */}
+        <div
+          aria-hidden
+          data-slot="sidebar-scroll-fade"
+          className="pointer-events-none sticky bottom-0 h-4 shrink-0 bg-linear-to-t from-canvas"
+        />
       </div>
 
       <div className="shrink-0 border-t border-line p-2 md:max-wide:p-1">
@@ -268,7 +341,12 @@ function AppShell({
   const onCalendar = isActivePath(usePathname(), "/calendar")
   const hideCalendarFromNav = hideCalendar && !onCalendar
   const context = useMemo<NavigationContext>(
-    () => ({ role, mode, hideCalendar: hideCalendarFromNav }),
+    () => ({
+      role,
+      mode,
+      hideCalendar: hideCalendarFromNav,
+      showOutbox: OUTBOX_ROUTE_READY,
+    }),
     [role, mode, hideCalendarFromNav]
   )
 
@@ -307,7 +385,7 @@ function ShellFrame({
   context: NavigationContext
   children: React.ReactNode
 }) {
-  const { role, mode, hideCalendar = false } = context
+  const { role, mode, hideCalendar = false, showOutbox = false } = context
   const agency = mode === "agency"
   const pathname = usePathname()
   const palette = useCommandPalette()
@@ -367,6 +445,7 @@ function ShellFrame({
           role={role}
           mode={mode}
           hideCalendar={hideCalendar}
+          showOutbox={showOutbox}
         />
       </aside>
 
@@ -387,6 +466,7 @@ function ShellFrame({
         />
         <Toolbar
           sessionReady={sessionReady}
+          organisationName={organisationName}
           onOpenPalette={() => palette.setOpen(true)}
           className="sticky top-0 z-chrome print:hidden"
         />
@@ -419,7 +499,7 @@ function ShellFrame({
           className={cn(
             "flex flex-1 flex-col outline-none",
             "max-md:pb-[calc(var(--np-tabbar-h)+var(--np-safe-bottom))] max-md:[body:has([data-docked=bottom])_&]:pb-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))]",
-            "md:[@media(min-height:620px)]:has-[[data-width=workspace]]:min-h-0"
+            "md:tall:has-[[data-width=workspace]]:min-h-0"
           )}
         >
           {sessionReady ? children : null}
@@ -442,6 +522,7 @@ function ShellFrame({
             onOpenChange={(open) => (open ? openMore() : setMoreOpen(false))}
             context={context}
             session={session}
+            organisationName={organisationName}
             finalFocus={!moreHandoff}
             onOpenPalette={() => handOff(() => palette.setOpen(true))}
             onOpenClientScope={() => handOff(() => setClientSheetOpen(true))}

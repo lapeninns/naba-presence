@@ -15,6 +15,7 @@ export {
   type ConfirmationState,
   type ExecutionState,
 } from "./outcome-summary"
+export { useOpenerFocus } from "./opener-focus"
 export { ReviewedWritePanel, useClaimFocus } from "./panel"
 export { SavedWorkList, type SavedWorkItem } from "./saved-work-list"
 export { SendBar } from "./send-bar"
@@ -24,5 +25,11 @@ export {
   reviewedWriteStage,
   reviewedWriteSteps,
   type ReviewedWriteStage,
+  type ReviewedWriteStepsOptions,
 } from "./steps"
-export { ResourceRef, SummaryList, TechnicalDetails, type SummaryRow } from "./summary-list"
+export {
+  ResourceRef,
+  SummaryList,
+  TechnicalDetails,
+  type SummaryRow,
+} from "./summary-list"

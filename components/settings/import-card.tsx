@@ -1,19 +1,27 @@
 "use client"
 
-import { MapPin } from "lucide-react"
-import { useId, useState } from "react"
+import { BadgeCheckIcon, CheckIcon, MapPin } from "lucide-react"
+import { useId, useRef, useState } from "react"
 
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
+import { Field, FieldLabel } from "@/components/ui/field"
 import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
 import { QueryPending } from "@/components/ui/query-states"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { ApiClientError } from "@/lib/api/client"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
@@ -32,6 +40,17 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import type { DiscoveredLocation } from "@/lib/api/google-locations"
 
 type RowState = "idle" | "pending" | "imported" | { error: string }
+type LinkResult = "linked" | "failed" | "confirm"
+
+/**
+ * Up to this many switched-on accounts share a segmented track; more than
+ * that would scroll sideways, so the account becomes a Select.
+ */
+const SEGMENTED_ACCOUNTS = 3
+
+function plural(count: number, one: string, many: string) {
+  return count === 1 ? one : many
+}
 
 /**
  * The locations Google knows about under the working account, one row each:
@@ -86,6 +105,14 @@ export function ImportCard({
   // null until the operator ticks or unticks something (see `checked`).
   const [selection, setSelection] = useState<string[] | null>(null)
   const [bulkPending, setBulkPending] = useState(false)
+  const bulkStatusRef = useRef<HTMLParagraphElement>(null)
+  // What the last "Link selected" did, kept until the next one, so a partial
+  // run says how far it got and where the failures are.
+  const [bulkResult, setBulkResult] = useState<{
+    linked: number
+    failed: number
+    confirm: number
+  } | null>(null)
   const [relinkTarget, setRelinkTarget] = useState<DiscoveredLocation | null>(
     null
   )
@@ -110,7 +137,7 @@ export function ImportCard({
   const importOne = async (
     location: DiscoveredLocation,
     confirmRelink: boolean
-  ) => {
+  ): Promise<LinkResult> => {
     setRowState((prev) => ({ ...prev, [location.id]: "pending" }))
     try {
       await link.mutateAsync({
@@ -119,6 +146,7 @@ export function ImportCard({
         ...(clientId ? { clientId } : {}),
       })
       setRowState((prev) => ({ ...prev, [location.id]: "imported" }))
+      return "linked"
     } catch (error) {
       if (
         error instanceof ApiClientError &&
@@ -126,17 +154,21 @@ export function ImportCard({
       ) {
         setRowState((prev) => ({ ...prev, [location.id]: "idle" }))
         setRelinkTarget(location)
-        return
+        return "confirm"
       }
       setRowState((prev) => ({
         ...prev,
         [location.id]: { error: describeActionError(error) },
       }))
+      return "failed"
     }
   }
 
-  const fileUnderClient = async (discoveredId: string, locationId: string) => {
-    if (!clientId) return
+  const fileUnderClient = async (
+    discoveredId: string,
+    locationId: string
+  ): Promise<LinkResult> => {
+    if (!clientId) return "failed"
     setRowState((prev) => ({ ...prev, [discoveredId]: "pending" }))
     try {
       await assignLocations.mutateAsync({
@@ -144,11 +176,13 @@ export function ImportCard({
         locationIds: [locationId],
       })
       setRowState((prev) => ({ ...prev, [discoveredId]: "imported" }))
+      return "linked"
     } catch (error) {
       setRowState((prev) => ({
         ...prev,
         [discoveredId]: { error: describeActionError(error) },
       }))
+      return "failed"
     }
   }
 
@@ -158,7 +192,38 @@ export function ImportCard({
       <h3 id={headingId} className="text-title font-semibold text-ink">
         Listings on Google
       </h3>
-      {activeAccounts.length > 1 && accountName ? (
+      {activeAccounts.length > SEGMENTED_ACCOUNTS && accountName ? (
+        <Field className="sm:max-w-sm">
+          <FieldLabel>Business Profile account</FieldLabel>
+          <Select
+            value={accountName}
+            onValueChange={(value) => {
+              if (typeof value === "string") setChosenAccountName(value)
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Choose an account">
+                {(() => {
+                  const current = activeAccounts.find(
+                    (account) => account.googleAccountName === accountName
+                  )
+                  return current?.accountName || current?.googleAccountName
+                })()}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent title="Business Profile account">
+              {activeAccounts.map((account) => (
+                <SelectItem
+                  key={account.googleAccountName}
+                  value={account.googleAccountName}
+                >
+                  {account.accountName || account.googleAccountName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      ) : activeAccounts.length > 1 && accountName ? (
         <SegmentedControl
           value={accountName}
           onValueChange={setChosenAccountName}
@@ -330,14 +395,26 @@ export function ImportCard({
       : importOne(row.location, false)
   const linkSelected = async () => {
     setBulkPending(true)
+    setBulkResult(null)
+    const tally = { linked: 0, failed: 0, confirm: 0 }
     // One at a time: each link is its own Google round trip, and a relink
     // confirmation for one listing must not race the others.
     for (const row of rows) {
-      if (checked.has(row.location.id)) await linkOne(row)
+      if (checked.has(row.location.id)) tally[await linkOne(row)] += 1
     }
     setSelection([])
     setBulkPending(false)
+    setBulkResult(tally)
+    // When every listing linked, the Link selected row goes away with the
+    // focus on it; the tally is where the run's outcome is.
+    requestAnimationFrame(() => {
+      if (!document.activeElement || document.activeElement === document.body)
+        bulkStatusRef.current?.focus()
+    })
   }
+  const bulkTotal = bulkResult
+    ? bulkResult.linked + bulkResult.failed + bulkResult.confirm
+    : 0
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -351,6 +428,13 @@ export function ImportCard({
           <Button
             size="sm"
             disabled={checked.size === 0 || bulkPending}
+            // A run unticks what it linked; the reason keeps the button
+            // focusable, so focus is not dropped to the page when it ends.
+            disabledReason={
+              checked.size === 0 && !bulkPending
+                ? "Tick a listing to link it."
+                : undefined
+            }
             pending={bulkPending}
             pendingLabel="Linking…"
             onClick={() => void linkSelected()}
@@ -359,6 +443,28 @@ export function ImportCard({
           </Button>
         </div>
       ) : null}
+      {/* Announced once per run. Linking files listings in NabaPresence; it
+          changes nothing on Google, so the words stay neutral. */}
+      <p
+        ref={bulkStatusRef}
+        role="status"
+        tabIndex={-1}
+        className="text-ui text-ink-secondary outline-none empty:hidden"
+      >
+        {bulkResult && bulkTotal > 0
+          ? [
+              `Linked ${bulkResult.linked} of ${bulkTotal}.`,
+              bulkResult.failed > 0
+                ? `${bulkResult.failed} ${plural(bulkResult.failed, "didn’t link: the reason is on its row, and Link tries it again.", "didn’t link: each reason is on its row, and Link tries it again.")}`
+                : null,
+              bulkResult.confirm > 0
+                ? `${bulkResult.confirm} ${plural(bulkResult.confirm, "needs your confirmation to move its history.", "need your confirmation to move their history.")}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : null}
+      </p>
       <GroupedList aria-label="Listings found on Google">
         {rows.map(
           ({ location, existing, state, done, needsFiling, selectable }) => {
@@ -378,7 +484,10 @@ export function ImportCard({
                     ) : null}
                     <span className="truncate">{location.title}</span>
                     {location.verified ? (
-                      <Badge variant="success" shape="tag">
+                      // Ink, not success green: verification is a fact about
+                      // the listing, not a change this card sent to Google.
+                      <Badge variant="secondary" shape="tag">
+                        <BadgeCheckIcon aria-hidden />
                         Verified
                       </Badge>
                     ) : null}
@@ -399,10 +508,13 @@ export function ImportCard({
                 }
                 trailing={
                   done ? (
-                    <Badge variant="tinted">Linked</Badge>
+                    <Badge variant="secondary">
+                      <CheckIcon aria-hidden />
+                      Linked
+                    </Badge>
                   ) : needsFiling && existing ? (
                     <>
-                      <Badge variant="secondary">
+                      <Badge variant="outline">
                         {existing.clientId
                           ? business
                             ? "Filed elsewhere"
@@ -442,7 +554,7 @@ export function ImportCard({
                     </>
                   ) : (
                     <>
-                      <Badge variant="secondary">Not linked</Badge>
+                      <Badge variant="outline">Not linked</Badge>
                       <Button
                         variant="secondary"
                         size="sm"

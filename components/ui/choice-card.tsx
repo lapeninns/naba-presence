@@ -21,7 +21,12 @@ import { cn } from "@/lib/utils"
  * used. For an option that reveals its own follow-up control once chosen,
  * put that control AFTER the card (render it when the value matches).
  *
- * Disabled fades the card once; the ring inside does not fade again.
+ * Disabled is drawn, never faded: the card sinks to the disabled fill with
+ * the quiet disabled edge and its words take the disabled ink. A disabled
+ * card that is the current choice keeps an edge in the disabled ink (and
+ * the ring keeps its thick selected drawing), so it is still told apart
+ * from the options beside it. The rule reads the radio's own state, so a
+ * disabled RadioGroup draws its cards the same way.
  */
 function ChoiceCard<Value>({
   title,
@@ -41,10 +46,11 @@ function ChoiceCard<Value>({
     <label
       data-slot="choice-card"
       className={cn(
-        "relative flex min-h-(--np-touch) cursor-pointer gap-3 rounded-(--np-radius-card) border border-line bg-surface p-3.5 transition-[border-color,background-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy hover:border-line-strong",
-        "has-data-checked:border-primary has-data-checked:bg-accent-tint has-data-checked:shadow-[inset_0_0_0_1px_var(--np-accent)]",
+        "group/choice relative flex min-h-(--np-touch) cursor-pointer gap-3 rounded-(--np-radius-card) border border-line bg-surface p-3.5 transition-[border-color,background-color,box-shadow] duration-(--np-duration-fast) ease-press hover-fine:hover:not-has-data-disabled:border-line-strong",
+        "has-data-checked:border-ink has-data-checked:bg-fill-tertiary has-data-checked:shadow-[inset_0_0_0_1px_var(--np-ink)]",
         "has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-(--np-focus-ring)",
-        "has-data-disabled:cursor-not-allowed has-data-disabled:opacity-55",
+        "has-data-disabled:cursor-not-allowed has-data-disabled:border-disabled-line has-data-disabled:bg-disabled",
+        "has-data-checked:has-data-disabled:border-disabled-ink has-data-checked:has-data-disabled:bg-disabled has-data-checked:has-data-disabled:shadow-none",
         className
       )}
     >
@@ -54,12 +60,15 @@ function ChoiceCard<Value>({
         aria-describedby={description ? `${id}-desc` : undefined}
         className={cn(
           radioClassName,
-          "mt-(--np-selection-offset) focus-visible:shadow-none data-disabled:opacity-100"
+          "mt-(--np-selection-offset) focus-visible:shadow-none"
         )}
         {...props}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span id={`${id}-title`} className="text-body font-semibold text-ink">
+        <span
+          id={`${id}-title`}
+          className="text-body font-semibold text-ink group-has-data-disabled/choice:text-disabled-ink"
+        >
           {title}
         </span>
         {description ? (
@@ -72,7 +81,7 @@ function ChoiceCard<Value>({
       {aside ? (
         <span
           data-slot="choice-card-aside"
-          className="ml-auto shrink-0 self-start text-ui text-ink-secondary"
+          className="ml-auto shrink-0 self-start text-ui text-ink-secondary group-has-data-disabled/choice:text-disabled-ink"
         >
           {aside}
         </span>

@@ -203,6 +203,14 @@ describe("PostComposerSheet feedback", () => {
     // Not a failure: no error toast, and no refusal line beside the button.
     expect(document.querySelector('[data-slot="toast"]')).toBeNull()
     expect(within(sheet).queryByRole("alert")).toBeNull()
+    // Nothing goes out again until the warnings are acknowledged.
+    for (const name of ["Save draft", "Publish to Google"]) {
+      const button = within(sheet).getByRole("button", { name })
+      expect(button).toHaveAttribute("aria-disabled", "true")
+      expect(button).toHaveAccessibleDescription(
+        expect.stringContaining("Acknowledge the content warnings first")
+      )
+    }
     await user.click(checkbox)
     await user.click(within(sheet).getByRole("button", { name: "Save draft" }))
     await waitFor(() => expect(api.createPost).toHaveBeenCalledTimes(2))

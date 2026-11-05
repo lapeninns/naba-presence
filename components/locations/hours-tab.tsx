@@ -376,7 +376,7 @@ function HoursForm({
       outcome,
       title:
         outcome === "confirmed_applied"
-          ? "Opening hours live on Google"
+          ? "Opening hours confirmed on Google"
           : "Opening hours sent to Google",
     }),
     onSuccess: () => setReviewOpen(false),

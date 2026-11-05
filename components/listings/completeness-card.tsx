@@ -243,7 +243,7 @@ function CompletenessCard({
         focusHeading()
         toast.add({
           title: `“${check.title}” counts towards the score again`,
-          type: "success",
+          type: "neutral",
         })
       },
       onError: (error) =>

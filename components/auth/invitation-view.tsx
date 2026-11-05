@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react"
 import { AuthCard } from "@/components/auth/auth-card"
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { InvitationActions } from "@/components/auth/invitation-actions"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { SignInForm, type SignInMode } from "@/components/auth/sign-in-form"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -27,6 +28,7 @@ import { formatDateTime } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 import { roleLabel } from "@/lib/settings/member-roles"
 import { invitationRoleSummary } from "@/lib/settings/roles"
+import { cn } from "@/lib/utils"
 
 // Shared across the three dead-end branches below (not-found, already
 // accepted, expired) so the copy/href can't drift out of sync between them.
@@ -37,7 +39,10 @@ function DeadEndLink({ signedIn }: { signedIn: boolean }) {
   return (
     <Link
       href={signedIn ? "/inbox" : "/sign-in"}
-      className={buttonVariants({ size: "lg", block: true })}
+      className={cn(
+        buttonVariants({ size: "lg", block: true }),
+        WRAPPING_BLOCK_BUTTON
+      )}
     >
       {signedIn ? "Go to Inbox" : "Go to sign in"}
     </Link>
@@ -203,8 +208,9 @@ function InvitationView({
           titleRef={titleRef}
         >
           {/* Neutral about who accepted it: the link may have been
-              forwarded. */}
-          <Alert variant="info">
+              forwarded. Neutral in tone too: nothing is in progress and
+              nobody needs to act on it (blue is kept for system work). */}
+          <Alert>
             <AlertTitle>This invitation has already been accepted.</AlertTitle>
             {viewer === null ? (
               <AlertDescription>Sign in to continue.</AlertDescription>
@@ -231,6 +237,7 @@ function InvitationView({
             type="button"
             size="lg"
             block
+            className={WRAPPING_BLOCK_BUTTON}
             onClick={() => {
               retried.current = true
               void query.refetch()

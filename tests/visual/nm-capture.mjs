@@ -1,7 +1,7 @@
 // Route screenshot capture for the redesign's before/after evidence. Not part
 // of any suite and asserts nothing about design: it records what each page
 // route (notion-mail-ledger INVENTORY.md §1) looks like, plus a few cheap
-// interactive states, at desktop and phone sizes.
+// interactive states, at desktop, tablet and phone sizes (or any WxH).
 //
 // Needs a running app seeded with the e2e fixture tenants and its state file
 // (test-results/e2e-journey-state.json). nm-serve.mjs provides both:
@@ -12,17 +12,26 @@
 // Options:
 //   --base <url>          app URL (default $APP_URL)
 //   --out <dir>           output root (default test-results/nm-capture)
-//   --viewports <list>    desktop,mobile (default both)
-//   --dark                also capture dark theme (into <viewport>-dark/)
+//   --viewports <list>    presets (default desktop,mobile): desktop 1440x900
+//                         mouse, mobile 390x844 touch, phone 390x844 touch,
+//                         tablet 834x1194 touch
+//   --sizes <list>        extra viewports as WxH[:touch|:mouse], e.g.
+//                         320x568,1024x768:touch (touch below 1024 wide
+//                         unless given); dirs are named w<W>x<H>[-input]
+//   --themes <list>       light,dark (default light)
+//   --dark                alias for --themes light,dark
 //   --only <regex>        keep routes/states whose name or path matches
 //   --routes <list|file>  replace the route list: `[role:]path` specs, comma
 //                         separated or one per line (# comments allowed)
 //   --states <all|none|names>  interactive states (default all)
 //   --concurrency <n>     pages in flight (default 3)
 //   --settle <ms>         wait after load (default 700)
-//   --mobile-dpr <n>      phone device scale factor (default 3)
-//   --desktop-dpr <n>     desktop device scale factor (default 1)
+//   --mobile-dpr <n>      touch viewports' device scale factor (default 3)
+//   --desktop-dpr <n>     mouse viewports' device scale factor (default 1)
 //   --merge               merge into an existing <out>/manifest.json
+//   --list                print the shots this run would take (viewport,
+//                         theme, name, role, route) and exit; needs no app,
+//                         state file or browser
 //
 // Placeholders: {loc} primary location, {loc2} approval location, {client}
 // seeded client, {review} direct review, {areview} approval review.
@@ -38,6 +47,19 @@ import { resolve } from "node:path"
 
 import { chromium } from "@playwright/test"
 
+import {
+  DEFAULT_ROUTES,
+  dirFor,
+  nameOf,
+  parseSpec,
+  resolveThemes,
+  resolveViewports,
+  ROLES,
+  stateRunsOn,
+} from "./nm-capture-lib.mjs"
+
+export { DEFAULT_ROUTES }
+
 const argv = process.argv.slice(2)
 const arg = (name, fallback) => {
   const index = argv.indexOf(`--${name}`)
@@ -47,98 +69,44 @@ const arg = (name, fallback) => {
 }
 
 const base = String(arg("base", process.env.APP_URL ?? "")).replace(/\/$/, "")
-if (!base) throw new Error("--base or APP_URL is required")
+if (!base && !arg("list", false))
+  throw new Error("--base or APP_URL is required")
 const out = resolve(String(arg("out", "test-results/nm-capture")))
-const viewportNames = String(arg("viewports", "desktop,mobile")).split(",")
-const themes = arg("dark", false) ? ["light", "dark"] : ["light"]
+const themes = resolveThemes({
+  themes: arg("themes", null),
+  dark: arg("dark", false),
+})
 const only = arg("only", null) ? new RegExp(String(arg("only"))) : null
 const statesArg = String(arg("states", "all"))
 const concurrency = Number(arg("concurrency", 3))
 const settle = Number(arg("settle", 700))
 
-const VIEWPORTS = {
-  desktop: {
-    viewport: { width: 1440, height: 900 },
-    deviceScaleFactor: Number(arg("desktop-dpr", 1)),
-  },
-  mobile: {
-    viewport: { width: 390, height: 844 },
-    deviceScaleFactor: Number(arg("mobile-dpr", 3)),
-    isMobile: true,
-    hasTouch: true,
-  },
-}
-
-const AREAS = [
-  "profile",
-  "hours",
-  "booking",
-  "photos",
-  "posts",
-  "menu",
-  "people",
-  "verification",
-  "suggestions",
-  "changes",
-]
-const SETTINGS = [
-  "policy",
-  "notifications",
-  "security",
-  "connections",
-  "operations",
-  "privacy",
-  "usage",
-  "billing",
-  "billing/confirming",
-]
-// INVENTORY.md §1, every page route. Dynamic segments that need a real token
-// use an invalid one on purpose: that is the page's not-found/expired state.
-export const DEFAULT_ROUTES = [
-  "/",
-  "anon:/",
-  "/profile",
-  "/design-system",
-  "/nm-capture-missing-route",
-  "anon:/sign-in",
-  "anon:/sign-in?mode=create-account",
-  "anon:/sign-in/verify",
-  "anon:/forgot-password",
-  "anon:/reset-password",
-  "anon:/invite/nm-capture-invalid-token",
-  "/inbox",
-  "/listings",
-  "/listings/{loc}",
-  ...AREAS.map((area) => `/listings/{loc}/${area}`),
-  "/listings/bulk",
-  "/listings/bulk/00000000-0000-4000-8000-000000000000",
-  "/calendar",
-  "/clients",
-  "/clients/new",
-  "/clients/{client}",
-  "/clients/{client}/settings",
-  "/reports",
-  "/notifications",
-  "/team",
-  "/setup",
-  "/settings",
-  ...SETTINGS.map((page) => `/settings/${page}`),
-  "anon:/privacy",
-  "anon:/terms",
-  "anon:/share/report/nm-capture-invalid-token",
-  // Permission-restricted states (INVENTORY.md §2 page-level restrictions).
-  "viewer:/inbox",
-  "viewer:/listings/{loc}/profile",
-  "viewer:/listings/bulk",
-  "viewer:/team",
-  "viewer:/settings/connections",
-  "member:/clients/new",
-  "admin:/settings/billing",
-]
+const VIEWPORTS = Object.fromEntries(
+  resolveViewports({
+    viewports: arg("viewports", null),
+    sizes: arg("sizes", null),
+    dpr: { desktop: arg("desktop-dpr", 1), mobile: arg("mobile-dpr", 3) },
+  }).map((viewport) => [viewport.name, viewport])
+)
 
 const fill = async (page, locator, text) => {
   await locator.first().waitFor({ state: "visible", timeout: 10_000 })
   await locator.first().fill(text)
+}
+// Appends to "Business name" once the editor has its Google read (the stub
+// is paced), so the editor holds an unsaved change.
+const dirty = async (page) => {
+  const name = page.getByRole("textbox", { name: "Business name" }).first()
+  await name.waitFor({ state: "visible", timeout: 45_000 })
+  for (const deadline = Date.now() + 45_000; ;) {
+    if ((await name.isEnabled()) && (await name.inputValue())) break
+    if (Date.now() > deadline) throw new Error("Business name never loaded")
+    await page.waitForTimeout(250)
+  }
+  await name.fill(`${await name.inputValue()} Edited`)
+  await page
+    .getByRole("button", { name: "Review changes" })
+    .waitFor({ timeout: 10_000 })
 }
 // Interactive states: [name, role, path, viewports, action]. Each action
 // uses today's accessible names (tests/e2e specs); a state the UI no longer
@@ -202,13 +170,108 @@ export const STATES = [
     },
   ],
   [
+    "account-menu",
+    "owner",
+    "/inbox",
+    ["desktop"],
+    async (page) => {
+      await page
+        .getByRole("complementary", { name: "Sidebar" })
+        .locator('button[aria-haspopup="menu"]')
+        .last()
+        .click({ timeout: 5_000 })
+      await page.getByRole("menu").first().waitFor({ timeout: 10_000 })
+    },
+  ],
+  // The editor's dirty state: the "Review changes" bar (and where it sits
+  // against the tab bar on a phone). Types, never saves.
+  ["listing-profile-dirty", "owner", "/listings/{loc}/profile", null, dirty],
+  [
+    "listing-discard-dialog",
+    "owner",
+    "/listings/{loc}/profile",
+    null,
+    async (page) => {
+      await dirty(page)
+      await page.evaluate(() => window.history.back())
+      await page
+        .getByRole("alertdialog", { name: "Leave without saving?" })
+        .waitFor({ timeout: 10_000 })
+    },
+  ],
+  [
+    "listing-review-changes",
+    "owner",
+    "/listings/{loc}/profile",
+    null,
+    async (page) => {
+      await dirty(page)
+      await page.getByRole("button", { name: "Review changes" }).click()
+      await page
+        .locator('[role="dialog"],[role="alertdialog"]')
+        .first()
+        .waitFor({ timeout: 10_000 })
+    },
+  ],
+  [
+    "share-report-dialog",
+    "owner",
+    "/clients/{client}",
+    null,
+    async (page) => {
+      await page
+        .getByRole("button", { name: "Share report" })
+        .first()
+        .click({ timeout: 10_000 })
+      await page.getByRole("dialog").first().waitFor({ timeout: 10_000 })
+    },
+  ],
+  [
+    "team-invite-dialog",
+    "owner",
+    "/team",
+    null,
+    async (page) => {
+      await page
+        .getByRole("button", { name: "Invite a teammate" })
+        .first()
+        .click({ timeout: 10_000 })
+      await page
+        .locator('[role="dialog"],[role="alertdialog"]')
+        .first()
+        .waitFor({ timeout: 10_000 })
+    },
+  ],
+  // Opens the typed-email confirm and types nothing: Disconnect stays off.
+  [
+    "connections-disconnect-dialog",
+    "owner",
+    "/settings/connections",
+    null,
+    async (page) => {
+      await page
+        .getByRole("button", { name: /^Disconnect/ })
+        .first()
+        .click({ timeout: 10_000 })
+      await page
+        .locator('[role="dialog"],[role="alertdialog"]')
+        .first()
+        .waitFor({ timeout: 10_000 })
+    },
+  ],
+  [
     "client-switcher-open",
     "owner",
     "/inbox",
     null,
     async (page) => {
+      // The scope control at whatever size the width draws ("Working on
+      // <scope>, <listings> · <health>"): the sidebar's button, the tablet
+      // pill or the phone app bar's chip (which opens the "Working on"
+      // sheet).
       await page
-        .getByRole("button", { name: /^(Client:|Switch client)/ })
+        .getByRole("button", { name: /^Working on / })
+        .locator("visible=true")
         .first()
         .click({ timeout: 5_000 })
       await page
@@ -218,6 +281,63 @@ export const STATES = [
     },
   ],
 ]
+
+const routesArg = arg("routes", null)
+const specs =
+  typeof routesArg !== "string"
+    ? DEFAULT_ROUTES
+    : existsSync(resolve(routesArg))
+      ? (await readFile(resolve(routesArg), "utf8"))
+          .split("\n")
+          .map((line) => line.replace(/#.*/, "").trim())
+          .filter(Boolean)
+      : routesArg.split(",").filter(Boolean)
+
+const jobs = []
+for (const theme of themes) {
+  for (const viewport of Object.keys(VIEWPORTS)) {
+    for (const spec of specs) {
+      const { role, path } = parseSpec(spec)
+      if (!ROLES.includes(role)) throw new Error(`Unknown role ${role}`)
+      jobs.push({
+        theme,
+        viewport,
+        role,
+        route: path,
+        name: nameOf(role, path),
+      })
+    }
+    if (statesArg !== "none") {
+      const wanted = statesArg === "all" ? null : new Set(statesArg.split(","))
+      for (const [name, role, path, only_, action] of STATES) {
+        if (wanted && !wanted.has(name)) continue
+        if (!stateRunsOn(only_, VIEWPORTS[viewport])) continue
+        jobs.push({
+          theme,
+          viewport,
+          role,
+          route: path,
+          name: `state--${name}`,
+          state: name,
+          action,
+        })
+      }
+    }
+  }
+}
+const selected = only
+  ? jobs.filter((job) => only.test(job.name) || only.test(job.route))
+  : jobs
+
+if (arg("list", false)) {
+  for (const job of selected) {
+    console.log(
+      [job.viewport, job.theme, job.name, job.role, job.route].join("\t")
+    )
+  }
+  console.log(`${selected.length} shots`)
+  process.exit(0)
+}
 
 const state = JSON.parse(
   await readFile(
@@ -242,69 +362,6 @@ const fillPath = (path) =>
     .replaceAll("{client}", state.clientId)
     .replaceAll("{review}", state.directReview.id)
     .replaceAll("{areview}", state.approvalReview.id)
-const nameOf = (role, path) =>
-  (role === "owner" ? "" : `${role}--`) +
-  (path
-    .replace(/^\//, "")
-    .replace(/[{}]/g, "")
-    .replace(/[^a-z0-9]+/gi, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 80) || "root")
-
-function parseSpec(spec) {
-  const match = /^([a-z-]+):(\/.*)$/.exec(spec.trim())
-  return match
-    ? { role: match[1], path: match[2] }
-    : { role: "owner", path: spec.trim() }
-}
-const routesArg = arg("routes", null)
-const specs =
-  typeof routesArg !== "string"
-    ? DEFAULT_ROUTES
-    : existsSync(resolve(routesArg))
-      ? (await readFile(resolve(routesArg), "utf8"))
-          .split("\n")
-          .map((line) => line.replace(/#.*/, "").trim())
-          .filter(Boolean)
-      : routesArg.split(",").filter(Boolean)
-
-const jobs = []
-for (const theme of themes) {
-  for (const viewport of viewportNames) {
-    if (!VIEWPORTS[viewport]) throw new Error(`Unknown viewport ${viewport}`)
-    for (const spec of specs) {
-      const { role, path } = parseSpec(spec)
-      if (!(role in cookies)) throw new Error(`Unknown role ${role}`)
-      jobs.push({
-        theme,
-        viewport,
-        role,
-        route: path,
-        name: nameOf(role, path),
-      })
-    }
-    if (statesArg !== "none") {
-      const wanted = statesArg === "all" ? null : new Set(statesArg.split(","))
-      for (const [name, role, path, only_, action] of STATES) {
-        if (wanted && !wanted.has(name)) continue
-        if (only_ && !only_.includes(viewport)) continue
-        jobs.push({
-          theme,
-          viewport,
-          role,
-          route: path,
-          name: `state--${name}`,
-          state: name,
-          action,
-        })
-      }
-    }
-  }
-}
-const selected = only
-  ? jobs.filter((job) => only.test(job.name) || only.test(job.route))
-  : jobs
-
 // Refuse unless the cookies resolve to the fixture tenant (as shoot.mjs).
 for (const role of new Set(selected.map((job) => job.role))) {
   const cookie = cookies[role]
@@ -329,7 +386,7 @@ async function contextFor(job) {
       key,
       (async () => {
         const context = await browser.newContext({
-          ...VIEWPORTS[job.viewport],
+          ...VIEWPORTS[job.viewport].context,
           colorScheme: job.theme === "dark" ? "dark" : "light",
           reducedMotion: "reduce",
         })
@@ -348,10 +405,7 @@ async function contextFor(job) {
 }
 
 async function shoot(job) {
-  const dir = resolve(
-    out,
-    job.theme === "light" ? job.viewport : `${job.viewport}-${job.theme}`
-  )
+  const dir = resolve(out, dirFor(job.viewport, job.theme))
   await mkdir(dir, { recursive: true })
   const file = resolve(dir, `${job.name}.png`)
   const entry = {
@@ -360,7 +414,8 @@ async function shoot(job) {
     path: fillPath(job.route),
     role: job.role,
     viewport: job.viewport,
-    size: VIEWPORTS[job.viewport].viewport,
+    size: VIEWPORTS[job.viewport].context.viewport,
+    input: VIEWPORTS[job.viewport].input,
     theme: job.theme,
     state: job.state ?? null,
     status: "ok",
@@ -463,7 +518,7 @@ if (arg("merge", false) && existsSync(manifestPath)) {
   ]
   runs = previous.runs ?? []
 }
-const bucket = (r) => r.viewport + (r.theme === "light" ? "" : `-${r.theme}`)
+const bucket = (r) => dirFor(r.viewport, r.theme ?? "light")
 const totals = {}
 for (const entry of entries) {
   const total = (totals[bucket(entry)] ??= { shots: 0, ok: 0, notOk: 0 })
@@ -475,6 +530,16 @@ const manifest = {
   generatedAt: new Date().toISOString(),
   commit,
   base,
+  viewports: Object.fromEntries(
+    Object.entries(VIEWPORTS).map(([name, viewport]) => [
+      name,
+      {
+        ...viewport.context.viewport,
+        input: viewport.input,
+        dpr: viewport.context.deviceScaleFactor,
+      },
+    ])
+  ),
   durationMs: Date.now() - started,
   runs: [
     ...runs,

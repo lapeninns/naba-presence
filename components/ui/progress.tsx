@@ -16,8 +16,10 @@ import { cn } from "@/lib/utils"
  * when it is a string, so an indeterminate bar announces "Importing" rather
  * than nothing. `figure` sits on the right of the same line ("3 of 12").
  * With `status`, `className` styles the wrapper and `barClassName` the bar.
- * Under reduced motion the travelling highlight stops (the global rule) and
- * the word carries the state on its own.
+ * An indeterminate bar is drawn like a skeleton (SYSTEM §12): the track
+ * holds a flat fill that breathes in opacity under `motion-safe`, with no
+ * travelling highlight; under reduced motion it is still, and the word
+ * carries the state on its own.
  *
  * `Meter` is a measured share, not progress: a label row with the figure in
  * tabular figures, and an 8px track in the first chart colour.
@@ -78,16 +80,15 @@ function Progress({
       {...props}
     >
       {indeterminate ? (
-        // The travelling highlight reuses the global `shimmer` keyframe: a
-        // full-width carrier slides from -100% to 100% holding a 35% bar.
-        <span className="block h-full w-full animate-shimmer motion-reduce:animate-none">
-          <span
-            className={cn(
-              "block h-full w-[35%] rounded-(--np-radius-pill)",
-              tone === "bad" ? "bg-danger-solid" : "bg-primary"
-            )}
-          />
-        </span>
+        // Length unknown, so nothing travels or claims a share: the whole
+        // track fills and pulses, like the flat skeleton bars.
+        <span
+          data-slot="progress-indicator"
+          className={cn(
+            "block h-full w-full rounded-[inherit] motion-safe:animate-pulse motion-reduce:animate-none",
+            tone === "bad" ? "bg-danger-solid" : "bg-primary"
+          )}
+        />
       ) : (
         <span
           className={cn(

@@ -211,7 +211,11 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
     return (
       <div className="flex flex-col gap-5">
         {/* The alert's own inline link would repeat the button below. */}
-        <div ref={alertRef} tabIndex={-1} className="outline-none">
+        <div
+          ref={alertRef}
+          tabIndex={-1}
+          className="rounded-(--np-radius-card) focus-halo outline-none"
+        >
           <AuthErrorAlert message={{ ...message, action: undefined }} />
         </div>
         <RequestAnotherLink />
@@ -227,7 +231,11 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
       className="flex flex-col gap-5"
     >
       {message ? (
-        <div ref={alertRef} tabIndex={-1} className="outline-none">
+        <div
+          ref={alertRef}
+          tabIndex={-1}
+          className="rounded-(--np-radius-card) focus-halo outline-none"
+        >
           <AuthErrorAlert message={message} />
         </div>
       ) : null}

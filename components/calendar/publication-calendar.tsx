@@ -449,8 +449,8 @@ export function PublicationCalendar({
             title={`Nothing scheduled in ${periodText}`}
             description={
               filtered
-                ? "Use the arrows to look at another period, or show every listing."
-                : "Use the arrows to look at another period. Posts are scheduled from each listing’s Posts tab."
+                ? "Try another period, or show every listing."
+                : "Schedule posts from a listing’s Posts tab."
             }
             action={nextStep("secondary")}
           />

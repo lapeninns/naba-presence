@@ -10,6 +10,7 @@ import {
   OutcomeSummary,
   ReviewedWriteSheet,
   reviewedWriteStage,
+  useOpenerFocus,
 } from "@/components/reviewed-write"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -51,6 +52,7 @@ export function PlaceActionApprovalSheet({
     setConsent(false)
     setAction(null)
   }
+  const finalFocus = useOpenerFocus(workflow.open)
   if (!review) return null
 
   const request = review.request
@@ -123,6 +125,7 @@ export function PlaceActionApprovalSheet({
     <ReviewedWriteSheet
       open={workflow.open}
       onOpenChange={workflow.setOpen}
+      finalFocus={finalFocus}
       title={
         recorded ? "Saved booking link outcome" : "Review booking link change"
       }
@@ -171,6 +174,7 @@ export function PlaceActionApprovalSheet({
             </>
           ) : review.changeSet.approvedBy ? (
             <Button
+              variant="send"
               disabled={blocked || !consent}
               pending={sending}
               pendingLabel="Sending…"

@@ -6,6 +6,7 @@ import {
 } from "@/lib/contracts/location-summary"
 import {
   googleChangedCount,
+  LISTING_HEALTH,
   listingAttentionReason,
   listingHealth,
   listingHealthLabel,
@@ -13,6 +14,7 @@ import {
   noHoursOnGoogle,
   summariseListingHealth,
   syncStatusLabel,
+  syncStatusTone,
   unpublishedCount,
 } from "@/lib/listings/health"
 
@@ -263,7 +265,14 @@ describe("listingHealth", () => {
 
   it("maps every health to a tone and a label from the shared vocabulary", () => {
     expect(listingHealthTone("disconnected")).toBe("at-risk")
-    expect(listingHealthTone("unpublished")).toBe("pending")
+    // Saved here, not sent: nobody's turn, never the blue "with Google".
+    expect(listingHealthTone("unpublished")).toBe("neutral")
+    // A person at the business completes Google's verification.
+    expect(listingHealthTone("pending_verification")).toBe("attention")
+    expect(
+      LISTING_HEALTH.filter((health) => listingHealthTone(health) === "pending")
+    ).toEqual([])
+    expect(syncStatusTone("core_dirty")).toBe("neutral")
     expect(listingHealthLabel("unpublished")).toBe("Changes to publish")
     expect(syncStatusLabel("core_dirty")).toBe("Not on Google yet")
     expect(syncStatusLabel("unknown")).toBe("Not checked yet")

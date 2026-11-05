@@ -181,6 +181,7 @@ describe("CommandPalette Go to", () => {
       "Clients",
       "Calendar",
       "Reports",
+      "Outbox",
       "Notifications",
       "Team",
       "Settings",
@@ -194,6 +195,7 @@ describe("CommandPalette Go to", () => {
       "Listings",
       "Calendar",
       "Reports",
+      "Outbox",
       "Notifications",
       "Settings",
     ])
@@ -410,17 +412,23 @@ describe("CommandPalette phone takeover", () => {
     expect(push).toHaveBeenCalledWith("/clients/c1")
   })
 
-  it("draws the trigger as a bare icon on a phone, keeping its name", () => {
+  // The field look starts at lg; below it (phone and tablet) the trigger is
+  // a bare icon, 44px for touch and 36px under a fine pointer.
+  it("draws the trigger as a bare icon below lg, keeping its name", () => {
     renderPalette()
     const button = screen.getByRole("button", {
       name: "Search clients, listings, pages and actions",
     })
+    expect(button).toHaveAttribute("data-slot", "search-button")
     expect(button).toHaveClass(
-      "max-md:size-11",
-      "max-md:border-transparent",
-      "max-md:bg-transparent",
+      "h-9",
+      "max-lg:size-11",
+      "max-lg:border-transparent",
+      "max-lg:bg-transparent",
+      "desk:max-lg:size-9",
       "focus-halo"
     )
+    expect(button).not.toHaveClass("max-md:size-11")
   })
 
   it("closes on Cancel and gives focus back to the button", async () => {

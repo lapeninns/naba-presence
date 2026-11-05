@@ -25,6 +25,7 @@ import {
   destinationHref,
   visibleDestinations,
 } from "@/lib/navigation/destinations"
+import { OUTBOX_ROUTE_READY } from "@/lib/navigation/outbox"
 import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -97,7 +98,12 @@ function CommandPaletteDialog({
   const business = mode === "business"
   // The same destinations, in the same order and with the same gating, as
   // the tab bar, rail and sidebar (lib/navigation/destinations.ts).
-  const goTo = visibleDestinations({ role, mode, hideCalendar })
+  const goTo = visibleDestinations({
+    role,
+    mode,
+    hideCalendar,
+    showOutbox: OUTBOX_ROUTE_READY,
+  })
   const actions = paletteEntriesFor(PALETTE_ACTIONS, role, mode)
   // Go to Inbox, Listings or Reports keeps the client in scope, like the
   // sidebar's links.
@@ -164,7 +170,7 @@ function CommandPaletteDialog({
                 setQuery("")
                 inputRef.current?.focus()
               }}
-              className="-mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) hover:text-ink focus-visible:outline-none"
+              className="-mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) focus-visible:outline-none hover-fine:hover:text-ink"
             >
               <CircleX className="size-4" strokeWidth={1.75} aria-hidden />
             </button>
@@ -189,7 +195,9 @@ function CommandPaletteDialog({
                 className={ROW_CLASS}
               >
                 <StatusPill tone={healthTone(client.health)} variant="dot" />
-                <span className="flex-1 truncate">{client.name}</span>
+                <span className="flex-1 truncate" title={client.name}>
+                  {client.name}
+                </span>
                 <span className="text-caption text-ink-muted tabular-nums">
                   {client.locationCount === 1
                     ? "1 location"
@@ -210,9 +218,14 @@ function CommandPaletteDialog({
                 className={ROW_CLASS}
               >
                 <MapPin className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
-                <span className="flex-1 truncate">{location.name}</span>
+                <span className="flex-1 truncate" title={location.name}>
+                  {location.name}
+                </span>
                 {!business && location.clientId ? (
-                  <span className="truncate text-caption text-ink-muted">
+                  <span
+                    className="truncate text-caption text-ink-muted"
+                    title={clientNameById.get(location.clientId)}
+                  >
                     {clientNameById.get(location.clientId)}
                   </span>
                 ) : null}
@@ -281,7 +294,10 @@ function CommandPaletteDialog({
                 strokeWidth={1.75}
                 aria-hidden
               />
-              <span className="flex-1 truncate">
+              <span
+                className="flex-1 truncate"
+                title={`Search reviews for “${trimmed}”`}
+              >
                 Search reviews for “{trimmed}”
               </span>
             </CommandItem>
@@ -314,7 +330,9 @@ function SwitchClientCommands({ onDone }: { onDone: () => void }) {
           className={ROW_CLASS}
         >
           <Building2 className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
-          <span className="flex-1 truncate">Switch client: All clients</span>
+          <span className="flex-1 truncate" title="Switch client: All clients">
+            Switch client: All clients
+          </span>
         </CommandItem>
       ) : null}
       {clients
@@ -331,7 +349,10 @@ function SwitchClientCommands({ onDone }: { onDone: () => void }) {
               strokeWidth={1.75}
               aria-hidden
             />
-            <span className="flex-1 truncate">
+            <span
+              className="flex-1 truncate"
+              title={`Switch client: ${client.name}`}
+            >
               Switch client: {client.name}
             </span>
           </CommandItem>

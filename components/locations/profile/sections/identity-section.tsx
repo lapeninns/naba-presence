@@ -76,8 +76,8 @@ export function IdentitySection({
   googleReady: boolean
   changed: { name: boolean; storeCode: boolean; labels: boolean }
   /**
-   * The word on the name's row: whose change it is ("Changed", "Changed on
-   * Google", "Not on Google yet"). Falls back to "Changed".
+   * The word on the name's row: whose change it is ("Edited", "Changed on
+   * Google", "Not on Google yet"). Falls back to "Edited".
    */
   marks?: { name?: string }
 }) {
@@ -94,7 +94,7 @@ export function IdentitySection({
       <SettingsRow
         label="Business name"
         controlId={PROFILE_FIELD_IDS.name}
-        changed={changed.name ? (marks?.name ?? "Changed") : undefined}
+        changed={changed.name ? (marks?.name ?? "Edited") : undefined}
         control={
           <Field measure="short" error={errors.name}>
             <Input
@@ -121,7 +121,7 @@ export function IdentitySection({
           <SettingsRow
             label="Store code"
             controlId={PROFILE_FIELD_IDS.storeCode}
-            changed={changed.storeCode ? "Changed" : undefined}
+            changed={changed.storeCode ? "Edited" : undefined}
             control={
               <Field measure="short">
                 <Input
@@ -142,7 +142,7 @@ export function IdentitySection({
           <SettingsRow
             label="Labels"
             controlId={PROFILE_FIELD_IDS.labels}
-            changed={changed.labels ? "Changed" : undefined}
+            changed={changed.labels ? "Edited" : undefined}
             description={
               <span className="tabular-nums">
                 {draft.labels.length} of {MAX_LABELS}
@@ -275,7 +275,7 @@ export function CategoriesSection({
           <div ref={primaryRowRef} className="min-w-0">
             <SettingsRow
               label="Primary category"
-              changed={changed.primary ? "Changed" : undefined}
+              changed={changed.primary ? "Edited" : undefined}
               value={
                 draft.primaryCategory
                   ? categoryLabel(draft.primaryCategory)

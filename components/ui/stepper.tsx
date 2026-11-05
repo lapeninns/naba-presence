@@ -45,9 +45,11 @@ export const STEP_STATE_WORDS: Record<StepState, string> = {
 /**
  * Progress through an ordered flow (reference `.stepper`).
  *
- * Each step has a 22px number ring (tabular figures): done is the ok tint with a tick,
- * current is the accent solid (and, vertically, the whole row sits on the
- * accent tint), to-do is the control edge. `ol` with `aria-current="step"`
+ * Each step has a 22px number ring (tabular figures): done is a
+ * secondary-ink ring with a tick, current is the ink solid (and,
+ * vertically, the whole row sits on the current-place fill), to-do is the
+ * control edge. No green and no accent: green says "on Google" and the
+ * accent sends, and a finished setup step is neither. `ol` with `aria-current="step"`
  * on the active item is the accessible contract; the rings and rules are
  * decorative, and every state is also in words (label, meta, note).
  *
@@ -136,7 +138,7 @@ function Stepper({
             className={cn(
               "grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] text-count leading-none tabular-nums",
               step.state === "done" &&
-                "border-success-ink bg-success-tint text-success-ink",
+                "border-ink-secondary bg-surface text-ink-secondary",
               step.state === "current" &&
                 "border-primary bg-primary text-primary-foreground",
               step.state === "todo" && "border-line-strong text-ink-muted",
@@ -193,15 +195,10 @@ function Stepper({
           !vertical &&
             step.state !== "current" &&
             (showLabels ? "max-md:gap-1.5 max-md:px-1" : "max-md:px-1"),
-          vertical &&
-            step.state === "current" &&
-            "bg-accent-tint text-accent-ink",
+          vertical && step.state === "current" && "bg-fill text-ink",
           step.href &&
             "min-h-(--np-touch) focus-halo transition-colors duration-(--np-duration-fast) hover:bg-fill desk:min-h-0",
-          step.href &&
-            vertical &&
-            step.state === "current" &&
-            "hover:bg-accent-tint"
+          step.href && vertical && step.state === "current" && "hover:bg-fill"
         )
         return (
           <li
@@ -231,7 +228,7 @@ function Stepper({
                 className={cn(
                   "mx-1 h-0.5 min-w-4 flex-1 rounded-full max-md:min-w-2",
                   showLabels && "max-md:hidden",
-                  step.state === "done" ? "bg-success-solid" : "bg-line"
+                  step.state === "done" ? "bg-ink-secondary" : "bg-line"
                 )}
               />
             ) : null}
@@ -243,7 +240,7 @@ function Stepper({
 }
 
 const QUIET_MARK: Record<StepState, React.ReactNode> = {
-  done: <Check className="size-4 text-success-ink" strokeWidth={2.25} />,
+  done: <Check className="size-4 text-ink-secondary" strokeWidth={2.25} />,
   current: <span className="size-2 rounded-full bg-primary" />,
   todo: (
     <span className="size-2 rounded-full border-[1.5px] border-line-strong" />

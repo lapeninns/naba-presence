@@ -7,6 +7,7 @@ import {
   type ChangeRow,
 } from "@/components/editors/change-diff"
 import {
+  attemptOutcome,
   ConsentSlot,
   Expiry,
   OutcomeSummary,
@@ -15,6 +16,7 @@ import {
   reviewedWriteStage,
   type ConfirmationState,
   type ExecutionState,
+  useOpenerFocus,
 } from "@/components/reviewed-write"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -68,6 +70,7 @@ export function ReviewedChangeSheet({
   disabled,
   reviewTitle = `Review ${noun} changes`,
   resetKey = "",
+  savedWorkId,
 }: {
   readonly workflow: ReviewedChangeWorkflow
   /** Lower case, as it reads mid-sentence: "lodging", "service". */
@@ -77,6 +80,11 @@ export function ReviewedChangeSheet({
   readonly reviewTitle?: string
   /** Anything else that should clear the consent and pending action when it changes. */
   readonly resetKey?: string
+  /**
+   * The saved-work section, where focus lands on close when the sheet has no
+   * opener to return to (a review restored on load).
+   */
+  readonly savedWorkId?: string
 }) {
   const review = workflow.review
   const expired = useDeadline(review?.expiresAt ?? "1970-01-01T00:00:00Z")
@@ -89,6 +97,9 @@ export function ReviewedChangeSheet({
     setConsent(false)
     setAction(null)
   }
+  const finalFocus = useOpenerFocus(workflow.open, () =>
+    savedWorkId ? document.getElementById(savedWorkId) : null
+  )
   if (!review) return null
   const blocked =
     disabled ||
@@ -108,10 +119,26 @@ export function ReviewedChangeSheet({
     work()
   }
   const Noun = noun.charAt(0).toUpperCase() + noun.slice(1)
+  // Why the primary can't be used, for the cases nothing else on the sheet
+  // already explains (expiry, staleness and a second approver have their
+  // own lines).
+  const primaryNote =
+    recorded || workflow.busy || expired || workflow.stale
+      ? null
+      : workflow.unresolved
+        ? "Sending is paused while another Google change is unresolved."
+        : !review.approvedBy
+          ? !review.canApprove && !review.requiresSecondApprover
+            ? "Your current permissions don’t allow approving these changes."
+            : null
+          : !disabled && review.targetResourceName && !consent
+            ? `Tick the box to send these exact ${noun} changes.`
+            : null
   return (
     <ReviewedWriteSheet
       open={workflow.open}
       onOpenChange={workflow.setOpen}
+      finalFocus={finalFocus}
       title={recorded ? `Saved ${noun} outcome` : reviewTitle}
       description={
         recorded
@@ -123,6 +150,17 @@ export function ReviewedChangeSheet({
         recorded,
       })}
       secondApprover={review.requiresSecondApprover}
+      sending={sending}
+      outcome={
+        workflow.outcome
+          ? attemptOutcome(
+              workflow.outcome.executionState,
+              workflow.outcome.confirmationState
+            )
+          : workflow.uncertain
+            ? "uncertain"
+            : undefined
+      }
       footer={
         <>
           <Button
@@ -158,6 +196,7 @@ export function ReviewedChangeSheet({
             </>
           ) : review.approvedBy ? (
             <Button
+              variant="send"
               disabled={blocked || !consent}
               pending={sending}
               pendingLabel="Sending…"
@@ -263,6 +302,9 @@ export function ReviewedChangeSheet({
             onCheckedChange={setConsent}
             disabled={blocked}
           />
+        ) : null}
+        {primaryNote ? (
+          <p className="text-ui text-ink-muted">{primaryNote}</p>
         ) : null}
       </div>
     </ReviewedWriteSheet>

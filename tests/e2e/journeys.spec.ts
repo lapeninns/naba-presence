@@ -93,7 +93,7 @@ test.describe("inbox critical journeys", () => {
     await expect(
       list.getByText(state.approvalReview.text, { exact: true })
     ).toBeVisible()
-    // The queues are five controls above the two panes now rather than a rail
+    // The queues are six controls above the two panes now rather than a rail
     // beside them, but they are still the navigation landmark a keyboard user
     // jumps to.
     const queues = page.getByRole("navigation", { name: "Review queues" })
@@ -127,12 +127,14 @@ test.describe("inbox critical journeys", () => {
       "Thank you for your thoughtful review. We are delighted you enjoyed your stay."
     )
     expect(published.status()).toBe(200)
-    // The toast, specifically, so the assertion does not depend on anything
-    // else on the page reading the same words. The Google stub answers the
-    // reply with no moderation state, which the server reads as PENDING, so
-    // the toast says it is sent and under Google's check, not live (R01a).
+    // Check the outcome dialog so text elsewhere on the page cannot satisfy
+    // the assertion. The Google stub omits the moderation state, which the
+    // server reads as PENDING, so the dialog reports Google's review (R01a).
     await expect(
-      page.locator('[data-slot="toast-title"]', { hasText: "Reply sent" })
+      page.getByRole("dialog", {
+        name: "Sent, waiting for Google to confirm",
+        exact: true,
+      })
     ).toBeVisible()
   })
 
@@ -157,7 +159,7 @@ test.describe("inbox critical journeys", () => {
     )
     expect(requested.status()).toBe(202)
     await expect(
-      page.getByText("Submitted for approval", { exact: true })
+      page.getByRole("dialog", { name: "Awaiting approval", exact: true })
     ).toBeVisible()
     // The person who asked cannot be the second approver: the pane says who
     // it waits on and offers no Approve or Reject (D1, server approvalScope).
@@ -166,7 +168,7 @@ test.describe("inbox critical journeys", () => {
       selected.getByText("Waiting for another approver").first()
     ).toBeVisible()
     await expect(
-      page.getByRole("button", { name: "Approve reply" })
+      page.getByRole("button", { name: "Approve and publish" })
     ).toHaveCount(0)
 
     // Approver (owner) — a fresh context. Approval is one tab now: the
@@ -215,12 +217,13 @@ test.describe("inbox critical journeys", () => {
         new URL(r.url()).pathname ===
           `/api/reviews/${state.approval.reviewId}/approval`
     )
-    await approver.getByRole("button", { name: "Approve reply" }).click()
+    await approver.getByRole("button", { name: "Approve and publish" }).click()
     expect((await approved).status()).toBe(200)
     // Sent, under Google's check (the stub sends no moderation state).
     await expect(
-      approver.locator('[data-slot="toast-title"]', {
-        hasText: "Reply sent",
+      approver.getByRole("dialog", {
+        name: "Sent, waiting for Google to confirm",
+        exact: true,
       })
     ).toBeVisible()
     await approverContext.close()
@@ -522,9 +525,9 @@ test.describe("dirty draft: one question per way out", () => {
       await (await replyBox(page)).fill(UNSAVED)
       const opens = await countDiscardPrompts(page)
 
-      // Exact: a pinned client is a link in the same navigation, named
-      // "<client>, <health>", and "Some listings not checked yet" contains
-      // "listings". Left by an earlier spec, it made this match two links.
+      // Exact: the navigation's link is "Listings", and nothing that merely
+      // contains the word (a count, or health words such as "Some listings
+      // not checked yet") may match it too.
       await page
         .getByRole("navigation", { name: "Primary" })
         .getByRole("link", { name: "Listings", exact: true })

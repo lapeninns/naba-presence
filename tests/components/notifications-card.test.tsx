@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -120,8 +120,18 @@ describe("NotificationsCard", () => {
   it("offers an account picker when the login reaches several accounts", async () => {
     const user = userEvent.setup()
     const view = renderCard(null, [
-      { id: "a1", googleAccountName: "accounts/1", accountName: "Riverside group", isActive: true },
-      { id: "a2", googleAccountName: "accounts/2", accountName: "Harbour group", isActive: true },
+      {
+        id: "a1",
+        googleAccountName: "accounts/1",
+        accountName: "Riverside group",
+        isActive: true,
+      },
+      {
+        id: "a2",
+        googleAccountName: "accounts/2",
+        accountName: "Harbour group",
+        isActive: true,
+      },
     ])
     expect(
       view.getByText("Choose a Business Profile account")
@@ -130,9 +140,50 @@ describe("NotificationsCard", () => {
       name: "Business Profile account",
     })
     await user.click(picker)
-    await user.click(await screen.findByRole("option", { name: "Harbour group" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Harbour group" })
+    )
     expect(
       await view.findByRole("button", { name: "Save notifications" })
     ).toBeInTheDocument()
+  })
+
+  it("saves with the send button, since the setting is written to Google", () => {
+    renderCard()
+    expect(
+      screen.getByRole("button", { name: "Save notifications" })
+    ).toHaveAttribute("data-variant", "send")
+  })
+
+  it("says a failed read changed nothing on Google, with a retry", async () => {
+    const user = userEvent.setup()
+    renderCard()
+    const refetch = vi.fn()
+    settingMock.mockReturnValue({
+      query: {
+        data: undefined,
+        isPending: false,
+        isError: true,
+        error: new Error("boom"),
+        refetch,
+      },
+      save: { mutate: vi.fn(), isPending: false },
+    })
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <NotificationsCard />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    const regions = screen.getAllByRole("region", {
+      name: "Real-time notifications",
+    })
+    const failed = regions[regions.length - 1]
+    expect(failed).toHaveTextContent("We couldn’t load notifications")
+    expect(failed).toHaveTextContent("Nothing was changed on Google.")
+    await user.click(within(failed).getByRole("button", { name: /try again/i }))
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 })

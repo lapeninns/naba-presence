@@ -155,7 +155,7 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
               data={views}
               series={[
                 { key: "search", label: "Search views", color: 1 },
-                { key: "maps", label: "Maps views", color: 2 },
+                { key: "maps", label: "Maps views", color: 4 },
               ]}
             />
           ) : (
@@ -176,11 +176,11 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
               data={actions}
               series={[
                 { key: "calls", label: metricLabel("CALL_CLICKS"), color: 1 },
-                { key: "web", label: "Website clicks", color: 2 },
+                { key: "web", label: "Website clicks", color: 4 },
                 {
                   key: "directions",
                   label: metricLabel("BUSINESS_DIRECTION_REQUESTS"),
-                  color: 3,
+                  color: 5,
                 },
               ]}
             />

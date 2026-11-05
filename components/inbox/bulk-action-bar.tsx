@@ -218,8 +218,8 @@ function pendingStatus(run: PendingRun, bulkEngine: boolean) {
     case "approve":
       if (bulkEngine) return `Approving ${replies(run.count)}…`
       return run.count === 1
-        ? "Approving and publishing 1 reply to Google…"
-        : `Approving and publishing ${replies(run.count)} to Google, one after another. This can take a minute or two.`
+        ? "Approving and sending 1 reply to Google…"
+        : `Approving and sending ${replies(run.count)} to Google, one after another. This can take a minute or two.`
     case "assign":
       return `${run.unassign ? "Unassigning" : "Assigning"} ${reviews(run.count)}…`
     case "mark_reviewed":
@@ -524,7 +524,7 @@ function BulkActionBar({
       setPending(null)
     }
     if (!result) return
-    if (summariseBulkOutcome(result).allOk) {
+    if (summariseBulkOutcome(result, action).allOk) {
       // Every row done: the batch is over, so select mode ends with it
       // (which also clears). A batch the engine queued keeps its link.
       if (result.operationId) {
@@ -802,8 +802,8 @@ function BulkActionBar({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {bulkEngine
-              ? "Each approved reply is sent to Google in the background, one after another, and appears on the business’s profile under its name. You can close this tab; the batch page shows each result."
-              : "Each approved reply is sent to Google straight away and appears on the business’s profile under its name."}
+              ? "Each approved reply is sent to Google in the background, one after another, under the business’s name. It reads On Google once Google confirms it. You can close this tab; the batch page shows each result."
+              : "Each approved reply is sent to Google straight away, under the business’s name. It reads On Google once Google confirms it."}
             {approvable.length < chosen.length
               ? ` The other ${chosen.length - approvable.length} selected are not ready for your approval and are left as they are.`
               : ""}
@@ -813,6 +813,7 @@ function BulkActionBar({
               Cancel
             </AlertDialogClose>
             <Button
+              variant="send"
               disabled={bulk.isPending}
               onClick={() => {
                 setConfirmApprove(false)

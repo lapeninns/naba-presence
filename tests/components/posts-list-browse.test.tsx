@@ -199,13 +199,28 @@ describe("Posts list: what a row says", () => {
     ).toBeInTheDocument()
   })
 
-  it("names the sent view for what it holds, not as all on Google", async () => {
-    renderTab([post({ id: "a", summary: "A draft" })])
+  it("keeps in-flight and processing posts in the sent view", async () => {
+    renderTab([
+      post({ id: "a", summary: "A draft" }),
+      post({ id: "b", summary: "Sending post", status: "publishing" }),
+      post({
+        id: "c",
+        summary: "Processing post",
+        status: "published",
+        googleState: "PROCESSING",
+      }),
+    ])
     const chips = screen.getByRole("group", { name: "Filter posts by status" })
     expect(
       within(chips).getByRole("button", { name: /^Sent to Google/ })
     ).toBeInTheDocument()
     expect(within(chips).queryByText("On Google")).toBeNull()
+    await userEvent.click(
+      within(chips).getByRole("button", { name: /^Sent to Google/ })
+    )
+    expect(await screen.findByText("Sending post")).toBeInTheDocument()
+    expect(screen.getByText("Processing post")).toBeInTheDocument()
+    expect(screen.queryByText("A draft")).not.toBeInTheDocument()
   })
 
   it("keeps today's track when the server sends no localEditedAt", () => {
@@ -218,7 +233,7 @@ describe("Posts list: what a row says", () => {
     ])
     expect(
       screen.getByRole("list", { name: "Post history", hidden: true })
-    ).toHaveTextContent("Drafted, done")
+    ).toHaveTextContent("Saved here, done")
   })
 
   it("names each History disclosure by its post", () => {

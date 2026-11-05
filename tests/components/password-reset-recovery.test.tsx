@@ -112,6 +112,40 @@ describe("ForgotPasswordForm recovery", () => {
       "Too many attempts. Try again in about 59 minutes."
     )
     expect(alert).toHaveClass("text-danger-ink")
+    expect(
+      screen.getByRole("button", { name: "Send another link" })
+    ).toHaveAccessibleDescription(alert.textContent ?? "")
+  })
+
+  it("describes Send another link with its last answer", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "requestPasswordReset").mockResolvedValue(undefined)
+    render(<ForgotPasswordForm />)
+    await user.type(screen.getByLabelText("Email address"), "a@example.test")
+    await user.click(screen.getByRole("button", { name: "Send reset link" }))
+    const button = await screen.findByRole("button", {
+      name: "Send another link",
+    })
+    expect(button).not.toHaveAttribute("aria-describedby")
+    await user.click(button)
+    await waitFor(() =>
+      expect(button).toHaveAccessibleDescription(
+        "Another link is on its way to a@example.test if it has an account."
+      )
+    )
+  })
+
+  it("draws the halo on the error banner it moves focus to", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "requestPasswordReset").mockRejectedValue(
+      new ApiClientError(429, "auth_rate_limited", "x")
+    )
+    render(<ForgotPasswordForm />)
+    await user.type(screen.getByLabelText("Email address"), "a@example.test")
+    await user.click(screen.getByRole("button", { name: "Send reset link" }))
+    const alert = await screen.findByRole("alert")
+    await waitFor(() => expect(alert.parentElement).toHaveFocus())
+    expect(alert.parentElement).toHaveClass("focus-halo")
   })
 
   it("announces a second identical resend as a fresh change", async () => {

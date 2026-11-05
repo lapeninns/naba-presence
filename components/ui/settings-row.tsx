@@ -271,7 +271,8 @@ type SettingsRowBase = {
   description?: React.ReactNode
   /**
    * A word after the label saying the value differs from what is saved
-   * ("Changed"). Words first: never a dot on its own.
+   * ("Edited"), in ink: an unsaved edit is not a send. Words first: never a
+   * dot on its own.
    */
   changed?: React.ReactNode
   className?: string
@@ -395,13 +396,13 @@ function SettingsIcon({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** The "Changed" word after a label. */
+/** The "Edited" word after a label. */
 function Changed({ id, children }: { id?: string; children: React.ReactNode }) {
   return (
     <span
       id={id}
       data-slot="settings-row-changed"
-      className="shrink-0 text-caption font-medium text-accent-ink"
+      className="shrink-0 text-caption font-medium text-ink"
     >
       {children}
     </span>
@@ -699,8 +700,10 @@ function SettingsDestructiveAction({
     <button
       type={type}
       className={cn(
-        "inline-flex min-h-(--np-touch) items-center justify-center rounded-(--np-radius-control) px-4 text-body font-medium text-danger-ink focus-halo hover-fine:hover:bg-danger-tint desk:min-h-(--np-control-h)",
-        "disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex min-h-(--np-touch) items-center justify-center rounded-(--np-radius-control) px-4 text-body font-medium text-danger-ink focus-halo hover-fine:hover:enabled:bg-danger-tint desk:min-h-(--np-control-h)",
+        // Disabled is drawn in the disabled ink, never faded, and takes no
+        // hover fill.
+        "disabled:cursor-not-allowed disabled:text-disabled-ink",
         className
       )}
       {...props}

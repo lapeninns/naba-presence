@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
-import { BulkOperationView } from "@/components/bulk/bulk-operation-view"
+import {
+  BulkOperationView,
+  countLine,
+} from "@/components/bulk/bulk-operation-view"
 import type { BulkOperationView as Operation } from "@/lib/contracts/bulk-listings"
 
 const ME = "00000000-0000-4000-8000-0000000000e9"
@@ -76,7 +79,7 @@ const running = (): Operation => ({
   dispatchExpiresAt: "2099-10-03T00:00:00.000Z",
   counts: { succeeded: 1, running: 1, queued: 2 },
   children: [
-    child(1, { status: "succeeded" }),
+    child(1, { status: "succeeded", confirmationState: "confirmed" }),
     child(2, { status: "running" }),
     child(3, { status: "queued" }),
     child(4, { status: "queued" }),
@@ -198,7 +201,9 @@ describe("cancelling (p4-F14 C2)", () => {
     )
     await vi.waitFor(() => expect(api.postsTo("/cancel")).toBe(1))
     expect(
-      await screen.findByText(/^Cancelled\. Listings already confirmed/)
+      await screen.findByText(
+        /^Stopped\. Listings already sent keep their change/
+      )
     ).toBeInTheDocument()
   })
 
@@ -264,7 +269,7 @@ describe("polling (p4-F14 C3)", () => {
       })
     )
     renderWithProviders(<BulkOperationView operationId={base.id} />)
-    await screen.findByText(/^Cancelled\./)
+    await screen.findByText(/^Stopped\./)
     const first = api.gets()
     await vi.advanceTimersByTimeAsync(15_000)
     expect(api.gets()).toBe(first)
@@ -366,7 +371,7 @@ describe("action errors and results (p4-F14 C4)", () => {
     const user = userEvent.setup()
     renderWithProviders(<BulkOperationView operationId={base.id} />)
     await user.click(
-      await screen.findByRole("button", { name: "Retry 1 unconfirmed listing" })
+      await screen.findByRole("button", { name: "Retry sending to 1 listing" })
     )
     await vi.waitFor(() =>
       expect(barStatus()).toHaveTextContent(
@@ -423,12 +428,22 @@ describe("who may stop or retry (p4-F14 C6)", () => {
     ],
   })
 
+  it("goes back to the inbox from a review batch, and never promises a confirmation", async () => {
+    serve(() => json({ operation: review(ME) }))
+    renderWithProviders(<BulkOperationView operationId={base.id} />)
+    expect(
+      await screen.findByRole("link", { name: "Back to inbox" })
+    ).toHaveAttribute("href", "/inbox")
+    expect(screen.queryByRole("link", { name: "Back to listings" })).toBeNull()
+    expect(screen.queryByText(/confirmed by reading it back/)).toBeNull()
+  })
+
   it("lets the member who started a review batch retry it, as the server does", async () => {
     session.role = "member"
     serve(() => json({ operation: review(ME) }))
     renderWithProviders(<BulkOperationView operationId={base.id} />)
     expect(
-      await screen.findByRole("button", { name: "Retry 1 unconfirmed listing" })
+      await screen.findByRole("button", { name: "Retry sending to 1 listing" })
     ).toBeInTheDocument()
     expect(
       screen.queryByText(/Only owners and admins can approve, start, cancel/)
@@ -487,5 +502,61 @@ describe("who may stop or retry (p4-F14 C6)", () => {
     expect(
       screen.queryByRole("button", { name: "Stop listings not yet sent" })
     ).toBeNull()
+  })
+})
+
+describe("each listing's honest outcome (R87)", () => {
+  it("counts queued and running once as sending, and keeps Google's capital", () => {
+    expect(
+      countLine({
+        succeeded: 1,
+        running: 1,
+        queued: 2,
+        ambiguous: 1,
+        failed: 0,
+      })
+    ).toBe("1 sent · 3 sending to Google · 1 not confirmed: check Google")
+  })
+
+  it("names a stopped listing withdrawn", () => {
+    expect(countLine({ cancelled: 2 })).toBe("2 withdrawn")
+  })
+
+  it("shows a partial failure per listing, never as on Google, with a retry", async () => {
+    serve(() =>
+      json({
+        operation: {
+          ...running(),
+          status: "completed_with_failures",
+          counts: { succeeded: 3, failed: 1 },
+          children: [
+            child(1, { status: "succeeded", confirmationState: "confirmed" }),
+            child(2, { status: "succeeded", confirmationState: "unrecorded" }),
+            child(3, { status: "succeeded", confirmationState: "unresolved" }),
+            child(4, { status: "failed", resultCode: "readback_failed" }),
+          ],
+        } satisfies Operation,
+      })
+    )
+    renderWithProviders(<BulkOperationView operationId={base.id} />)
+    expect(
+      await screen.findByText(
+        /^Finished\. Some listings didn’t go through or aren’t confirmed/
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("1 of 4 listings confirmed on Google")
+    ).toBeInTheDocument()
+    expect(screen.getAllByText("On Google")).toHaveLength(1)
+    expect(
+      screen.getAllByText("Sent, waiting for Google").length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText("Not confirmed: check Google").length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getByRole("button", { name: "Retry sending to 1 listing" })
+    ).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/published/i)
   })
 })

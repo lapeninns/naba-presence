@@ -9,5 +9,5 @@ export default async function SettingsConnectionsPage() {
   if (!session || (session.role !== "owner" && session.role !== "admin")) {
     return <AccessDenied area="Google connections" />
   }
-  return <ConnectionsWorkspace role={session.role} />
+  return <ConnectionsWorkspace />
 }

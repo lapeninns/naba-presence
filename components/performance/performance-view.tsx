@@ -7,7 +7,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationReport } from "@/components/performance/location-report"
 import { LocationSelect } from "@/components/performance/location-select"
-import { RangeSelect } from "@/components/performance/range-select"
 import { NotInDirectory } from "@/components/performance/report-scope"
 import { useScopeLabel } from "@/components/app-shell/client-switcher"
 import {
@@ -15,6 +14,7 @@ import {
   type ReportShareTarget,
 } from "@/components/reporting/report-actions-menu"
 import {
+  ReportPeriodSegments,
   ReportPeriodStrip,
   ReportToolbar,
   reportToolbarFieldProps,
@@ -32,12 +32,10 @@ import { useClients } from "@/lib/queries/use-clients"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import {
-  formatPeriod,
   KEYWORD_RANGES,
   PRESENCE_RANGES,
   REPLY_RANGES,
   periodToWriteOnTabSwitch,
-  resolvedPeriod,
   resolveTabRange,
   type ReportTab,
 } from "@/lib/reporting/ranges"
@@ -64,13 +62,6 @@ const RANGE_OPTIONS: Record<
   reply: REPLY_RANGES,
   google: PRESENCE_RANGES,
   keywords: KEYWORD_RANGES,
-}
-
-/** The zone a period's dates are told in, as each tab tells them. */
-const PERIOD_ZONE: Record<ReportTab, string> = {
-  reply: "Europe/London",
-  google: "UTC",
-  keywords: "UTC",
 }
 
 type TabValue = (typeof TABS)[number]["value"]
@@ -194,6 +185,7 @@ export function PerformanceView({
   // so it is an owner/admin action; the API enforces the same.
   const canShare = role === "owner" || role === "admin"
   const items = clients.data?.items ?? []
+  const showSingleClientPicker = !business && items.length === 1
   const client = clientId
     ? items.find((entry) => entry.id === clientId)
     : undefined
@@ -253,16 +245,10 @@ export function PerformanceView({
 
   const rangeParams = { range: rawRange, rangeKw: rawRangeKw }
   const activePeriod = resolveTabRange(active, rangeParams)
-  // Day-precision dates, so resolving "now" on each render is stable.
-  const periodDates = formatPeriod(
-    resolvedPeriod(active, activePeriod.id),
-    PERIOD_ZONE[active]
-  )
 
-  // The app bar's scope chip is the phone's scope control, but it hides
-  // itself when there is only one client to switch between. Then the report
-  // keeps its own fields on a phone, or a client (and a location under it)
-  // could not be chosen at all.
+  // The app bar's scope control has nothing to switch between with one
+  // client, so it offers no listings under it either. Then the report keeps
+  // its Listing field on a phone, or a listing could not be chosen at all.
   const phoneScope = !business && scope.ready && !scope.visible
 
   // One location is a different report — its own figures, no client tabs —
@@ -322,19 +308,27 @@ export function PerformanceView({
   return (
     // Browser "Save as PDF": controls drop out, figures and charts stay whole.
     <div className="flex flex-col gap-(--np-gap-section) print:gap-6 print:[&_button]:hidden print:[&_figure]:break-inside-avoid print:[&_section]:break-inside-avoid">
-      {/* From `md`, one row above the tabs: the scope and the period apply to
-          the tab on screen, and picking the client per tab would let two of
-          them disagree about whose numbers are shown. On a phone the scope
-          is the app bar's chip and the period is the strip under the tabs. */}
+      {/* From `md`, one filter row above the tabs: the period, then a
+          listing filter inside the scope, then the scope in words. The client
+          is chosen in the shell's one scope control (DIRECTION §7.3), not
+          here; `?clientId=` still decides it. On a phone the period is the
+          strip under the tabs. */}
       <ReportToolbar
-        phone={phoneScope}
+        phone={
+          phoneScope &&
+          (showSingleClientPicker ||
+            (Boolean(client) && clientLocations.length > 1))
+        }
         summary={
           business
             ? [locationsPart, periodLabel]
             : [clientPart, locationsPart, periodLabel]
         }
         meta={
-          [scopeCount === null ? null : locationsPart, periodDates]
+          (business
+            ? [scopeCount === null ? null : locationsPart]
+            : [clientPart, scopeCount === null ? null : locationsPart]
+          )
             .filter(Boolean)
             .join(" · ") || undefined
         }
@@ -342,7 +336,12 @@ export function PerformanceView({
           const field = reportToolbarFieldProps()
           return (
             <>
-              {business ? null : (
+              <ReportPeriodSegments
+                value={activePeriod.id}
+                options={RANGE_OPTIONS[active]}
+                onChange={setRange(active)}
+              />
+              {showSingleClientPicker ? (
                 <ClientSelect
                   {...field}
                   clients={items}
@@ -351,10 +350,11 @@ export function PerformanceView({
                     replaceParams((params) => {
                       if (next) params.set("clientId", next)
                       else params.delete("clientId")
+                      params.delete("locationId")
                     })
                   }
                 />
-              )}
+              ) : null}
               {business || client ? (
                 <LocationSelect
                   {...field}
@@ -368,14 +368,6 @@ export function PerformanceView({
                   }
                 />
               ) : null}
-              <RangeSelect
-                {...field}
-                className="w-44 max-md:hidden"
-                value={activePeriod.id}
-                onChange={setRange(active)}
-                options={RANGE_OPTIONS[active]}
-                // The dates sit in the caption beside the fields.
-              />
             </>
           )
         }}

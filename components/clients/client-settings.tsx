@@ -5,7 +5,6 @@ import {
   CircleAlertIcon,
   Link2Icon,
   MapPinIcon,
-  PenLineIcon,
   RefreshCwIcon,
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -15,7 +14,7 @@ import * as React from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ClientColourField } from "@/components/clients/client-colour-field"
-import { ActionBar } from "@/components/ui/action-bar"
+import { ActionBar, SaveBar } from "@/components/ui/action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -141,22 +140,14 @@ function ClientSettings({ clientId }: { clientId: string }) {
               titleAs="h2"
               icon={<ArchiveIcon />}
               title="This client isn’t available"
-              description="It may have been archived. Archived clients can be restored from Clients › Archived."
+              description="It may have been archived."
               action={
-                <>
-                  <Link
-                    href="/clients?view=archived"
-                    className={cn(buttonVariants({ variant: "secondary" }))}
-                  >
-                    Archived clients
-                  </Link>
-                  <Link
-                    href="/clients"
-                    className={cn(buttonVariants({ variant: "ghost" }))}
-                  >
-                    All clients
-                  </Link>
-                </>
+                <Link
+                  href="/clients?view=archived"
+                  className={cn(buttonVariants({ variant: "secondary" }))}
+                >
+                  Archived clients
+                </Link>
               }
             />
           </Card>
@@ -383,7 +374,7 @@ function SettingsBody({
               <a
                 key={section.id}
                 href={`#${section.id}`}
-                className="flex min-h-(--np-control-h) items-center rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover:bg-fill"
+                className="flex min-h-(--np-control-h) items-center rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover-fine:hover:bg-fill"
               >
                 {section.label}
               </a>
@@ -558,8 +549,8 @@ function SettingsBody({
                   title="No listings filed here"
                   description={
                     unassigned.length > 0
-                      ? "Pick one from Unfiled listings below, or bring new ones in from Google."
-                      : "There are no unfiled listings to add. Bring this client’s listings in from Google."
+                      ? "Pick one from Unfiled listings below."
+                      : "Bring its listings in from Google first."
                   }
                 />
               </Card>
@@ -648,6 +639,7 @@ function SettingsBody({
                     under the list on a desk. Only there while something is
                     picked. */}
                 <ActionBar
+                  tone="surface"
                   dock
                   visible={selected.size > 0}
                   label="Unfiled listing actions"
@@ -656,7 +648,7 @@ function SettingsBody({
                   actions={
                     <>
                       <Button
-                        variant="ghost-dark"
+                        variant="ghost"
                         size="sm"
                         disabled={assignLocations.isPending}
                         onClick={() => setSelected(new Set())}
@@ -809,7 +801,7 @@ async function undoArchive(
       }
     }
   }
-  return { type: "success", title: `${name} restored` }
+  return { type: "neutral", title: `${name} restored` }
 }
 
 /**
@@ -894,6 +886,8 @@ function ArchiveSection({
   // Its own, not the shared update mutation's: a details save must not
   // relabel this button "Archiving…".
   const [archiving, setArchiving] = React.useState(false)
+  const [confirming, setConfirming] = React.useState(false)
+  const unfiles = attached?.length ?? 0
 
   const archive = async () => {
     setError(null)
@@ -935,14 +929,15 @@ function ArchiveSection({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          {/* One step: archiving is reversible, so it acts at once and the
-              toast carries the Undo. */}
+          {/* An empty client archives at once, with Undo in the toast: a
+              restore from Archived brings all of it back. With listings it
+              asks first, since only that Undo files them back again. */}
           <SettingsDestructiveAction
             // A long client name wraps instead of pushing the card wider;
             // the negative start margin lines its label up with the text.
             className="-ms-4 h-auto justify-start py-2 text-start [overflow-wrap:anywhere]"
             disabled={attached === null || busy || archiving}
-            onClick={() => void archive()}
+            onClick={() => (unfiles > 0 ? setConfirming(true) : void archive())}
             footnote={
               attached === null ? (
                 listingsFailed ? (
@@ -967,6 +962,46 @@ function ArchiveSection({
           >
             {archiving ? "Archiving…" : `Archive ${client.name}`}
           </SettingsDestructiveAction>
+          <AlertDialog
+            open={confirming}
+            onOpenChange={(open) => {
+              if (!archiving) setConfirming(open)
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogTitle className="[overflow-wrap:anywhere]">
+                Archive {client.name}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {unfiles === 1
+                  ? "Its listing is unfiled. It keeps its Google link and reviews."
+                  : `Its ${formatNumber(unfiles)} listings are unfiled. They keep their Google link and reviews.`}{" "}
+                Undo, straight after, files {unfiles === 1 ? "it" : "them"}{" "}
+                back; a later restore from Archived does not. Nothing changes on
+                Google.
+              </AlertDialogDescription>
+              <AlertDialogFooter>
+                <AlertDialogClose
+                  render={
+                    <Button variant="ghost" disabled={archiving}>
+                      Cancel
+                    </Button>
+                  }
+                />
+                <Button
+                  variant="danger"
+                  pending={archiving}
+                  pendingLabel="Archiving…"
+                  onClick={async () => {
+                    await archive()
+                    setConfirming(false)
+                  }}
+                >
+                  Archive and unfile
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </CardContent>
       </Card>
     </section>
@@ -1148,18 +1183,12 @@ function ClientDetailsForm({
       {/* Only once there is something to save. Docked to a phone's bottom
           edge (the tab bar steps aside and the bar rides the keyboard);
           stuck to the foot of the form on a desk. */}
-      <ActionBar
+      <SaveBar
         dock
-        tone="surface"
         visible={dirty}
         offset="md:bottom-3"
         label="Save client details"
-        status={
-          <>
-            <PenLineIcon aria-hidden />
-            <span>{pending ? "Saving…" : "Unsaved changes"}</span>
-          </>
-        }
+        saving={pending}
         actions={
           <>
             <Button
@@ -1187,28 +1216,88 @@ function ClientDetailsForm({
   )
 }
 
+/**
+ * The settings body's loading shape: the section rail from @3xl, then the
+ * Details card (title, line, divider, three fields) and the Listings
+ * heading over its table. The route's own `loading.tsx` draws it under a
+ * header outline, so the hub-shaped skeleton never shows first. The
+ * loading words are for screen readers only, as in the hub's.
+ */
 function SettingsSkeleton() {
   return (
     <div className="flex flex-col gap-6" aria-busy="true">
-      <p role="status" className="text-ui text-ink-muted">
+      <p role="status" className="sr-only">
         Loading this client’s settings…
       </p>
-      <Card>
-        <CardContent className="flex flex-col gap-3.5">
-          <Skeleton className="h-4 w-1/4" />
-          <Skeleton className="h-9" />
-          <Skeleton className="h-24" />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="flex flex-col gap-3.5">
-          <Skeleton className="h-4 w-1/3" />
-          <Skeleton className="h-5" />
-          <Skeleton className="h-5" />
-        </CardContent>
-      </Card>
+      <div
+        aria-hidden
+        className="flex flex-col gap-6 @3xl:flex-row @3xl:items-start"
+      >
+        <div className="hidden @3xl:flex @3xl:w-52 @3xl:shrink-0 @3xl:flex-col @3xl:gap-0.5 @3xl:pt-4">
+          {["w-16", "w-20", "w-16"].map((width, index) => (
+            <div
+              key={index}
+              className="flex min-h-(--np-control-h) items-center px-2.5"
+            >
+              <Skeleton className={cn("h-4", width)} />
+            </div>
+          ))}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <Card flush>
+            <div className="flex flex-col gap-2 border-b border-line p-(--np-card-pad)">
+              <Skeleton className="h-5 w-20" />
+              <Skeleton className="h-4 w-72 max-w-full" />
+            </div>
+            <div className="flex flex-col gap-5 p-(--np-card-pad)">
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-(--np-field-h) rounded-(--np-radius-control) max-md:h-(--np-touch)" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-28" />
+                <div className="flex gap-2">
+                  {[0, 1, 2, 3, 4, 5, 6].map((index) => (
+                    <Skeleton
+                      key={index}
+                      className="size-8 shrink-0 rounded-(--np-radius-control) pointer-coarse:size-11"
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-24 rounded-(--np-radius-control)" />
+              </div>
+            </div>
+          </Card>
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-6 w-24" />
+            <Skeleton className="h-4 w-64 max-w-full" />
+            <Skeleton className="h-32 rounded-(--np-radius-card)" />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
 
-export { ClientSettings }
+/**
+ * The settings header's outline for the route's `loading.tsx`, where the
+ * client's name is not known yet: eyebrow, title, description, and the
+ * desk's Back button.
+ */
+function SettingsHeaderSkeleton() {
+  return (
+    <div aria-hidden className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 grow basis-90 flex-col gap-1">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-6 w-96 max-w-full" />
+      </div>
+      <Skeleton className="h-(--np-control-h) w-36 rounded-(--np-radius-control) max-md:hidden" />
+    </div>
+  )
+}
+
+export { ClientSettings, SettingsHeaderSkeleton, SettingsSkeleton }

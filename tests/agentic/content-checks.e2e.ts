@@ -50,8 +50,9 @@ describe(
         await expect(acknowledgement).not.toBeChecked()
         await expect(composer.getByText(/repeated punctuation/)).toBeVisible()
 
-        // A second attempt without consent must still stay in the composer.
-        await save.click()
+        // Without consent a second save would only be refused again, so the
+        // composer holds it until the tick (R161) and stays open.
+        await expect(save).toBeDisabled()
         await expect(composer).toBeVisible()
         await expect(acknowledgement).not.toBeChecked()
 

@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test"
 
+import { openProfileSectionOnPhone } from "./helpers/profile-section"
 import { profileLoadedFromGoogle } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
 
@@ -47,6 +48,7 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 })
     await page.emulateMedia({ forcedColors: "active" })
     await page.goto(`/listings/${state.primaryLocationId}/profile`)
+    await openProfileSectionOnPhone(page, "Identity")
     await profileLoadedFromGoogle(page)
     expect(
       await page.evaluate(() => matchMedia("(forced-colors: active)").matches)
@@ -62,8 +64,13 @@ for (const width of [390, 1280]) {
     // Keyboard activation must reach the actual group heading, rather than
     // leaving a passing ring on the navigation link that initiated the jump.
     for (const name of ["Identity", "Categories", "Contact"]) {
-      await nav.getByRole("link", { name, exact: true }).focus()
-      await page.keyboard.press("Enter")
+      if (width === 390)
+        await nav
+          .getByRole("link", { name: "All sections", exact: true })
+          .click()
+      await nav
+        .getByRole(width === 390 ? "button" : "link", { name, exact: true })
+        .press("Enter")
       const heading = page.locator(`#section-${name.toLowerCase()}-heading`)
       await focusOutline(heading)
       const strip = await nav.boundingBox()
@@ -90,6 +97,14 @@ for (const width of [390, 1280]) {
           height: 1,
         })
       }
+    }
+    if (width === 390) {
+      await nav
+        .getByRole("link", { name: "All sections", exact: true })
+        .press("Enter")
+      await nav
+        .getByRole("button", { name: "Categories", exact: true })
+        .press("Enter")
     }
     const additional = page.getByText("Additional categories", { exact: true })
     await additional.focus()
@@ -157,7 +172,7 @@ for (const width of [390, 1280]) {
       )
     }
     const showUndo = page.getByRole("button", {
-      name: "Local · Undo",
+      name: "Neutral · Undo",
       exact: true,
     })
     await showUndo.focus()
@@ -173,7 +188,7 @@ for (const width of [390, 1280]) {
     await focusOutline(close, 2)
     await close.click()
     await page
-      .getByRole("button", { name: "Google write · phases", exact: true })
+      .getByRole("button", { name: "Success · Google phases", exact: true })
       .focus()
     await page.keyboard.press("Enter")
     const link = page.locator('[data-slot="toast-link"]')
@@ -196,8 +211,14 @@ test("Identity stays quiet after emulated touch, reveals for keyboard, and hides
     const page = await context.newPage()
     const state = await signIn(page, baseURL)
     await page.goto(`${baseURL}/listings/${state.primaryLocationId}/profile`)
-    await profileLoadedFromGoogle(page)
     const nav = page.getByRole("navigation", { name: "Profile sections" })
+    const identity = nav.getByRole("button", { name: "Identity", exact: true })
+    const allSections = nav.getByRole("link", {
+      name: "All sections",
+      exact: true,
+    })
+    await identity.tap()
+    await profileLoadedFromGoogle(page)
     const heading = page.locator("#section-identity-heading")
     const quiet = async () => {
       expect(await heading.boundingBox()).toMatchObject({ width: 1, height: 1 })
@@ -206,12 +227,14 @@ test("Identity stays quiet after emulated touch, reveals for keyboard, and hides
       ).toBe(false)
     }
     await quiet()
-    await nav.getByRole("link", { name: "Categories", exact: true }).tap()
-    await nav.getByRole("link", { name: "Identity", exact: true }).tap()
+    await allSections.tap()
+    await nav.getByRole("button", { name: "Categories", exact: true }).tap()
+    await allSections.tap()
+    await identity.tap()
     await expect(heading).toBeFocused()
     await quiet()
-    await nav.getByRole("link", { name: "Identity", exact: true }).focus()
-    await page.keyboard.press("Enter")
+    await allSections.tap()
+    await identity.press("Enter")
     await expect(heading).toBeFocused()
     await expect
       .poll(async () => (await heading.boundingBox())!.width)
@@ -289,6 +312,7 @@ test("filling the ninth additional category returns keyboard focus to its stable
     })
   )
   await page.goto(`/listings/${state.primaryLocationId}/profile`)
+  await openProfileSectionOnPhone(page, "Categories")
   const opener = page.getByRole("button", {
     name: "Add another category",
     exact: true,

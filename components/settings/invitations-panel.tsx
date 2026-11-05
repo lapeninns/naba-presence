@@ -137,7 +137,7 @@ async function copyInviteLink(url: string, toast: Toasts) {
     toast.add({
       title: "Invite link copied",
       description: "Send it to them. It works once and expires after 7 days.",
-      type: "success",
+      type: "info",
     })
   } catch {
     toast.add({
@@ -193,7 +193,7 @@ async function shareInviteLink(url: string, toast: Toasts) {
     toast.add({
       title: "Invite link copied",
       description: "Send it to them. It works once and expires after 7 days.",
-      type: "success",
+      type: "info",
     })
   } else if (outcome === "failed") {
     toast.add({
@@ -308,14 +308,14 @@ function CreatedInvite({
   return (
     <div className="flex flex-col gap-3" data-testid="invite-created">
       {!emailed ? (
-        <Alert variant="success">
+        <Alert variant="info">
           <AlertTitle>Invitation ready</AlertTitle>
           <AlertDescription className="[overflow-wrap:anywhere]">
             {who} Send them this link. It works once and expires after 7 days.
           </AlertDescription>
         </Alert>
       ) : status === "sent" ? (
-        <Alert variant="success">
+        <Alert variant="info">
           <AlertTitle>Invitation emailed</AlertTitle>
           <AlertDescription className="[overflow-wrap:anywhere]">
             {who} We emailed them the link. It works once and expires after 7
@@ -807,10 +807,16 @@ export function InviteDialog({
   actorRole,
   open,
   onOpenChange,
+  finalFocus,
 }: {
   actorRole: MemberRole
   open: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * Where focus goes when it closes; by default, back to what opened it.
+   * Pass it when nothing opened it (`#invite` in the address).
+   */
+  finalFocus?: React.RefObject<HTMLElement | null>
 }) {
   const emailDelivery = useEmailDelivery()
   // Typed-in entries guard an accidental dismissal (a swipe down on the
@@ -832,7 +838,11 @@ export function InviteDialog({
           "What you entered hasn’t been sent. Nobody is invited until you create the invitation.",
       }}
     >
-      <DialogContent size="wide" className="grid-cols-[minmax(0,1fr)]">
+      <DialogContent
+        size="wide"
+        className="grid-cols-[minmax(0,1fr)]"
+        finalFocus={finalFocus}
+      >
         <DialogHeader>
           <DialogTitle>Invite a teammate</DialogTitle>
           <DialogDescription>
@@ -981,7 +991,7 @@ function invitationScope(invitation: Invitation, business: boolean): string {
 /** What the invitation lets them publish, as its row's pill. */
 function invitationPublishing(invitation: Invitation): {
   label: string
-  tone: "neutral" | "ok"
+  tone: "neutral"
   dashed?: boolean
   plain?: boolean
 } {
@@ -992,7 +1002,7 @@ function invitationPublishing(invitation: Invitation): {
     invitation.role === "owner" ||
     invitation.role === "admin"
   )
-    return { label: "Can publish", tone: "ok" }
+    return { label: "Can publish", tone: "neutral" }
   return { label: "Drafts only", tone: "neutral", dashed: true }
 }
 
@@ -1035,7 +1045,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
           description: view.detail,
           type:
             delivery.status === "sent" || delivery.status === "pending"
-              ? "success"
+              ? "info"
               : "error",
         })
       },
@@ -1053,7 +1063,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
         description: email
           ? `The link for ${email} no longer works.`
           : undefined,
-        type: "success",
+        type: "info",
       })
     },
     onError: (error) =>
@@ -1078,7 +1088,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
             <Empty
               icon={<Mail />}
               title="No pending invitations"
-              description="Invite a teammate to give them access. Accepted invitations move to Members."
+              description="Accepted invitations move to Members."
               action={
                 onInvite ? (
                   <Button variant="secondary" onClick={onInvite}>

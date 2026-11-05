@@ -463,6 +463,10 @@ describe("InvitationsPanel", () => {
     )
     expect(writeText).toHaveBeenCalledTimes(1)
     expect(await screen.findByText("Invite link copied")).toBeInTheDocument()
+    expect(document.querySelector("[data-slot=toast]")).toHaveAttribute(
+      "data-type",
+      "info"
+    )
   })
 
   it("does nothing more when the share sheet is closed", async () => {
@@ -844,6 +848,11 @@ describe("InvitationsPanel", () => {
       )
       await user.click(screen.getByRole("button", { name: "Send invitation" }))
       expect(await screen.findByText("Invitation emailed")).toBeInTheDocument()
+      // Created here, not confirmed on Google: no green.
+      expect(
+        screen.getByText("Invitation emailed").closest("[data-slot=alert]")!
+          .className
+      ).not.toMatch(/success/)
     })
   })
 })
@@ -1079,5 +1088,14 @@ describe("re-inviting an address", () => {
     expect(
       screen.queryByText(/An expired invitation for this address/)
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("InvitationsPanel empty", () => {
+  it("says what happens to an invitation in one short sentence", () => {
+    renderPanel([])
+    expect(screen.getByText("No pending invitations")).toBeInTheDocument()
+    const line = screen.getByText("Accepted invitations move to Members.")
+    expect(line.textContent!.length).toBeLessThanOrEqual(44)
   })
 })

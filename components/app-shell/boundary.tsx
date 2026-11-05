@@ -21,14 +21,17 @@ type BoundaryButtonSize = "default" | "lg"
 // buttonVariants (components/ui/button.tsx) resolved for the variants the
 // boundaries use, without the class-merging machinery.
 const BUTTON_BASE =
-  "relative inline-flex shrink-0 items-center justify-center gap-2 rounded-(--np-radius-control) border leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-[background-color,border-color,color,box-shadow,transform] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:not-disabled:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-progress [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+  "relative inline-flex shrink-0 items-center justify-center gap-2 rounded-(--np-radius-control) border leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-[background-color,border-color,color,box-shadow,transform] duration-(--np-duration-fast) ease-press select-none focus-visible:outline-none active:not-disabled:translate-y-px disabled:pointer-events-none drawn-disabled:cursor-not-allowed aria-busy:cursor-progress [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
 
+// Disabled is drawn with the --np-disabled-* roles as Button draws it,
+// never with opacity.
 const BUTTON_VARIANT: Record<BoundaryButtonVariant, string> = {
   primary:
-    "border-transparent bg-primary text-primary-foreground hover:not-disabled:bg-accent-hover",
-  outline: "border-line-strong bg-surface text-ink hover:not-disabled:bg-fill",
+    "border-transparent bg-primary text-primary-foreground hover-fine:hover:not-disabled:bg-ink-hover drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
+  outline:
+    "border-line-strong bg-surface text-ink hover-fine:hover:not-disabled:bg-fill drawn-disabled:border-disabled-line drawn-disabled:bg-disabled drawn-disabled:text-disabled-ink",
   ghost:
-    "border-transparent bg-transparent text-ink hover:not-disabled:bg-fill",
+    "border-transparent bg-transparent text-ink hover-fine:hover:not-disabled:bg-fill drawn-disabled:text-disabled-ink",
 }
 
 const BUTTON_SIZE: Record<BoundaryButtonSize, string> = {
@@ -250,12 +253,38 @@ function BoundaryAlert({
   )
 }
 
+/**
+ * After a boundary's retry succeeds the boundary unmounts, and focus on its
+ * Try again button falls to <body>. Hand it to the recovered page the way a
+ * navigation does: the first drawn h1 in #main, else #main itself.
+ */
+function focusRecoveredPage() {
+  window.requestAnimationFrame(() => {
+    const active = document.activeElement
+    if (active && active !== document.body && active.isConnected) return
+    const main = document.getElementById("main")
+    if (!main) return
+    const headings = [...main.querySelectorAll<HTMLElement>("h1")]
+    const heading =
+      headings.find((h) => h.getClientRects().length > 0) ?? headings[0]
+    if (heading) {
+      if (!heading.hasAttribute("tabindex")) {
+        heading.setAttribute("tabindex", "-1")
+        heading.classList.add("outline-none")
+      }
+      heading.focus({ preventScroll: true })
+    }
+    if (document.activeElement !== heading) main.focus({ preventScroll: true })
+  })
+}
+
 export {
   BoundaryAlert,
   BoundaryCode,
   BoundaryErrorState,
   BoundaryFrame,
   boundaryButtonClass,
+  focusRecoveredPage,
   NOT_FOUND_DESCRIPTION,
   NOT_FOUND_TITLE,
   notFoundActionLabel,

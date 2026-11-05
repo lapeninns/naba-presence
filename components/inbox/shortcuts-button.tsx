@@ -20,6 +20,9 @@ function ShortcutsButton() {
         type="button"
         variant="ghost"
         aria-haspopup="dialog"
+        // The visible key cap is hidden from the name; this is how a screen
+        // reader learns that `?` opens the same dialog.
+        aria-keyshortcuts="?"
         onClick={() => window.dispatchEvent(new Event(SHORTCUTS_OPEN_EVENT))}
       >
         <KeyboardIcon aria-hidden data-icon="inline-start" />

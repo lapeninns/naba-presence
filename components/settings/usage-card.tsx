@@ -20,8 +20,20 @@ import { useAiCredits, useAiCreditsDaily } from "@/lib/queries/use-ai-credits"
  * Replies written by hand are free and are not counted here. An unknown
  * allowance is said in words, never shown as zero. The bars are a picture
  * of the busiest day said in words beside them: nothing is only in a hover
- * tooltip, which a phone can't reach.
+ * tooltip, which a phone can't reach. The last tenth of the allowance is
+ * called out before it runs out, with what happens then.
  */
+function nearLimit(data: {
+  allowance: number | null
+  remaining: number | null
+}) {
+  if (data.allowance === null || data.remaining === null) return false
+  return (
+    data.remaining > 0 &&
+    data.remaining <= Math.max(1, Math.ceil(data.allowance / 10))
+  )
+}
+
 export function UsageCard() {
   const credits = useAiCredits()
   const daily = useAiCreditsDaily()
@@ -36,6 +48,7 @@ export function UsageCard() {
   const exhausted = data
     ? data.remaining !== null && data.remaining <= 0
     : false
+  const low = data ? nearLimit(data) : false
   const noun = creditPeriodNoun(data?.periodKind ?? null)
   // A failed load says only that, with its retry: the per-day empty line and
   // bars would state "no replies yet" as a fact we could not check.
@@ -80,11 +93,33 @@ export function UsageCard() {
             >
               {describeCreditsLeft(data)}
             </p>
-          ) : data.periodEnd ? (
-            <p className="m-0 text-caption text-ink-muted">
-              Credits reset on {formatResetDate(data.periodEnd)}.
-            </p>
-          ) : null}
+          ) : (
+            <>
+              {low ? (
+                <p
+                  data-slot="usage-near-limit"
+                  className="m-0 text-caption text-warning-ink"
+                >
+                  {data.remaining === 1
+                    ? "1 credit"
+                    : `${data.remaining} credits`}{" "}
+                  left {noun}. When they run out, AI drafting stops
+                  {data.periodEnd
+                    ? ` until ${formatResetDate(data.periodEnd)}`
+                    : ""}
+                  ; writing a reply yourself still works.
+                </p>
+              ) : null}
+              {data.periodEnd ? (
+                <p className="m-0 text-caption text-ink-muted">
+                  {data.periodStart
+                    ? `Counted since ${formatResetDate(data.periodStart)}. `
+                    : null}
+                  Credits reset on {formatResetDate(data.periodEnd)}.
+                </p>
+              ) : null}
+            </>
+          )}
         </>
       ) : data ? (
         <p data-slot="usage-unavailable" className="m-0 text-body text-ink">

@@ -1,6 +1,6 @@
 "use client"
 
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import {
   Sheet,
   SheetBody,
@@ -10,7 +10,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { ReviewedWriteSteps, type ReviewedWriteStage } from "./steps"
+import {
+  ReviewedWriteSteps,
+  type ReviewedWriteStage,
+  type ReviewedWriteStepsOptions,
+} from "./steps"
 
 /**
  * A reviewed write that interrupts an editor (lodging, services, place
@@ -20,6 +24,10 @@ import { ReviewedWriteSteps, type ReviewedWriteStage } from "./steps"
  *
  * Calm, words-first: the title in `text-title`, the description muted, the
  * steps under them. The body's own sections draw their hairlines.
+ *
+ * A sheet opened from state has no trigger for the dialog to hand focus back
+ * to, so it can fall to the page on close; pass `finalFocus` (usually from
+ * `useOpenerFocus`) to say where it goes.
  */
 export function ReviewedWriteSheet({
   open,
@@ -28,7 +36,10 @@ export function ReviewedWriteSheet({
   description,
   stage,
   secondApprover,
+  sending,
+  outcome,
   footer,
+  finalFocus,
   children,
 }: {
   readonly open: boolean
@@ -37,19 +48,32 @@ export function ReviewedWriteSheet({
   readonly description?: ReactNode
   readonly stage?: ReviewedWriteStage
   readonly secondApprover?: boolean
+  readonly sending?: ReviewedWriteStepsOptions["sending"]
+  readonly outcome?: ReviewedWriteStepsOptions["outcome"]
   readonly footer: ReactNode
+  /** Where focus goes once the sheet has closed (Base UI `finalFocus`). */
+  readonly finalFocus?: ComponentProps<typeof SheetContent>["finalFocus"]
   readonly children: ReactNode
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" size="wide" className="flex flex-col gap-0">
+      <SheetContent
+        side="right"
+        size="wide"
+        className="flex flex-col gap-0"
+        finalFocus={finalFocus}
+      >
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
-          {description ? <SheetDescription>{description}</SheetDescription> : null}
+          {description ? (
+            <SheetDescription>{description}</SheetDescription>
+          ) : null}
           {stage ? (
             <ReviewedWriteSteps
               stage={stage}
               secondApprover={secondApprover}
+              sending={sending}
+              outcome={outcome}
               className="mt-2"
             />
           ) : null}

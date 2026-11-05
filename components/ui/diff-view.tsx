@@ -23,10 +23,11 @@ export type DiffRow = {
  * (reference `.diff`).
  *
  * Three columns — the field, "On Google now", "After publishing" — in a
- * bordered card with a sunken header row. The old value sits on the danger
- * tint struck through; the new value on the success tint in semibold. An
- * unchanged row carries neither. The words "Not set" and "Cleared" say what
- * an empty cell means, so the tint is never the only signal.
+ * bordered card with a flat header (D5: medium muted labels over a 1px rule,
+ * no band). The old value sits on the danger tint struck through; the new
+ * value on the success tint in semibold. An unchanged row carries neither.
+ * The words "Not set" and "Cleared" say what an empty cell means, so the
+ * tint is never the only signal.
  *
  * Still a real table, so a screen reader announces "Phone, On Google now,
  * 01223 277 217" instead of leaving the pairing to the listener. When its
@@ -61,10 +62,9 @@ function DiffView({
   className?: string
 }) {
   const flat = variant === "flat"
-  const headCell = cn(
-    "border-b border-line px-3 py-2.5 text-left text-caption text-ink-muted",
-    flat ? "font-medium" : "bg-surface-alt font-semibold"
-  )
+  // One flat header for both variants, like every other table (D5).
+  const headCell =
+    "border-b border-line px-3 py-2.5 text-left text-caption font-medium text-ink-muted"
   return (
     <div
       data-slot="diff-view"
@@ -141,7 +141,9 @@ function DiffView({
                     changed ? (
                       <del
                         className={
-                          flat ? "decoration-ink-muted" : "decoration-danger-ink"
+                          flat
+                            ? "decoration-ink-muted"
+                            : "decoration-danger-ink"
                         }
                       >
                         {row.before}

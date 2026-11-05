@@ -3,7 +3,6 @@ import { notFound } from "next/navigation"
 import { AccessDenied } from "@/components/app-shell/access-denied"
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { PrivacySettings } from "@/components/settings/privacy-settings"
-import { SettingsNav } from "@/components/settings/settings-nav"
 import { withTenant } from "@/lib/server/db"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { getSession } from "@/lib/server/session"
@@ -30,7 +29,6 @@ export default async function SettingsPrivacyPage() {
       <PageHeader
         title="Data and privacy"
         description="Requests from reviewers about their data, legal holds, subject exports and how long review content is kept."
-        tabs={<SettingsNav role={session.role} />}
       />
       <PrivacySettings access={privacyAccessFromRole(session.role, enabled)} />
     </>

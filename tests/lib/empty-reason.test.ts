@@ -36,6 +36,18 @@ describe("emptyReason", () => {
     ).toBe("filtered")
   })
 
+  it("says nothing is shared with someone who cannot add clients", () => {
+    expect(emptyReason(facts({ noClients: true, noAccess: true }))).toBe(
+      "no_access"
+    )
+    // A filter set by the person still names the filter first.
+    expect(
+      emptyReason(
+        facts({ noClients: true, noAccess: true, hasActiveFilters: true })
+      )
+    ).toBe("filtered")
+  })
+
   it("says it does not know rather than guessing, before clients load", () => {
     // The reassuring guess — "no reviews yet" — is the one thing that must not
     // happen here: nothing has been asked, so nothing can be asserted.

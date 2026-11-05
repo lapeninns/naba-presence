@@ -1,12 +1,20 @@
-import { fireEvent, render, screen, within } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type * as React from "react"
 import type { ComponentProps } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const followed = vi.hoisted(() => vi.fn())
+const push = vi.hoisted(() => vi.fn())
 vi.mock("next/navigation", () => ({
   usePathname: () => "/listings/l1/profile",
+  useRouter: () => ({ push }),
 }))
 vi.mock("next/link", () => ({
   default: ({ href, children, onClick, ...props }: ComponentProps<"a">) => (
@@ -15,6 +23,8 @@ vi.mock("next/link", () => ({
       href={href}
       onClick={(event) => {
         onClick?.(event)
+        // As next/link: a click someone already prevented does not navigate.
+        if (event.defaultPrevented) return
         followed(href)
         event.preventDefault()
       }}
@@ -231,11 +241,27 @@ describe("mobile listing area navigation", () => {
       screen.getByRole("dialog", { name: "Leave without saving?" })
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }))
+    // The menu closed with the choice: left open, a phone's menu sheet would
+    // sit over the prompt and take every tap.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menuitem", { name: "Opening hours" })
+      ).toBeNull()
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "Business profile" })
+    )
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "Opening hours" })
     )
     fireEvent.click(screen.getByRole("button", { name: "Leave and discard" }))
-    expect(followed).toHaveBeenCalledExactlyOnceWith("/listings/l1/hours")
+    // Still client-side: the held link is followed, or the router makes the
+    // same move once the closed menu has taken the link off the page.
+    await waitFor(() =>
+      expect([...followed.mock.calls, ...push.mock.calls]).toEqual([
+        ["/listings/l1/hours"],
+      ])
+    )
   })
   it("keeps a readable area reachable when publishing is blocked for the role", async () => {
     render(<Header role="viewer" publishBlocked />)
@@ -258,10 +284,14 @@ describe("mobile listing area navigation", () => {
         '[data-slot="listing-header-activity"]'
       )!
     )
-    expect(
-      await screen.findByRole("dialog", { name: "Recent activity" })
-    ).toBeInTheDocument()
+    const dialog = await screen.findByRole("dialog", {
+      name: "Recent activity",
+    })
     expect(historyMounted).toHaveBeenCalled()
+    // Read-only rows: the scrolling body is the keyboard's way to scroll.
+    expect(
+      within(dialog).getByRole("region", { name: "Activity history" })
+    ).toHaveAttribute("tabindex", "0")
   })
   it("opens Activity from the phone's overflow menu, fetching history only then", async () => {
     const summary = {

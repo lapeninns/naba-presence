@@ -502,11 +502,14 @@ test.describe("team roles", () => {
     // SET-02: one row (name, the full email, the role chip and its line),
     // not the record card (about 178px). Measured on the whole list item,
     // footer included: 132px at 390.
-    const box = await list
+    const memberItem = list
       .getByRole("listitem")
       .filter({ has: page.getByRole("button", { name: rowName }) })
-      .boundingBox()
-    expect(box!.height).toBeLessThanOrEqual(140)
+    await expect
+      .poll(async () => (await memberItem.boundingBox())?.height ?? Infinity, {
+        message: "The complete phone member row is at most 140px tall",
+      })
+      .toBeLessThanOrEqual(140)
     await expect(list.getByText("All clients · Drafts only")).toBeVisible()
     await expect(page.getByRole("table", { name: "Members" })).toHaveCount(0)
 

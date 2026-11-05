@@ -106,14 +106,17 @@ describe("BulkCompose content warnings (S4)", () => {
     // Not a failure: no error is shown beside the batch.
     expect(screen.queryByRole("alert")).toBeNull()
 
-    // Without the acknowledgement the preview is refused again.
-    await user.click(
-      screen.getByRole("button", { name: "Preview this change" })
+    // Without the acknowledgement the server would only refuse again, so
+    // the preview waits for the tick and says why.
+    const previewButton = screen.getByRole("button", {
+      name: "Preview this change",
+    })
+    expect(previewButton).toHaveAttribute("aria-disabled", "true")
+    expect(previewButton).toHaveAccessibleDescription(
+      /Acknowledge the content warnings first/
     )
-    await vi.waitFor(() => expect(previewBodies()).toHaveLength(2))
-    expect(previewBodies()[1].items[0].post).not.toHaveProperty(
-      "contentWarningAcknowledgement"
-    )
+    await user.click(previewButton)
+    expect(previewBodies()).toHaveLength(1)
 
     await user.click(
       screen.getByRole("checkbox", {
@@ -123,8 +126,8 @@ describe("BulkCompose content warnings (S4)", () => {
     await user.click(
       screen.getByRole("button", { name: "Preview this change" })
     )
-    await vi.waitFor(() => expect(previewBodies()).toHaveLength(3))
-    expect(previewBodies()[2].items[0]).toEqual({
+    await vi.waitFor(() => expect(previewBodies()).toHaveLength(2))
+    expect(previewBodies()[1].items[0]).toEqual({
       operation: "post_draft",
       post: {
         topicType: "STANDARD",

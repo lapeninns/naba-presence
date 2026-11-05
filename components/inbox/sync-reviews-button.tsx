@@ -1,6 +1,6 @@
 "use client"
 
-import { RefreshCwIcon } from "lucide-react"
+import { RefreshCwIcon, RotateCwIcon } from "lucide-react"
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -82,17 +82,56 @@ function retryAfterMinutes(error: ApiClientError) {
 }
 
 /**
+ * Reloads the list and its counts from NabaPresence, for the people who may
+ * not ask Google (members and viewers): without it the only way to see a
+ * colleague's reply land was reloading the page. Asks nothing of Google.
+ */
+function RefreshReviewsButton() {
+  const queryClient = useQueryClient()
+  const [pending, setPending] = useState(false)
+  async function run() {
+    setPending(true)
+    try {
+      await Promise.all([
+        queryClient.refetchQueries({
+          queryKey: queryKeys.reviewsAll,
+          type: "active",
+        }),
+        queryClient.refetchQueries({
+          queryKey: queryKeys.reviewCountsAll,
+          type: "active",
+        }),
+      ])
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <Button
+      variant="ghost"
+      onClick={() => void run()}
+      pending={pending}
+      pendingLabel={<span className="sr-only">Refreshing…</span>}
+      className="min-w-(--np-touch) rounded-full px-0"
+    >
+      <RotateCwIcon aria-hidden data-icon="inline-start" />
+      <span className="sr-only">Refresh reviews</span>
+    </Button>
+  )
+}
+
+/**
  * Pulls the newest reviews from Google for this organisation.
  *
- * Owners and admins only: the reconcile route refuses everyone else. A lock
- * already held by the scheduled check comes back as `skipped`, which is not
- * a failure.
+ * Owners and admins only: the reconcile route refuses everyone else, who get
+ * a refresh of what NabaPresence already has instead. A lock already held by
+ * the scheduled check comes back as `skipped`, which is not a failure.
  */
 export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
   const queryClient = useQueryClient()
   const toasts = useToastManager()
   const [pending, setPending] = useState(false)
-  if (!canSync) return null
+  if (!canSync) return <RefreshReviewsButton />
 
   // Failures go where success goes: a toast that dismisses itself, rather
   // than a caption under the icon that stayed until the next sync. "Try
@@ -193,16 +232,21 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         before !== undefined && after !== undefined
           ? Math.max(0, after - before)
           : null
+      // A listing that could not be checked may hold new reviews, so the
+      // title never says "up to date" or "synced" for the whole scope then.
+      const unfinished = Boolean(failure && someChecked)
       const found: { title: string; description: string | undefined } =
         added === null
           ? partialNote
             ? { title: "Reviews partly synced", description: partialNote }
-            : { title: "Reviews synced", description: undefined }
+            : unfinished
+              ? { title: "Reviews partly synced", description: undefined }
+              : { title: "Reviews synced", description: undefined }
           : added === 0
             ? partialNote
               ? { title: "No new reviews so far", description: partialNote }
               : {
-                  title: "Up to date",
+                  title: unfinished ? "No new reviews so far" : "Up to date",
                   description:
                     "Google has no newer reviews for the listings checked.",
                 }

@@ -238,6 +238,89 @@ describe("ListingsBoard", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("wears each waiting item's lifecycle state: saved here is neutral, approval amber, a failed send red", () => {
+    stub({
+      entries,
+      summaries: [
+        summary({
+          locationId: "l1",
+          profile: { status: "core_dirty", dirtyCount: 2, observedAt: null },
+          posts: {
+            ...emptyListingSummary({
+              locationId: "l1",
+              linked: true,
+              verified: true,
+            }).posts,
+            awaitingApproval: 1,
+            failed: 1,
+          },
+        }),
+        summary({
+          locationId: "l2",
+          suggestions: { profile: 1, foodMenus: 0 },
+        }),
+        summary({ locationId: "l3" }),
+      ],
+    })
+    render(<ListingsBoard role="owner" />)
+    const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
+    const pill = (row: HTMLElement, text: string) =>
+      within(row).getByText(text).closest("[data-slot=status-pill]")
+    expect(pill(crown, "2 changes to publish")).toHaveAttribute(
+      "data-state",
+      "saved_locally"
+    )
+    expect(pill(crown, "1 post awaiting approval")).toHaveAttribute(
+      "data-tone",
+      "attention"
+    )
+    // Once in the desk pills and once in the phone row's figure.
+    for (const failed of within(crown).getAllByText("Failed: retry"))
+      expect(failed.closest("[data-slot=status-pill]")).toHaveAttribute(
+        "data-tone",
+        "at-risk"
+      )
+    const harbour = screen.getByRole("row", { name: /Harbour View/ })
+    expect(pill(harbour, "1 Google change")).toHaveAttribute(
+      "data-state",
+      "conflict"
+    )
+  })
+
+  it("dates the last write as sent to Google, and says when it did not land", () => {
+    const at = "2026-09-01T10:00:00Z"
+    stub({
+      entries,
+      summaries: [
+        summary({
+          locationId: "l1",
+          lastPublish: { at, status: "succeeded", area: "hours" },
+        }),
+        summary({
+          locationId: "l2",
+          lastPublish: { at, status: "ambiguous", area: "hours" },
+        }),
+        summary({
+          locationId: "l3",
+          lastPublish: { at, status: "in_progress", area: "profile" },
+        }),
+      ],
+    })
+    render(<ListingsBoard role="owner" />)
+    expect(
+      screen.getByRole("columnheader", { name: "Last sent to Google" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/published/i)).toBeNull()
+    const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
+    expect(within(crown).queryByText("On Google")).toBeNull()
+    const harbour = screen.getByRole("row", { name: /Harbour View/ })
+    expect(
+      within(harbour).getByText("Not confirmed: check Google")
+    ).toBeInTheDocument()
+    const pier = screen.getByRole("row", { name: /Pier Cafe/ })
+    expect(within(pier).getByText("Sending to Google")).toBeInTheDocument()
+  })
+
   it("orders worst health first across clients, or groups by client", async () => {
     stub({
       entries,
@@ -604,6 +687,52 @@ describe("ListingsBoard", () => {
     ).toBeInTheDocument()
   })
 
+  it("reads a health and order it does not know as the whole board, worst first", () => {
+    search = "health=bogus&order=bogus"
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    for (const name of ["Old Crown Girton", "Harbour View", "Pier Cafe"])
+      expect(screen.getByRole("link", { name })).toBeInTheDocument()
+    expect(
+      within(screen.getByRole("group", { name: "Filter by health" })).getByRole(
+        "button",
+        { name: /^All/ }
+      )
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      screen.getByRole("button", { name: /^Order listings:/ })
+    ).toHaveAccessibleName(/Worst first/)
+  })
+
+  it("says a deep link filtered to nothing is filtered, and Clear filters brings the board back", async () => {
+    search = "health=attention"
+    window.history.replaceState(null, "", `/listings?${search}`)
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    render(<ListingsBoard role="owner" />)
+    expect(screen.getByText("No listings match")).toBeInTheDocument()
+    expect(
+      screen.getByText("No listing is in “Needs attention” right now.")
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Harbour View" })).toBeNull()
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }))
+    expect(
+      screen.getByRole("link", { name: "Harbour View" })
+    ).toBeInTheDocument()
+    expect(replace.mock.lastCall?.[0]).not.toMatch(/health=|clientId=|q=/)
+    await waitFor(() =>
+      expect(
+        screen.getByRole("searchbox", { name: "Search listings" })
+      ).toHaveFocus()
+    )
+  })
+
   it("selects every listing shown from the table header's select-all bar, and docks the selection bar", async () => {
     stub({
       entries,
@@ -646,6 +775,48 @@ describe("ListingsBoard", () => {
     expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
     // The bar took the focused button with it: focus returns to select-all.
     await waitFor(() => expect(all).toHaveFocus())
+  })
+
+  it("draws a ticked row selected, with the fill and ink edge, and only that row", async () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const user = userEvent.setup()
+    render(<ListingsBoard role="admin" bulkEnabled />)
+    const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
+    const harbour = screen.getByRole("row", { name: /Harbour View/ })
+    expect(crown).not.toHaveAttribute("data-selected")
+    await user.click(
+      within(crown).getByRole("checkbox", {
+        name: "Select Old Crown Girton for a bulk change",
+      })
+    )
+    expect(crown).toHaveAttribute("data-selected", "true")
+    expect(harbour).not.toHaveAttribute("data-selected")
+    await user.click(
+      within(crown).getByRole("checkbox", {
+        name: "Select Old Crown Girton for a bulk change",
+      })
+    )
+    expect(crown).not.toHaveAttribute("data-selected")
+  })
+
+  it("offers selection only to owners and admins whose organisation has bulk changes", () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    for (const role of ["member", "viewer", null]) {
+      const { unmount } = render(<ListingsBoard role={role} bulkEnabled />)
+      expect(screen.queryByRole("checkbox")).toBeNull()
+      unmount()
+    }
+    const { unmount } = render(<ListingsBoard role="owner" />)
+    expect(screen.queryByRole("checkbox")).toBeNull()
+    unmount()
+    render(<ListingsBoard role="admin" bulkEnabled />)
+    expect(screen.getAllByRole("checkbox")).toHaveLength(entries.length + 1)
   })
 
   it("says how many selected listings are not shown or not linked to Google", async () => {
@@ -990,6 +1161,46 @@ describe("ListingsBoard", () => {
       expect(
         within(dialog).getByRole("link", { name: "Open listing" })
       ).toHaveAttribute("href", link.getAttribute("href"))
+    })
+
+    it("draws the row it shows as selected until Escape closes it, and dates a failed write as sent", async () => {
+      stubWidth(true)
+      stub({
+        entries,
+        summaries: [
+          summary({
+            locationId: "l1",
+            lastPublish: {
+              at: "2026-09-01T10:00:00Z",
+              status: "failed",
+              area: "hours",
+            },
+          }),
+          summary({ locationId: "l2" }),
+          summary({ locationId: "l3" }),
+        ],
+      })
+      const user = userEvent.setup()
+      render(<ListingsBoard role="member" />)
+      const row = screen.getByRole("row", { name: /Old Crown Girton/ })
+      const link = within(row).getByRole("link", { name: "Old Crown Girton" })
+      fireEvent.click(link, { detail: 1 })
+      const dialog = await screen.findByRole("dialog", {
+        name: "Old Crown Girton",
+      })
+      expect(row).toHaveAttribute("data-selected", "true")
+      expect(
+        // The modal panel hides the board from the accessibility tree.
+        screen.getByRole("row", { name: /Harbour View/, hidden: true })
+      ).not.toHaveAttribute("data-selected")
+      // The last write did not land: dated as sent, never as published.
+      expect(
+        within(dialog).getByText("Last sent to Google").parentElement
+      ).toHaveTextContent("Failed: retry")
+      expect(within(dialog).queryByText(/published/i)).toBeNull()
+      await user.keyboard("{Escape}")
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+      expect(row).not.toHaveAttribute("data-selected")
     })
 
     it("uses the overview's words for each area", async () => {

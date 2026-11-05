@@ -534,6 +534,16 @@ export function MenuEditor({
     filtering ||
     sections.length > FIND_TOOLS_MIN_SECTIONS ||
     totalItems > FIND_TOOLS_MIN_ITEMS
+  function itemChanged(sectionIndex: number, itemIndex: number) {
+    const itemPath = `menus[${activeIndex}].sections[${sectionIndex}].items[${itemIndex}]`
+    return changedPaths.some(
+      (path) =>
+        path === itemPath ||
+        path.startsWith(`${itemPath}.`) ||
+        itemPath.startsWith(`${path}[`) ||
+        itemPath.startsWith(`${path}.`)
+    )
+  }
   function itemMatches(
     section: Json,
     sectionIndex: number,
@@ -546,14 +556,7 @@ export function MenuEditor({
     )
       return true
     const details = readLabel(item)
-    const itemPath = `menus[${activeIndex}].sections[${sectionIndex}].items[${itemIndex}]`
-    const changed = changedPaths.some(
-      (path) =>
-        path === itemPath ||
-        path.startsWith(`${itemPath}.`) ||
-        itemPath.startsWith(`${path}[`) ||
-        itemPath.startsWith(`${path}.`)
-    )
+    const changed = itemChanged(sectionIndex, itemIndex)
     const text =
       `${readLabel(section).displayName} ${details.displayName} ${details.description}`.toLocaleLowerCase()
     return (!query || text.includes(query)) && (!changedOnly || changed)
@@ -903,7 +906,7 @@ export function MenuEditor({
           icon={<UtensilsCrossed aria-hidden />}
           titleAs="h3"
           title="Build your first menu"
-          description="Create a menu, organise it into sections, and add your dishes or drinks. Nothing changes on Google until you review and publish."
+          description="Nothing reaches Google until you publish."
           action={
             disabled ? undefined : (
               <Button onClick={addMenu}>
@@ -1187,7 +1190,7 @@ export function MenuEditor({
               icon={<UtensilsCrossed aria-hidden />}
               titleAs="h3"
               title="Start with a section"
-              description="Group this menu into sections such as starters, mains or drinks, then add the items customers can order."
+              description="Group items as starters, mains or drinks."
             />
           )}
 
@@ -1290,6 +1293,7 @@ export function MenuEditor({
                       priceText={priceText(item)}
                       disabled={disabled}
                       errors={errors}
+                      edited={itemChanged(sectionIndex, itemIndex)}
                       onOpen={() => setEditing({ key: itemKey, open: true })}
                       onMove={(direction) =>
                         setItems(

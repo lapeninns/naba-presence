@@ -145,6 +145,22 @@ describe("OperationsView scheduler rows", () => {
       expect(support).not.toBeNull()
       expect(keys).toContain(support!.querySelector("code")!.textContent)
     }
+    // One disclosure per row, each named for its job, so a screen reader's
+    // list of controls tells them apart (L17). The visible words lead.
+    const names = rows.map((row) =>
+      row.querySelector("summary")!.getAttribute("aria-label")
+    )
+    expect(new Set(names).size).toBe(rows.length)
+    for (const name of Object.keys(STALE_AFTER)) {
+      expect(names).toContain(
+        `Details for support: ${SCHEDULED_JOBS[name].label}`
+      )
+    }
+    for (const row of rows) {
+      expect(row.querySelector("summary")).toHaveTextContent(
+        "Details for support"
+      )
+    }
   })
 
   it("marks overdue jobs against each job's own schedule and says why", async () => {
@@ -281,6 +297,14 @@ describe("OperationsView summary", () => {
     const row = screen.getByText("Billing check").closest("li") as HTMLElement
     expect(within(row).getByText("Paused")).toBeInTheDocument()
     expect(within(row).queryByText("Overdue")).toBeNull()
+    // What stops and what doesn't, on the paused row only; no control here.
+    expect(row).toHaveTextContent(
+      "Paused on purpose: this job won’t run until it is switched back on. The other jobs keep running."
+    )
+    const running = screen.getByText("Work queue").closest("li") as HTMLElement
+    expect(running).not.toHaveTextContent("Paused on purpose")
+    expect(within(row).queryByRole("button")).toBeNull()
+    expect(screen.queryByRole("button", { name: /pause|resume/i })).toBeNull()
     expect(
       document.querySelector("details[data-slot=scheduled-jobs]")
     ).not.toHaveAttribute("open")
@@ -479,6 +503,13 @@ describe("time zone", () => {
         name: "Replay New reviews received 15 Oct, 14:30 (New Zealand time)",
       })
     ).toBeInTheDocument()
+    // Its disclosure is named for the same event as its Replay (L17).
+    expect(
+      document.querySelector('[data-slot="support-details"] summary')
+    ).toHaveAttribute(
+      "aria-label",
+      "Details for support: New reviews received 15 Oct, 14:30 (New Zealand time)"
+    )
     // The raw type and code are for support, not the visible sentence.
     expect(
       screen.getByText(/New reviews · Failed · received/)
@@ -608,6 +639,41 @@ describe("OperationsView attention, figures and recovery", () => {
       "Bounced (7 days)",
       "Outcome unknown (7 days)",
     ])
+  })
+
+  it("says a retry queued the emails again in a neutral toast, not a success", async () => {
+    api.fetchOperationsHealth.mockResolvedValue(
+      withHealth({
+        notificationDeliveries: {
+          queued: 0,
+          oldestQueuedAt: null,
+          states7d: [{ state: "bounced", count: 2 }],
+          retryable: 2,
+        },
+      })
+    )
+    api.fetchWebhookFailures.mockResolvedValue({ items: [] })
+    api.retryNotificationDeliveries.mockResolvedValue({ requeued: 2 })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <OperationsView />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Retry 2 failed emails/ })
+    )
+    expect(
+      await screen.findByText("2 emails queued again.")
+    ).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="toast"]')).toHaveAttribute(
+      "data-type",
+      "info"
+    )
   })
 
   // What the replay leaves on the row (app/api/webhooks/google/pubsub/replay):

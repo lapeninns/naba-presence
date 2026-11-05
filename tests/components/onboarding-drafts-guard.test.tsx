@@ -88,6 +88,31 @@ function reloadWarns() {
   return event.defaultPrevented
 }
 
+describe("OnboardingDrafts saved state", () => {
+  it("says Draft saved until an edit, then Unsaved changes, never on Google", async () => {
+    renderDraft()
+    const name = await screen.findByLabelText("Business name")
+    const state = screen.getByTestId("onboarding-draft-state")
+    expect(state).toHaveTextContent("Draft saved")
+    expect(state.className).not.toMatch(/success/)
+    fireEvent.change(name, { target: { value: "The Old Crown" } })
+    expect(screen.getByTestId("onboarding-draft-state")).toHaveTextContent(
+      "Unsaved changes"
+    )
+    expect(screen.queryByText(/^(Published|On Google)$/)).toBeNull()
+  })
+
+  it("says why Search waits while the draft has no saved name", async () => {
+    renderDraft()
+    await screen.findByLabelText("Business name")
+    const search = screen.getByRole("button", { name: "Search for matches" })
+    expect(search).toHaveAttribute("aria-disabled", "true")
+    expect(search).toHaveAccessibleDescription(
+      "Add the business name and save it before searching."
+    )
+  })
+})
+
 describe("OnboardingDrafts unsaved changes", () => {
   it("warns on a reload while the draft has unsaved edits", async () => {
     renderDraft()

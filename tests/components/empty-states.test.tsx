@@ -196,6 +196,37 @@ describe("EmptyState", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument()
   })
 
+  it("tells someone without access who can give it, with no action of theirs", () => {
+    render(<EmptyState reason="no_access" />)
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "No reviews are shared with you.",
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByText(/give you access to a client/)).toBeInTheDocument()
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+    // Never the all-caught-up or no-reviews-yet claims.
+    expect(screen.queryByText(/caught up|No reviews yet/)).toBeNull()
+  })
+
+  it("names an inverted date range as the reason nothing matches", () => {
+    render(
+      <EmptyState
+        reason="filtered"
+        filtered={{ searchOnly: false, rangeInverted: true }}
+        onClear={() => {}}
+      />
+    )
+    expect(
+      screen.getByText(/end date is before the start date/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Clear all filters" })
+    ).toBeInTheDocument()
+  })
+
   it("clears filters on request", async () => {
     const user = userEvent.setup()
     const onClear = vi.fn()
@@ -330,46 +361,27 @@ describe("EmptyState", () => {
     ["queue_empty", "done"],
     ["checked", undefined],
     ["no_clients", undefined],
+    ["no_access", undefined],
     ["disconnected", undefined],
     ["not_connected", undefined],
     ["never_imported", undefined],
     ["importing", undefined],
     ["import_failed", undefined],
+    ["filtered", undefined],
+    ["unknown", undefined],
   ] as const)(
-    "draws a hidden line illustration for %s (%s), in place of the mark",
+    "draws the 20px line glyph and no illustration for %s (%s)",
     (reason, queue) => {
-      const { container } = render(<EmptyState reason={reason} queue={queue} />)
-      // The Empty primitive's illustration slot, holding our line art.
-      const slot = container.querySelector('[data-slot="empty-illustration"]')
-      expect(slot).toBeInTheDocument()
-      expect(slot).toHaveAttribute("aria-hidden", "true")
-      expect(slot).toHaveClass("text-ink")
-      const art = slot?.querySelector("svg")
-      expect(art).toHaveAttribute("stroke", "currentColor")
-      expect(art).toHaveAttribute("stroke-width", "1.5")
-      // Colour comes from ink tokens, never a literal.
-      expect(slot?.outerHTML).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|oklch\(/i)
-      // One drawing, not a drawing and a mark.
-      expect(
-        container.querySelector(
-          '[data-slot="empty"] > span[aria-hidden]:not([data-slot="empty-illustration"])'
-        )
-      ).toBeNull()
-    }
-  )
-
-  it.each(["filtered", "unknown"] as const)(
-    "keeps the small mark and no illustration for %s",
-    (reason) => {
       const { container } = render(
-        <EmptyState reason={reason} onClear={() => {}} />
+        <EmptyState reason={reason} queue={queue} onClear={() => {}} />
       )
+      // SYSTEM §12: an empty state is a glyph and a sentence, never a drawing.
       expect(
         container.querySelector('[data-slot="empty-illustration"]')
       ).toBeNull()
-      expect(
-        container.querySelector('[data-slot="empty"] > span[aria-hidden] svg')
-      ).toBeInTheDocument()
+      const icon = container.querySelector('[data-slot="empty-icon"]')
+      expect(icon).toHaveAttribute("aria-hidden", "true")
+      expect(icon?.querySelector("svg")).toBeInTheDocument()
     }
   )
 
@@ -381,11 +393,10 @@ describe("EmptyState", () => {
         "data-tone",
         "bad"
       )
-      const mark = container.querySelector(
-        '[data-slot="empty-illustration"] .text-danger-ink'
-      )
-      expect(mark?.querySelector("circle")).toBeInTheDocument()
-      expect(mark?.querySelectorAll("path").length).toBeGreaterThanOrEqual(2)
+      // The glyph is a shape of its own (unlink, alert), in the danger ink.
+      const mark = container.querySelector('[data-slot="empty-icon"]')
+      expect(mark).toHaveClass("text-danger-ink")
+      expect(mark?.querySelector("svg")).toBeInTheDocument()
     }
   )
 })

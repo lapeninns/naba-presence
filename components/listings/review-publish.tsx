@@ -181,13 +181,13 @@ function AreaSection({
             review.blockedReason ? (
               <StatusPill tone="attention">Needs review</StatusPill>
             ) : review.rows.length === 0 ? (
-              <StatusPill tone="healthy">
+              <StatusPill tone="neutral">
                 {syncStatusLabel("in_sync")}
               </StatusPill>
             ) : conflict ? (
               <StatusPill tone="attention">Google changed too</StatusPill>
             ) : (
-              <StatusPill tone="pending">Not on Google yet</StatusPill>
+              <StatusPill tone="neutral">Not on Google yet</StatusPill>
             )
           ) : undefined
         }
@@ -283,7 +283,7 @@ function toStepRows(results: PublishStepResult[]): PublishStepRow[] {
         id: step.key,
         label: step.label,
         state: "sent",
-        stateLabel: "Sent to Google — waiting for the answer",
+        stateLabel: "Sending to Google",
         detail: "Keep this page open until Google answers.",
       }
     if (step.status === "done" && step.noop)
@@ -524,11 +524,13 @@ function ReviewPublishBody({
     outcome === "confirmed_applied"
       ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
       : sentOutcomes.size > 1
-        ? "Not every change is live on Google yet. Each step above says where it stands."
+        ? "Not every change is confirmed on Google yet. Each step above says where it stands."
         : presentation.description
   const doneSettled = nothingSent || presentation.live
+  // Green only for what Google confirmed; "nothing needed sending" and
+  // "nothing to publish" are neutral.
   const doneTone =
-    doneSettled || presentation.tone === "healthy"
+    presentation.live && !nothingSent
       ? "ok"
       : presentation.tone === "at-risk"
         ? "bad"
@@ -594,7 +596,7 @@ function ReviewPublishBody({
           <Empty
             variant="empty"
             framed
-            tone={done ? doneTone : "ok"}
+            tone={done ? doneTone : "neutral"}
             icon={!done || doneSettled ? <CheckIcon /> : <ClockIcon />}
             titleAs="h2"
             title={
@@ -809,6 +811,7 @@ function ReviewPublishBody({
                   (the `controls` variant), and is inline on short screens. */}
           {readOnly ? null : (
             <ActionBar
+              tone="charcoal"
               dock
               statusRow
               sticky={false}
@@ -824,7 +827,7 @@ function ReviewPublishBody({
                   )}
                   <span className="min-w-0">
                     {flow.isPublishing ? (
-                      "Publishing — keep this page open"
+                      "Sending to Google… Keep this page open."
                     ) : loading ? (
                       "Reading each area from Google…"
                     ) : statusReason && steps.length === 0 ? (
@@ -847,9 +850,10 @@ function ReviewPublishBody({
               }
               primary={
                 <Button
+                  variant="send"
                   onClick={publish}
                   pending={flow.isPublishing}
-                  pendingLabel="Publishing…"
+                  pendingLabel="Sending…"
                   disabledReason={
                     flow.isPublishing ? undefined : disabledReason
                   }

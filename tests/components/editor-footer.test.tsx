@@ -32,14 +32,22 @@ describe("EditorFooter", () => {
     const bar = screen.getByRole("region", { name: "Editor actions" })
     expect(bar).toHaveAttribute("data-docked", "bottom")
     expect(bar.className).toMatch(/max-md:fixed/)
-    // One row: the dock's nowrap is not overridden by a wrapping bar.
-    expect(bar.className).not.toMatch(/max-md:flex-wrap/)
+    // One row while the status keeps its two-line room beside the buttons
+    // (a 360px phone and up); only narrower does it wrap to its own row.
+    expect(
+      bar.querySelector('[data-slot="action-bar-status"]')?.className
+    ).toContain("max-md:min-w-28")
     // The ActionBar's dock: an in-flow spacer keeps the last field
     // reachable above the fixed bar.
     expect(
       bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
     ).not.toBeNull()
     expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled()
+    // Opening the review writes nothing to Google, so it never takes the
+    // send fill; that belongs to the sheet's publish.
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toHaveAttribute("data-variant", "on-dark")
     // The phone's overflow is named, and a touch-sized icon button.
     expect(screen.getByRole("button", { name: "More actions" })).toHaveClass(
       "md:hidden"
@@ -135,9 +143,13 @@ describe("EditorFooter", () => {
   it("says what is true when local edits leave nothing to publish", () => {
     render(footer({ status: "in_sync", isDirty: false, canDiscard: true }))
     const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveTextContent("Unsaved changes")
     expect(bar).toHaveTextContent("No changes to publish")
-    expect(bar).toHaveTextContent("unsaved edits")
-    expect(bar).not.toHaveTextContent("Changes not on Google")
+    expect(bar).not.toHaveTextContent("not on Google")
+    // A local save never reaches Google: the surface save bar, dashed glyph.
+    expect(bar).toHaveAttribute("data-bar-tone", "surface")
+    expect(bar).toHaveAttribute("data-state", "unsaved")
+    expect(bar.querySelector('[data-glyph="circle-dashed"]')).not.toBeNull()
     // No greyed Review with no reason: Save here is the primary instead.
     expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull()
     const save = screen.getByRole("button", { name: "Save here" })
@@ -215,6 +227,51 @@ describe("EditorFooter", () => {
     expect(document.querySelector('[data-slot="editor-frame"]')).toHaveFocus()
   })
 
+  it("words the dispatch bar in the lifecycle vocabulary", () => {
+    const { rerender } = render(
+      footer({
+        status: "edited",
+        isDirty: true,
+        canDiscard: true,
+        changeCount: 2,
+      })
+    )
+    const bar = () => screen.getByRole("region", { name: "Editor actions" })
+    // Edits only in this tab: unsaved, never "saved here".
+    expect(bar()).toHaveAttribute("data-bar-tone", "charcoal")
+    expect(bar()).toHaveAttribute("data-state", "unsaved")
+    expect(bar()).toHaveTextContent("2 unsaved changes")
+    expect(bar()).toHaveTextContent(
+      "Nothing changes on Google until you publish."
+    )
+    expect(bar()).not.toHaveTextContent(/published|On Google\b/)
+    expect(bar().querySelector('[data-glyph="circle-dashed"]')).not.toBeNull()
+
+    // A difference NabaPresence already holds: a draft saved here.
+    rerender(
+      footer({
+        status: "unpublished",
+        isDirty: true,
+        canDiscard: false,
+        changeCount: 1,
+      })
+    )
+    expect(bar()).toHaveAttribute("data-state", "saved_locally")
+    expect(bar()).toHaveTextContent("1 change saved here, not on Google")
+    expect(bar().querySelector('[data-glyph="hard-drive"]')).not.toBeNull()
+
+    // Google changed its copy meanwhile.
+    rerender(footer({ status: "google_dirty", isDirty: true }))
+    expect(bar()).toHaveAttribute("data-state", "conflict")
+    expect(bar()).toHaveTextContent("Google changed this since you saved it")
+
+    // Review changes opens the sheet; only the sheet's publish is green.
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toHaveAttribute("data-variant", "on-dark")
+    expect(bar().querySelector('[data-variant="send"]')).toBeNull()
+  })
+
   it("says Saving… in the status while a save runs", () => {
     render(footer({ status: "edited", isDirty: true, saving: true }))
     expect(
@@ -253,6 +310,39 @@ describe("EditorFooter", () => {
     expect(
       screen.getByRole("region", { name: "Editor actions" }).className
     ).toContain("desk:ml-[calc(var(--np-form-rail-w)+--spacing(6))]")
+  })
+
+  it("keeps a docked phone status to its headline, the sub-line for assistive tech", () => {
+    render(footer({ status: "edited", isDirty: true, changeCount: 1 }))
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    const status = bar.querySelector<HTMLElement>(
+      '[data-slot="action-bar-status"]'
+    )!
+    const detail = screen.getByText(
+      "Nothing changes on Google until you publish."
+    )
+    expect(detail).toHaveAttribute("data-slot", "action-bar-status-detail")
+    expect(status).toContainElement(detail)
+    // The headline clamps alone; the shared wrapper is never one box.
+    expect(status.className).toContain(
+      "max-md:[&_[data-slot=action-bar-status-title]]:line-clamp-2"
+    )
+    expect(status.className).toContain(
+      "max-md:[&_[data-slot=action-bar-status-detail]]:sr-only"
+    )
+    expect(status.className).not.toMatch(/\[&>:not\(svg\)\]:line-clamp/)
+  })
+
+  it("keeps the conflict bar's headline and sub-line apart on a phone", () => {
+    render(footer({ status: "conflict", isDirty: false }))
+    const bar = screen.getByRole("region", { name: "Editor actions" })
+    expect(bar).toHaveAttribute("data-state", "conflict")
+    expect(
+      bar.querySelector('[data-slot="action-bar-status-text"]')
+    ).not.toBeNull()
+    expect(
+      bar.querySelector('[data-slot="action-bar-status-detail"]')
+    ).not.toBeNull()
   })
 
   it("keeps the view-only bar inline, with the reason in words", () => {

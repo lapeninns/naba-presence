@@ -12,8 +12,7 @@ import {
   activityErrorLabel,
   activityExecutionLabel,
   activityMaskLabels,
-  activityPillTone,
-  activityStatusLabel,
+  activityStatusPresentation,
   activityTitle,
 } from "@/lib/listings/activity-outcome"
 import { useLocationActivityPages } from "@/lib/queries/use-location-activity"
@@ -92,6 +91,10 @@ function ActivityList({
           ]
             .filter(Boolean)
             .join(" · ")
+          const status = activityStatusPresentation(
+            item.status,
+            item.confirmationState
+          )
           const createdAt = new Date(item.createdAt)
           const when = Number.isNaN(createdAt.getTime())
             ? "Invalid Date"
@@ -116,9 +119,7 @@ function ActivityList({
                 // The status word and every detail stay readable: wrap
                 // rather than truncate.
                 <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 whitespace-normal">
-                  <StatusPill tone={activityPillTone(item.status)}>
-                    {activityStatusLabel(item.status)}
-                  </StatusPill>
+                  <StatusPill tone={status.tone}>{status.label}</StatusPill>
                   {meta ? (
                     <span className="min-w-0 text-caption text-ink-muted tabular-nums">
                       {meta}

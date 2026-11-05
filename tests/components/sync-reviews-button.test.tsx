@@ -57,9 +57,36 @@ function json(body: unknown, status = 200) {
 }
 
 describe("SyncReviewsButton", () => {
-  it("is hidden when this person cannot sync", () => {
-    const { container } = renderButton(false)
-    expect(container).toBeEmptyDOMElement()
+  it("offers a refresh from NabaPresence, never Google, to someone who cannot sync", async () => {
+    // Members and viewers had no way to see new rows short of reloading.
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const refetch = vi
+      .spyOn(client, "refetchQueries")
+      .mockResolvedValue(undefined)
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <SyncReviewsButton canSync={false} />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    expect(screen.queryByRole("button", { name: "Sync reviews" })).toBeNull()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Refresh reviews" })
+    )
+    expect(refetch).toHaveBeenCalledWith({
+      queryKey: queryKeys.reviewsAll,
+      type: "active",
+    })
+    expect(refetch).toHaveBeenCalledWith({
+      queryKey: queryKeys.reviewCountsAll,
+      type: "active",
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("reconciles reviews from Google", async () => {
@@ -292,7 +319,9 @@ describe("SyncReviewsButton", () => {
     )
     renderButton(true, 12)
     await userEvent.click(screen.getByRole("button", { name: "Sync reviews" }))
-    expect(await screen.findByText("Up to date")).toBeInTheDocument()
+    // Not "Up to date": the listing that was not checked may have new ones.
+    expect(await screen.findByText("No new reviews so far")).toBeInTheDocument()
+    expect(screen.queryByText("Up to date")).toBeNull()
     expect(
       screen.getByText(
         "Google has no newer reviews for the listings checked. 1 of 2 listings couldn’t be checked. Google hasn’t verified a listing yet."

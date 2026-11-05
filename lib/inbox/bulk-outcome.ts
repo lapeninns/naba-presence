@@ -12,7 +12,7 @@ export const BULK_ROW_STATUS_LABEL: Record<BulkReviewRowStatus, string> = {
   ok: "Done",
   skipped: "Skipped",
   failed: "Failed",
-  approved_not_published: "Approved, not published",
+  approved_not_published: "Approved, not sent",
   uncertain: "Check on Google",
   queued: "Queued",
 }
@@ -20,7 +20,7 @@ export const BULK_ROW_STATUS_LABEL: Record<BulkReviewRowStatus, string> = {
 export type BulkOutcomeSummary = {
   title: string
   description: string | undefined
-  tone: "success" | "warning" | "error"
+  tone: "neutral" | "info" | "warning" | "error"
   /** Every row took effect, so the selection can be cleared. */
   allOk: boolean
 }
@@ -34,8 +34,15 @@ function plural(count: number, one: string, many: string) {
  * "skipped": each kind of outcome is counted under its own name.
  */
 export function summariseBulkOutcome(
-  result: BulkReviewResult
+  result: BulkReviewResult,
+  /**
+   * The batch's action. For `approve`, `ok` means Google took the reply,
+   * which may still be waiting on Google's own check, so it is "sent to
+   * Google", never "updated" or a success tone (only a confirmed reply is).
+   */
+  action?: string
 ): BulkOutcomeSummary {
+  const approve = action === "approve"
   const count = (status: BulkReviewRowStatus) =>
     result.results.filter((row) => row.status === status).length
   const ok = count("ok")
@@ -58,23 +65,30 @@ export function summariseBulkOutcome(
       ),
       description:
         "They are sent in the background. Follow them on the batch page, even after closing this tab.",
-      tone: failed > 0 ? "error" : others.length > 0 ? "warning" : "success",
+      tone: failed > 0 ? "error" : others.length > 0 ? "warning" : "info",
       allOk: others.length === 0,
     }
   }
 
   if (ok === result.results.length) {
-    return {
-      title: `${plural(ok, "review", "reviews")} updated`,
-      description: undefined,
-      tone: "success",
-      allOk: true,
-    }
+    return approve
+      ? {
+          title: `${plural(ok, "reply", "replies")} approved and sent to Google`,
+          description: "Each reads On Google once Google confirms it.",
+          tone: "info",
+          allOk: true,
+        }
+      : {
+          title: `${plural(ok, "review", "reviews")} updated`,
+          description: undefined,
+          tone: "neutral",
+          allOk: true,
+        }
   }
 
   const parts = [
-    ok > 0 ? `${ok} updated` : null,
-    notPublished > 0 ? `${notPublished} approved but not published` : null,
+    ok > 0 ? `${ok} ${approve ? "sent to Google" : "updated"}` : null,
+    notPublished > 0 ? `${notPublished} approved but not sent` : null,
     uncertain > 0 ? `${uncertain} may have reached Google` : null,
     skipped > 0 ? `${skipped} skipped` : null,
     failed > 0 ? `${failed} failed` : null,

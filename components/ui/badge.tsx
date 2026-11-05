@@ -25,11 +25,11 @@ const tone = (name: keyof typeof TONE_CLASSES) =>
  * one.
  */
 const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden px-1.5 text-caption leading-none font-semibold whitespace-nowrap tabular-nums focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden px-1.5 text-caption leading-none font-semibold whitespace-nowrap tabular-nums focus-halo transition-colors duration-(--np-duration-fast) ease-press focus-visible:outline-none [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground [a&]:hover:bg-accent-hover",
+        default: "bg-primary text-primary-foreground [a&]:hover:bg-ink-hover",
         tinted: "bg-accent-tint text-accent-ink",
         secondary: "bg-fill text-ink-secondary [a&]:hover:bg-fill-secondary",
         destructive: tone("at-risk"),

@@ -48,11 +48,13 @@ type PositionProps = Pick<
 
 /**
  * The floating popup (Notion Mail's popover menu): an opaque surface (no
- * glass, D3), hairline edge, the menu radius, the soft float shadow, 6px
- * inset, at least 200px wide (never wider than the viewport).
+ * glass, D3), the menu radius, the soft float shadow and no edge (shadow
+ * only, SYSTEM §7.3; forced colours drop the shadow, so there it takes a
+ * system border), 6px inset, at least 200px wide (never wider than the
+ * viewport).
  */
 const popupClassName =
-  "flex max-h-[min(var(--available-height),32rem)] max-w-[calc(100vw-24px)] min-w-[200px] origin-(--transform-origin) flex-col gap-px overflow-y-auto rounded-menu border border-line bg-surface p-1.5 text-ink shadow-np-float outline-none transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard"
+  "flex max-h-[min(var(--available-height),32rem)] max-w-[calc(100vw-24px)] min-w-[200px] origin-(--transform-origin) flex-col gap-px overflow-y-auto rounded-menu bg-surface p-1.5 text-ink shadow-np-float outline-none forced-colors:border transition-[opacity,scale] duration-(--np-duration-overlay) ease-emphasis data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard"
 
 function DropdownMenuContent({
   className,

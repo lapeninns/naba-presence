@@ -19,6 +19,7 @@ import * as React from "react"
 import { ShellLink } from "@/components/app-shell/shell-link"
 import { ClientAvatar } from "@/components/clients/client-avatar"
 import { useDebouncedSearchParam } from "@/components/clients/clients-index-search"
+import { EmailWithBreak } from "@/components/clients/email-with-break"
 import {
   HealthFilterStrip,
   healthCounts,
@@ -58,7 +59,11 @@ import {
   type HealthFilter,
 } from "@/lib/clients/health"
 import type { ClientSummary } from "@/lib/contracts/clients"
-import { describeActionError } from "@/lib/errors/action-errors"
+import { ApiClientError } from "@/lib/api/client"
+import {
+  describeActionError,
+  isUnconfirmedFailure,
+} from "@/lib/errors/action-errors"
 import { formatDate, formatNumber } from "@/lib/format"
 import {
   useArchivedClients,
@@ -260,18 +265,14 @@ function ClientsIndex({ role }: { role: string | null }) {
               title="Set up your first client"
               description={
                 <span className="text-caption">
-                  A client is a business you look after. Add one, then connect
-                  the Google account that manages its Business Profile.
+                  A client is a business you look after.
                 </span>
               }
               action={
-                <>
-                  <Link href="/clients/new" className={cn(buttonVariants())}>
-                    <PlusIcon aria-hidden />
-                    New client
-                  </Link>
-                  {archivedLink}
-                </>
+                <Link href="/clients/new" className={cn(buttonVariants())}>
+                  <PlusIcon aria-hidden />
+                  New client
+                </Link>
               }
             />
           ) : (
@@ -281,13 +282,15 @@ function ClientsIndex({ role }: { role: string | null }) {
               title="No clients shared with you yet"
               description={
                 <span className="text-caption">
-                  An owner or admin chooses which clients you can see. Once they
-                  share one, it appears here with its reviews and listings.
+                  An owner or admin chooses what you see.
                 </span>
               }
             />
           )}
         </Card>
+        {/* The empty state keeps its one action; archived clients are a
+            way back, not a second call to act. */}
+        {archivedLink ? <div className="flex">{archivedLink}</div> : null}
       </div>
     )
   }
@@ -368,8 +371,8 @@ function ClientsIndex({ role }: { role: string | null }) {
               description={
                 <span className="text-caption">
                   {needle
-                    ? "Check the spelling, or clear the search to see every client."
-                    : "No client is in this state right now. Clear the filter to see the rest."}
+                    ? "Check the spelling or clear the search."
+                    : "No client is in this state right now."}
                 </span>
               }
               action={
@@ -577,21 +580,43 @@ function ArchivedClients({
   const { update } = useClientMutations()
   const toast = useToastManager()
   const [restoring, setRestoring] = React.useState<string | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<{
+    title: string
+    body: string
+  } | null>(null)
 
   const restore = async (client: ClientSummary) => {
     setRestoring(client.id)
     setError(null)
     try {
       await update.mutateAsync({ clientId: client.id, archived: false })
+      // Neutral, not the success green: green is kept for what is
+      // confirmed on Google, and a restore only changes NabaPresence.
       toast.add({
-        type: "success",
         title: `${client.name} restored`,
         description:
           "It’s back in your lists. File its listings again from its settings.",
       })
     } catch (cause) {
-      setError(`${client.name} wasn’t restored. ${describeActionError(cause)}`)
+      // A dropped connection may still have restored it, so that case never
+      // says it wasn't, and the list is re-read to show which. A restore never
+      // touches Google, so a server failure is not described as Google's.
+      if (isUnconfirmedFailure(cause)) {
+        setError({
+          title: `We couldn’t confirm ${client.name} was restored`,
+          body: "NabaPresence didn’t answer, so it may be back in your lists already. Check All clients before trying again.",
+        })
+        void query.refetch()
+      } else {
+        setError({
+          title: `${client.name} wasn’t restored`,
+          body: `${
+            cause instanceof ApiClientError && cause.status >= 500
+              ? "NabaPresence couldn’t save it just now. Try again in a moment."
+              : describeActionError(cause)
+          } It’s still archived.`,
+        })
+      }
     } finally {
       setRestoring(null)
     }
@@ -653,8 +678,8 @@ function ArchivedClients({
       </div>
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>That didn’t work</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertTitle>{error.title}</AlertTitle>
+          <AlertDescription>{error.body}</AlertDescription>
         </Alert>
       ) : null}
       {items.length === 0 ? (
@@ -670,8 +695,8 @@ function ArchivedClients({
             description={
               <span className="text-caption">
                 {needle
-                  ? "Clear the search to see every archived client."
-                  : "Clients you archive appear here, ready to restore."}
+                  ? "Clear the search to see them all."
+                  : "Archived clients wait here to restore."}
               </span>
             }
           />
@@ -899,7 +924,11 @@ function LoginCell({ client }: { client: ClientSummary }) {
   return (
     <span className="flex min-w-0 flex-col text-ui">
       <span className="[overflow-wrap:anywhere] text-ink">
-        {first.googleEmail ?? "Google account"}
+        {first.googleEmail ? (
+          <EmailWithBreak email={first.googleEmail} />
+        ) : (
+          "Google account"
+        )}
       </span>
       <span className="text-caption text-ink-muted">
         {rest.length > 0 ? `+${formatNumber(rest.length)} more` : null}

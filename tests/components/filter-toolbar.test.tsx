@@ -225,8 +225,9 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
       "rounded-(--np-radius-pill)",
       "size-(--np-control-h)"
     )
-    expect(button.querySelector("svg")).toHaveClass("text-accent-ink")
+    expect(button.querySelector("svg")).not.toHaveClass("text-accent-ink")
     const badge = button.querySelector('[data-slot="filter-button-count"]')
+    expect(badge).toHaveClass("bg-ink", "text-ink-inverse")
     expect(badge).toHaveAttribute("aria-hidden", "true")
     expect(badge).toHaveTextContent("1")
     expect(badge).toHaveClass("text-count", "tabular-nums")
@@ -482,6 +483,13 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
       dateTo: "2026-07-01T00:00:00.000Z",
     })
     expect(screen.getByRole("alert")).toHaveTextContent(
+      "The end date must be on or after the start date."
+    )
+    // Each date field is described by the error, so it is heard on focus.
+    expect(screen.getByLabelText("From date")).toHaveAccessibleDescription(
+      "The end date must be on or after the start date."
+    )
+    expect(screen.getByLabelText("To date")).toHaveAccessibleDescription(
       "The end date must be on or after the start date."
     )
   })
