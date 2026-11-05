@@ -1764,7 +1764,7 @@ function ProfileEditor({
         onRefresh={() => refresh.mutate()}
       />
 
-      {!gate && needsAck ? (
+      {!editReason && !publishReason && needsAck ? (
         <CapabilityBanner
           tone="warning"
           title="Google changed this profile since NabaPresence last saved it"

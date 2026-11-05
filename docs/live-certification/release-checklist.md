@@ -6,7 +6,29 @@
 > updated on 2026-10-09 for Vercel (no container images, no Compose stack, no
 > separate scheduler process).
 
-## Latest production promotion — 30 October 2026
+## Latest production promotion — 5 November 2026
+
+- Production: [nabapresence.com](https://nabapresence.com).
+- Deployed commit: `c3b76a113537734171f42e4232e0e4b10c9aacaa`, shipping
+  [PR #270](https://github.com/lapeninns/naba-presence/pull/270).
+- Vercel deployment: `dpl_5yM8KNDHdB6mdSMrAwTxKvTu3dUB`.
+- Promotion receipt timestamp: `2026-11-05T04:35:11.683Z` (04:35 Europe/London).
+- [Production receipt](../release/receipts/20261105T043511Z-c3b76a113537.json)
+  and its byte-pinned [local gate receipt](../release/receipts/20261105T043511Z-c3b76a113537.local.json).
+- All 17 release steps passed on merged main, with 10,728 unit/component tests
+  (one skipped), 1,692 integration tests, and 625 Playwright tests. The PR's
+  separate agentic run passed 35 journeys with 22 viewport-specific skips.
+  Upgrade base: `367719b397213ce94e70fcf6aa6fb30c2d5a141d`.
+- A private production snapshot was verified before applying
+  `0157_post_google_live_observation`. Readback confirmed all 157 migrations,
+  the observation column and trigger, and no pending or unknown migrations.
+- Staged and live readiness both reported the deployed SHA. Authenticated
+  platform health returned HTTP 200 with a compatible schema. Readiness
+  reported `telemetry_disabled` (`no_endpoint`).
+- The public sign-in route returned HTTP 200. The Inbox loaded with an
+  existing signed-in browser session.
+
+## Prior recorded production promotion — 30 October 2026
 
 - Production: [nabapresence.com](https://nabapresence.com).
 - Deployed commit: `73536ddcf909e02cce5509d41d43007de2f84f4d`, shipping

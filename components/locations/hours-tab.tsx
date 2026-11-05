@@ -455,7 +455,9 @@ function HoursForm({
     viewerZone ?? hours.location.timezone
   )
   const notes = hoursNotes(hours, {
-    gated: Boolean(gate),
+    // Advice is a notice, not a capability hold: keep drift/conflict recovery
+    // visible while verification is unconfirmed.
+    gated: Boolean(editReason || gateReason),
     googleEmpty,
     draftEmpty: isEmptySchedule(draft),
   })

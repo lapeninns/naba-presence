@@ -800,7 +800,7 @@ describe("HoursTab changed on Google", () => {
     }
     return makeHours({ status: "google_dirty", canonical, google })
   }
-  function show(state: HoursState) {
+  function show(state: HoursState, verificationAdvisory = false) {
     useHoursMock.mockReturnValue({
       data: state,
       isPending: false,
@@ -809,7 +809,20 @@ describe("HoursTab changed on Google", () => {
       refetch: vi.fn(),
     })
     useCapsMock.mockReturnValue({
-      data: { canEditCanonical: true, canPublish: true },
+      data: {
+        canEditCanonical: true,
+        canPublish: true,
+        ...(verificationAdvisory
+          ? {
+              resources: {
+                hours: {
+                  state: "available",
+                  advisoryCode: "verification_unconfirmed",
+                },
+              },
+            }
+          : {}),
+      },
     })
     return renderTab()
   }
@@ -820,6 +833,26 @@ describe("HoursTab changed on Google", () => {
     const bar = screen.getByRole("region", { name: "Editor actions" })
     expect(bar).toHaveTextContent("Changed on Google")
     expect(bar).not.toHaveTextContent(/changes? not on Google/)
+  })
+
+  it("keeps the Google-changed notice and adopt action alongside verification advice", async () => {
+    const user = userEvent.setup()
+    const state = googleChanged()
+    refreshHours.mutateAsync.mockResolvedValue(structuredClone(state))
+    const save = vi.spyOn(hoursApi, "saveHours")
+    const publish = vi.spyOn(hoursApi, "publishHours")
+    show(state, true)
+    expect(
+      screen.getByText("Google verification isn’t confirmed for this listing")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Hours changed on Google")).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Keep Google’s hours" })
+    )
+    await expectMondayOpens(user, "10:00")
+    expect(refreshHours.mutateAsync).toHaveBeenCalledOnce()
+    expect(save).not.toHaveBeenCalled()
+    expect(publish).not.toHaveBeenCalled()
   })
 
   it("keeps Google’s hours in the draft and saves only on Save here", async () => {

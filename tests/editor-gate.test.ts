@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import { ASK_OWNER_OR_ADMIN, editorGate } from "@/lib/editors/gate"
-import type { LocationCapabilities } from "@/lib/locations/gating"
+import {
+  editDisabledReason,
+  resourceDisabledReason,
+  type LocationCapabilities,
+} from "@/lib/locations/gating"
+import { locationCapabilitiesSchema } from "@/lib/contracts/location-capabilities"
 
 /**
  * The one banner the profile, hours, menu and booking editors show when they
@@ -36,6 +41,64 @@ const gate = (
 describe("editorGate", () => {
   it("shows nothing when the editor can both change and publish", () => {
     expect(gate(null, {})).toBeNull()
+  })
+
+  it("shows an unverified listing as an advisory while editing and publishing stay available", () => {
+    const available = locationCapabilitiesSchema.parse({
+      ...caps(null),
+      resources: {
+        hours: { state: "available", advisoryCode: "verification_unconfirmed" },
+      },
+    })
+    const editReason = editDisabledReason(available)
+    const publishReason = resourceDisabledReason(available, "hours", true)
+    expect(editReason).toBeNull()
+    expect(publishReason).toBeNull()
+    expect(
+      editorGate({
+        caps: available,
+        resource: "hours",
+        editReason,
+        publishReason,
+        noun: "these hours",
+        savesHere: true,
+      })
+    ).toEqual({
+      tone: "warning",
+      title: "Google verification isn’t confirmed for this listing",
+      description:
+        "You can keep editing, save here and submit changes to Google. Some changes may not appear until verification is complete.",
+      code: "verification_unconfirmed",
+    })
+  })
+
+  it("keeps a role or publishing blocker ahead of the verification advisory", () => {
+    const available = locationCapabilitiesSchema.parse({
+      ...caps(null),
+      resources: {
+        hours: { state: "available", advisoryCode: "verification_unconfirmed" },
+      },
+    })
+    expect(
+      editorGate({
+        caps: { ...available, canEditCanonical: false },
+        resource: "hours",
+        editReason: "Only owners and admins can edit.",
+        publishReason: null,
+        noun: "these hours",
+        savesHere: true,
+      })?.title
+    ).toBe("You can look, but not change these hours")
+    expect(
+      editorGate({
+        caps: available,
+        resource: "hours",
+        editReason: null,
+        publishReason: "Publishing to Google is currently unavailable.",
+        noun: "these hours",
+        savesHere: true,
+      })?.title
+    ).toBe("Publishing to Google is switched off in NabaPresence")
   })
 
   it("reads a role limit as look-don't-change, with the evaluator's own words", () => {

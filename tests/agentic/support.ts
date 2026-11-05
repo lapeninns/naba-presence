@@ -41,6 +41,11 @@ export type JourneyState = {
   primaryLocationId: string
   clientId: string
   clientName: string
+  editorCapabilities: {
+    cookie: string
+    reconnectLocationId: string
+    unverifiedLocationId: string
+  }
 }
 
 const here = dirname(fileURLToPath(import.meta.url))

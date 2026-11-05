@@ -77,7 +77,21 @@ export function editorGate({
       code: code === "permission_denied" ? code : null,
     }
   }
-  if (!publishReason) return null
+  if (!publishReason) {
+    if (
+      caps?.resources?.[resource]?.advisoryCode === "verification_unconfirmed"
+    ) {
+      return {
+        tone: "warning",
+        title: "Google verification isn’t confirmed for this listing",
+        description: savesHere
+          ? "You can keep editing, save here and submit changes to Google. Some changes may not appear until verification is complete."
+          : "You can submit changes to Google. Some changes may not appear until verification is complete.",
+        code: "verification_unconfirmed",
+      }
+    }
+    return null
+  }
   // The installation's switch reaches an editor either as the resource's
   // code or, for a resource with no capability row, only as the publish
   // gate's sentence; both are the same switch.
