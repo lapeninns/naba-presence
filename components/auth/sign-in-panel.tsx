@@ -31,6 +31,7 @@ function SignInPanel({
   statusMessage,
   registrationAllowed = true,
   workspaceChoice = false,
+  analytics,
 }: {
   initialMode?: SignInMode
   inviteToken?: string
@@ -39,6 +40,7 @@ function SignInPanel({
   registrationAllowed?: boolean
   /** REGISTRATION_WORKSPACE_CHOICE_ENABLED: offer business or agency. */
   workspaceChoice?: boolean
+  analytics?: React.ReactNode
 }) {
   const [mode, setMode] = useState<SignInMode>(
     registrationAllowed ? initialMode : "sign-in"
@@ -64,11 +66,14 @@ function SignInPanel({
       title={copy.title}
       description={copy.description}
       footer={
-        <p>
-          {registrationAllowed
-            ? "Access is by invitation or a new account."
-            : "NabaPresence is available by invitation during the pilot."}
-        </p>
+        <>
+          <p>
+            {registrationAllowed
+              ? "Access is by invitation or a new account."
+              : "NabaPresence is available by invitation during the pilot."}
+          </p>
+          {mode === "sign-in" ? analytics : null}
+        </>
       }
     >
       {/* Signing in with an invitation token accepts it, so say so, but only

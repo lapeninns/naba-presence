@@ -9,6 +9,21 @@
 ## Latest production promotion — 5 November 2026
 
 - Production: [nabapresence.com](https://nabapresence.com).
+- Deployed commit: `f003430cfd92f324743faf527ebfce46b9e8f515`, shipping
+  [PR #272](https://github.com/lapeninns/naba-presence/pull/272).
+- Vercel deployment: `dpl_5cJhGmAFqqRxFGpSUgsMMHs6v9fE`.
+- Promotion receipt timestamp: `2026-11-05T12:00:05.488Z` (12:00 Europe/London).
+- [Production receipt](../release/receipts/20261105T120005Z-f003430cfd92.json)
+  and its byte-pinned [local gate receipt](../release/receipts/20261105T120005Z-f003430cfd92.local.json).
+- All 17 release steps passed on merged main, including 10,737 unit/component
+  tests (one skipped), 1,704 integration tests, and 629 Playwright tests.
+  Upgrade base: `c3b76a113537734171f42e4232e0e4b10c9aacaa`.
+- The release added no database migrations. The production probe verified the
+  expected commit. Readiness was degraded only because telemetry had no endpoint.
+
+## Prior recorded production promotion — 5 November 2026
+
+- Production: [nabapresence.com](https://nabapresence.com).
 - Deployed commit: `c3b76a113537734171f42e4232e0e4b10c9aacaa`, shipping
   [PR #270](https://github.com/lapeninns/naba-presence/pull/270).
 - Vercel deployment: `dpl_5yM8KNDHdB6mdSMrAwTxKvTu3dUB`.

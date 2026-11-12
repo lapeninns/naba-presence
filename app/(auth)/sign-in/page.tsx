@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation"
 
+import { SignInAnalytics } from "@/components/auth/sign-in-analytics"
 import { SignInPanel } from "@/components/auth/sign-in-panel"
+import { signInAnalyticsId } from "@/lib/analytics/sign-in"
 import { confirmStatusMessage } from "@/lib/api/auth-errors"
 import { sanitiseNextPath } from "@/lib/api/next-path"
 import { getSession } from "@/lib/server/session"
@@ -23,8 +25,15 @@ export default async function SignInPage({
   const nextPath = sanitiseNextPath(params.next)
   const session = await getSession()
   if (session) redirect(nextPath ?? "/inbox")
+  const analyticsId =
+    Object.keys(params).length === 0
+      ? signInAnalyticsId(process.env.NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID)
+      : null
   return (
     <SignInPanel
+      analytics={
+        analyticsId ? <SignInAnalytics measurementId={analyticsId} /> : null
+      }
       initialMode={
         params.mode === "create-account" ? "create-account" : "sign-in"
       }
