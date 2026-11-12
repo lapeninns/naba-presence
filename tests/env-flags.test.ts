@@ -30,6 +30,22 @@ const allOn = {
 }
 
 describe("feature flags", () => {
+  it("disables optional sign-in analytics for a missing or malformed ID", () => {
+    for (const value of [undefined, "", "G-invalid"]) {
+      const env = serverEnvSchema.parse({
+        ...baseEnv,
+        NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID: value,
+      })
+      expect(env.NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID).toBeUndefined()
+    }
+    expect(
+      serverEnvSchema.parse({
+        ...baseEnv,
+        NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID: "G-1234567890",
+      }).NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID
+    ).toBe("G-1234567890")
+  })
+
   it("treats empty string as the documented default, not true", () => {
     expect(parseFeatureFlag("", true)).toBe(true)
     expect(parseFeatureFlag("", false)).toBe(false)

@@ -2,6 +2,8 @@ import "server-only"
 
 import { z } from "zod"
 
+import { signInAnalyticsId } from "@/lib/analytics/sign-in"
+
 export function parseFeatureFlag(value: unknown, fallback: boolean): boolean {
   if (value === undefined || value === "") return fallback
   if (value === "true") return true
@@ -150,6 +152,9 @@ export const serverEnvSchema = z.object({
   // accepts besides the request's own origin and NEXTAUTH_URL's: a
   // comma-separated list such as a proxy's public origin. Unset adds none.
   APP_ALLOWED_ORIGINS: originList,
+  NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID: optionalText.transform(
+    (value) => signInAnalyticsId(value) ?? undefined
+  ),
   NEXTAUTH_SECRET: z.string().min(32),
   TOKEN_ENCRYPTION_KEY: z.string().min(32),
   // Rotation (lib/server/crypto.ts): the first entry encrypts, every entry
@@ -406,7 +411,13 @@ let cachedEnv: ServerEnv | undefined
 
 export function getServerEnv(): ServerEnv {
   if (!cachedEnv) {
-    cachedEnv = serverEnvSchema.parse(process.env)
+    cachedEnv = serverEnvSchema.parse({
+      ...process.env,
+      // Next substitutes direct public references at build time. Keep the
+      // sign-in view on the same stream as the compiled CSP and privacy page.
+      NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID:
+        process.env.NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID,
+    })
   }
   return cachedEnv
 }

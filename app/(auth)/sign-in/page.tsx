@@ -2,7 +2,6 @@ import { redirect } from "next/navigation"
 
 import { SignInAnalytics } from "@/components/auth/sign-in-analytics"
 import { SignInPanel } from "@/components/auth/sign-in-panel"
-import { signInAnalyticsId } from "@/lib/analytics/sign-in"
 import { confirmStatusMessage } from "@/lib/api/auth-errors"
 import { sanitiseNextPath } from "@/lib/api/next-path"
 import { getSession } from "@/lib/server/session"
@@ -25,10 +24,11 @@ export default async function SignInPage({
   const nextPath = sanitiseNextPath(params.next)
   const session = await getSession()
   if (session) redirect(nextPath ?? "/inbox")
+  const env = getServerEnv()
   const analyticsId =
     Object.keys(params).length === 0
-      ? signInAnalyticsId(process.env.NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID)
-      : null
+      ? env.NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID
+      : undefined
   return (
     <SignInPanel
       analytics={
@@ -38,9 +38,9 @@ export default async function SignInPage({
         params.mode === "create-account" ? "create-account" : "sign-in"
       }
       registrationAllowed={
-        getServerEnv().REGISTRATION_MODE === "open" || Boolean(params.invite)
+        env.REGISTRATION_MODE === "open" || Boolean(params.invite)
       }
-      workspaceChoice={getServerEnv().REGISTRATION_WORKSPACE_CHOICE_ENABLED}
+      workspaceChoice={env.REGISTRATION_WORKSPACE_CHOICE_ENABLED}
       inviteToken={params.invite}
       nextPath={nextPath}
       statusMessage={
