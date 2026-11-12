@@ -114,11 +114,10 @@ export default function PrivacyPage() {
           <li>
             <strong>Optional analytics:</strong> if you allow analytics on the
             public sign-in page, Google Analytics uses cookies to count visits
-            and understand which sites refer visitors. The cookies expire after
-            90 days. Analytics excludes sign-in details, invitation links and
-            signed-in pages. We do not use it for advertising. You can turn
-            analytics off here or on the sign-in page. We remember that choice
-            in your browser.
+            and understand which sites refer visitors. Analytics excludes
+            sign-in details, invitation links and signed-in pages. We do not use
+            it for advertising. You can turn analytics off here or on the
+            sign-in page. We remember that choice in your browser.
             {analyticsId ? (
               <div>
                 <SignInAnalyticsOptOut measurementId={analyticsId} />

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   isAnalyticsEntry,
+  isSafeAnalyticsReferrer,
   signInAnalyticsId,
   signInReferrer,
 } from "@/lib/analytics/sign-in"
@@ -40,6 +41,22 @@ describe("public sign-in analytics boundary", () => {
       signInReferrer("https://www.nabapresence.com/invite/example")
     ).toBeNull()
     expect(signInReferrer("data:text/html,sensitive")).toBeNull()
+  })
+
+  it("does not expose raw private referral URLs to the Google tag", () => {
+    expect(isSafeAnalyticsReferrer("")).toBe(true)
+    expect(isSafeAnalyticsReferrer("https://www.google.co.uk/")).toBe(true)
+    expect(isSafeAnalyticsReferrer("https://nabapresence.com/")).toBe(true)
+    expect(
+      isSafeAnalyticsReferrer("https://nabapresence.com/share/report/example")
+    ).toBe(false)
+    expect(isSafeAnalyticsReferrer("https://example.org/?token=example")).toBe(
+      false
+    )
+    expect(isSafeAnalyticsReferrer("https://example.org/#token=example")).toBe(
+      false
+    )
+    expect(isSafeAnalyticsReferrer("https://secret@example.org/")).toBe(false)
   })
 
   it("fails closed with a missing or malformed stream ID", () => {

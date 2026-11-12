@@ -4,6 +4,7 @@ import { useEffect, useSyncExternalStore } from "react"
 
 import {
   isAnalyticsEntry,
+  isSafeAnalyticsReferrer,
   SIGN_IN_ANALYTICS_ORIGIN,
   SIGN_IN_ANALYTICS_PATH,
   signInReferrer,
@@ -43,7 +44,11 @@ function getSavedChoice() {
 }
 
 function getChoice() {
-  if (!isAnalyticsEntry(window.location)) return "unavailable"
+  if (
+    !isAnalyticsEntry(window.location) ||
+    !isSafeAnalyticsReferrer(document.referrer)
+  )
+    return "unavailable"
   // The document's CSP is set on its initial request. A client-side visit
   // from another route cannot make that document eligible for the tag.
   const entry = performance.getEntriesByType("navigation")[0]
@@ -62,7 +67,11 @@ function disable(id: string) {
 }
 
 function allow(id: string) {
-  if (!isAnalyticsEntry(window.location)) return
+  if (
+    !isAnalyticsEntry(window.location) ||
+    !isSafeAnalyticsReferrer(document.referrer)
+  )
+    return
   const analytics = window as AnalyticsWindow
   Reflect.set(window, `ga-disable-${id}`, false)
   if (document.getElementById("naba-ga4")) return
@@ -73,15 +82,15 @@ function allow(id: string) {
     // eslint-disable-next-line prefer-rest-params -- Google tag command format
     layer.push(arguments)
   }
+  Reflect.set(window, "gtag", tag)
   tag("consent", "default", {
     ad_storage: "denied",
     ad_user_data: "denied",
     ad_personalization: "denied",
     analytics_storage: "granted",
   })
-  tag("js", new Date())
   const referrer = signInReferrer(document.referrer)
-  tag("config", id, {
+  tag("set", {
     allow_google_signals: false,
     allow_ad_personalization_signals: false,
     cookie_domain: "none",
@@ -96,6 +105,8 @@ function allow(id: string) {
     ignore_referrer: !referrer,
     page_title: "Sign in · NabaPresence",
   })
+  tag("js", new Date())
+  tag("config", id)
   const script = document.createElement("script")
   script.id = "naba-ga4"
   script.src = `https://www.googletagmanager.com/gtag/js?id=${id}`
@@ -106,8 +117,15 @@ function allow(id: string) {
 function remember(choice: Choice, id: string) {
   if (choice === "declined") {
     disable(id)
+    // The remote Google tag can use the domain and root-path defaults even
+    // when we request host-only cookies scoped to sign-in. Expire the two
+    // GA4 cookies in both scopes without touching application cookies.
     for (const cookie of ["_ga", `_ga_${id.slice(2)}`]) {
-      document.cookie = `${cookie}=; Path=${SIGN_IN_ANALYTICS_PATH}; Max-Age=0; Secure; SameSite=Lax`
+      for (const path of ["/", SIGN_IN_ANALYTICS_PATH]) {
+        const expired = `${cookie}=; Path=${path}; Max-Age=0; Secure; SameSite=Lax`
+        document.cookie = expired
+        document.cookie = `${expired}; Domain=nabapresence.com`
+      }
     }
   }
   try {

@@ -16,6 +16,25 @@ export function isAnalyticsEntry(
   )
 }
 
+/** A vendor script can see the browser's raw referrer. Load it only if the
+ * browser omitted the referrer or supplied an origin without private paths. */
+export function isSafeAnalyticsReferrer(referrer: string): boolean {
+  if (!referrer) return true
+  try {
+    const url = new URL(referrer)
+    return (
+      (url.protocol === "https:" || url.protocol === "http:") &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      !url.username &&
+      !url.password
+    )
+  } catch {
+    return false
+  }
+}
+
 /** Keep the referring site for acquisition reporting, but never its path or
  * query. First-party links can contain account, invite or report identifiers. */
 export function signInReferrer(referrer: string): string | null {
