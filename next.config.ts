@@ -1,11 +1,16 @@
 import type { NextConfig } from "next"
 
+import {
+  SIGN_IN_ANALYTICS_PATH,
+  signInAnalyticsId,
+} from "./lib/analytics/sign-in"
+
 // A conservative CSP that locks down framing, object embedding, base-uri and
 // form-action without breaking Next 16's inline bootstrap script or Tailwind's
 // injected styles. `'unsafe-inline'` is retained deliberately for script/style
 // (Next injects an inline runtime bootstrap and Tailwind injects inline style)
-// — a nonce-based tightening is a documented follow-up. connect/font stay
-// same-origin; img additionally allows data:/blob: (the privacy-export object
+// — a nonce-based tightening is a documented follow-up. The baseline policy
+// keeps third-party scripts out. img allows data:/blob: (the privacy-export object
 // URL + inlined assets) AND the Google media origins that serve review/photo
 // thumbnails CLIENT-SIDE (thumbnail_url is stored verbatim from Google — see
 // lib/server/media.ts:114, reviews.ts:241 — and rendered as `<img src>` in
@@ -16,7 +21,8 @@ import type { NextConfig } from "next"
 // green — hence the dedicated remote-thumbnail render test in Step 1b.
 // Next's development bundle uses eval-based source maps for React debugging.
 // Production bundles do not require eval, so keep it out of the production CSP.
-const developmentEval = process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""
+const developmentEval =
+  process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""
 /**
  * Bulk photo uploads (P09-R9) PUT the file straight from the browser to the
  * private bucket's signed URL (lib/contracts/assets.ts), so no photo passes
@@ -25,31 +31,40 @@ const developmentEval = process.env.NODE_ENV === "development" ? " 'unsafe-eval'
  * connect-src; otherwise the policy stays same-origin and the asset routes
  * answer 503 anyway (fails closed).
  */
-export function assetUploadOrigin(env: Record<string, string | undefined> = process.env): string | null {
-  if (env.MEDIA_ASSET_STORAGE?.trim() !== "supabase" || !env.SUPABASE_URL) return null
+export function assetUploadOrigin(
+  env: Record<string, string | undefined> = process.env
+): string | null {
+  if (env.MEDIA_ASSET_STORAGE?.trim() !== "supabase" || !env.SUPABASE_URL)
+    return null
   try {
     const url = new URL(env.SUPABASE_URL)
     const local = url.hostname === "127.0.0.1" || url.hostname === "localhost"
-    return url.protocol === "https:" || (local && url.protocol === "http:") ? url.origin : null
+    return url.protocol === "https:" || (local && url.protocol === "http:")
+      ? url.origin
+      : null
   } catch {
     return null
   }
 }
 const uploadOrigin = assetUploadOrigin()
 
-const csp = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  // Google-hosted review/photo thumbnails: lh3-6.googleusercontent.com, *.ggpht.com.
-  "img-src 'self' data: blob: https://*.googleusercontent.com https://*.ggpht.com",
-  "font-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  `script-src 'self' 'unsafe-inline'${developmentEval}`,
-  `connect-src 'self'${uploadOrigin ? ` ${uploadOrigin}` : ""}`,
-].join("; ")
+function contentSecurityPolicy(signInAnalytics = false) {
+  const tag = "https://www.googletagmanager.com"
+  const analytics = "https://*.google-analytics.com"
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    // Google-hosted review and photo thumbnails.
+    `img-src 'self' data: blob: https://*.googleusercontent.com https://*.ggpht.com${signInAnalytics ? ` ${tag} ${analytics}` : ""}`,
+    "font-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    `script-src 'self' 'unsafe-inline'${developmentEval}${signInAnalytics ? ` ${tag}` : ""}`,
+    `connect-src 'self'${uploadOrigin ? ` ${uploadOrigin}` : ""}${signInAnalytics ? ` ${tag} ${analytics} https://*.google.com` : ""}`,
+  ].join("; ")
+}
 
 /**
  * Retired routes whose destination is fixed. Bookmarks and old links exist,
@@ -83,11 +98,20 @@ export const RETIRED_ROUTES: { source: string; destination: string }[] = [
   // Business info and Industry are sections of the profile editor;
   // Performance is a report, on Reports.
   { source: "/locations", destination: "/listings" },
-  { source: "/locations/:id/administration", destination: "/listings/:id/people" },
+  {
+    source: "/locations/:id/administration",
+    destination: "/listings/:id/people",
+  },
   { source: "/locations/:id/access", destination: "/listings/:id/people" },
-  { source: "/locations/:id/business-information", destination: "/listings/:id/profile" },
+  {
+    source: "/locations/:id/business-information",
+    destination: "/listings/:id/profile",
+  },
   { source: "/locations/:id/industry", destination: "/listings/:id/profile" },
-  { source: "/locations/:id/performance", destination: "/reports?locationId=:id" },
+  {
+    source: "/locations/:id/performance",
+    destination: "/reports?locationId=:id",
+  },
   { source: "/locations/:id/:area", destination: "/listings/:id/:area" },
   { source: "/locations/:id", destination: "/listings/:id" },
 ]
@@ -159,9 +183,23 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
-          { key: "Content-Security-Policy", value: csp },
+          { key: "Content-Security-Policy", value: contentSecurityPolicy() },
         ],
       },
+      ...(signInAnalyticsId(process.env.NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID)
+        ? [
+            {
+              source: SIGN_IN_ANALYTICS_PATH,
+              has: [{ type: "host" as const, value: "nabapresence\\.com" }],
+              headers: [
+                {
+                  key: "Content-Security-Policy",
+                  value: contentSecurityPolicy(true),
+                },
+              ],
+            },
+          ]
+        : []),
       { source: "/share/:path*", headers: SHARE_HEADERS },
     ]
   },

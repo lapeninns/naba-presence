@@ -1,12 +1,14 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 
+import { SignInAnalyticsOptOut } from "@/components/auth/sign-in-analytics"
 import {
   INLINE_LINK_CLASS,
   LegalDocument,
   LegalSection,
 } from "@/components/legal/legal-document"
 import { LEGAL_OPERATOR } from "@/lib/legal/operator"
+import { signInAnalyticsId } from "@/lib/analytics/sign-in"
 
 export const metadata: Metadata = {
   title: "Privacy policy · NabaPresence",
@@ -42,6 +44,9 @@ const SECTIONS = {
 export default function PrivacyPage() {
   const { legalName, registeredAddress, privacyEmail, databaseHost } =
     LEGAL_OPERATOR
+  const analyticsId = signInAnalyticsId(
+    process.env.NEXT_PUBLIC_NABA_GA4_MEASUREMENT_ID
+  )
   return (
     <LegalDocument
       current="privacy"
@@ -103,9 +108,21 @@ export default function PrivacyPage() {
             <code>naba_session</code>) that ends after 14 days without use and
             after 90 days at most, and a short-lived cookie (
             <code>naba_google_oauth</code>, 10 minutes) that protects the Google
-            connection step. We use no advertising or analytics cookies. Your
-            browser also remembers your theme and any unsaved reply drafts
-            locally.
+            connection step. Your browser also remembers your theme and any
+            unsaved reply drafts locally.
+          </li>
+          <li>
+            <strong>Optional analytics:</strong> if you allow analytics on the
+            public sign-in page, Google Analytics uses cookies to count visits
+            and understand which sites refer visitors. Analytics excludes
+            sign-in details, invitation links and signed-in pages. We do not use
+            it for advertising. You can turn analytics off here or on the
+            sign-in page. We remember that choice in your browser.
+            {analyticsId ? (
+              <div>
+                <SignInAnalyticsOptOut measurementId={analyticsId} />
+              </div>
+            ) : null}
           </li>
           <li>
             <strong>Google connection:</strong> the connected Google account’s
@@ -208,7 +225,8 @@ export default function PrivacyPage() {
           <li>
             <strong>Google</strong>, to read and update the Business Profiles
             you connect. Review photos and profile images are loaded by your
-            browser directly from Google’s servers.
+            browser directly from Google’s servers. If you allow analytics
+            cookies, Google also processes the public sign-in page visit.
           </li>
           <li>
             <strong>Vercel</strong>, which hosts the application.
