@@ -78,7 +78,7 @@ it.skipIf(process.env.RUN_LIVE_AI_TESTS !== "true")(
               expectedLanguage: "en",
               venue: VENUE,
             }),
-          hasTimeForAnother: () => true,
+          startAnother: async () => true,
         })
         const fails = checked.reasons.some((r) => r.severity === "fail")
         rows.push({

@@ -167,16 +167,67 @@ function plain(text: string): string {
  * against the whole quote in its plain form, so a courtesy that also carries
  * a fact ("thanks for coming to Dave's 40th") is not one.
  */
+/**
+ * The words a courtesy may continue with. Each list is closed on purpose:
+ * "we are sorry your visit fell short" is a courtesy, "we are sorry we
+ * served you chicken instead of beef" states a fact and must stay a
+ * finding. Anything outside the list makes the sentence checkable.
+ */
+const words = (list: string) =>
+  `(?: (?:${list.trim().split(/\s+/u).join("|")}))*`
+const THANKS_TAIL = words(`
+  the your this that a an such review rating feedback comments comment note
+  stars star five four kind words lovely generous honest detailed thoughtful
+  visit visiting coming in stopping dropping popping by letting us know
+  taking time to leave leaving write writing share sharing post it again
+  with and so very much support custom patience understanding
+  honesty
+`)
+const SORRY_TAIL = words(`
+  about for that this it to hear read your visit experience evening meal
+  time with us was wasnt were werent is isnt not what how should have been
+  be did didnt meet expectations fell short of good enough as right the we
+  let you down disappointed disappointing again once any inconvenience and
+  had felt feel way
+`)
+const CONTACT_TAIL = words(`
+  with us the pub team venue restaurant manager management directly at on so
+  that we i can could may might look into it this what happened went wrong
+  understand discuss talk speak hear find out put things right help more
+  further properly your visit booking details if you are youre were willing
+  would like to tell about when visited a member of our and in person
+`)
+const PASS_ON_TAIL = words(`
+  on to the team kitchen chef chefs staff bar front of house manager
+  management everyone your comments comment feedback kind words thanks
+  this that it along and as well too here in
+`)
+
 const COURTESY_PATTERNS = [
-  /^(?:hi|hello|dear|thanks|thank you|many thanks|cheers)(?: so| very)?(?: much)?(?: \p{L}+)?(?: for (?:the|your|this|that|such an?|taking the time to (?:leave|write|share|post)|leaving|writing|sharing|letting us know|coming in|visiting|stopping by|dropping in|popping in)(?: \p{L}+){0,6})?$/u,
-  /^(?:we|i)(?: really| truly| do| very much| greatly| sincerely)? appreciate (?:it|that|this|you|your)(?: \p{L}+){0,6}$/u,
+  new RegExp(
+    `^(?:hi|hello|dear|thanks|thank you|many thanks|cheers)(?: so| very)?(?: much)?(?: \\p{L}+)?(?: for${THANKS_TAIL})?$`,
+    "u"
+  ),
+  new RegExp(
+    `^(?:we|i)(?: really| truly| do| very much| greatly| sincerely)? appreciate (?:it|that|this|you|your)${THANKS_TAIL}$`,
+    "u"
+  ),
   /^(?:we|i)(?: do| really| very much| all)? (?:hope|look forward) to (?:see|seeing|welcome|welcoming|serve|serving|have|having) you(?: (?:back|again|soon|very|next|time|another|before|long|in|the|future|here|one|day|with|us))*$/u,
   /^(?:hope to |look forward to |looking forward to )?(?:see|seeing|welcome|welcoming) you(?: back| again| soon| next time| in| here| at the bar){0,4}$/u,
-  /^you(?: are|re) (?:always |very )?welcome(?: back)?(?: \p{L}+){0,4}$/u,
-  /^(?:we are|were|we re|i am|im)(?: very| so| really| truly| genuinely)? sorry(?: \p{L}+){0,10}$/u,
-  /^(?:we|i)(?: do| sincerely)? apologi[sz]e(?: \p{L}+){0,10}$/u,
-  /^(?:please )?(?:get in touch|contact us|give us a call|drop us a line|let us know|speak to (?:a member of )?(?:the|our) team)(?: \p{L}+){0,14}$/u,
-  /^(?:we|i|well|ill)(?: will| shall)?(?: make sure to| be sure to)? pass (?:this|that|it|your (?:comments|feedback|kind words|thanks))?(?: \p{L}+){0,8}$/u,
+  /^you(?: are|re) (?:always |very )?welcome(?: (?:back|here|again|any|time|anytime|whenever|you|like))*$/u,
+  new RegExp(
+    `^(?:we are|were|we re|i am|im)(?: very| so| really| truly| genuinely)? sorry${SORRY_TAIL}$`,
+    "u"
+  ),
+  new RegExp(`^(?:we|i)(?: do| sincerely)? apologi[sz]e${SORRY_TAIL}$`, "u"),
+  new RegExp(
+    `^(?:please )?(?:get in touch|contact us|give us a call|drop us a line|let us know|speak to (?:a member of )?(?:the|our) team)${CONTACT_TAIL}$`,
+    "u"
+  ),
+  new RegExp(
+    `^(?:we|i|well|ill)(?: will| shall)?(?: make sure to| be sure to)? pass${PASS_ON_TAIL}$`,
+    "u"
+  ),
 ]
 
 /** Whether a quoted span is only a courtesy. Split on sentence ends first. */

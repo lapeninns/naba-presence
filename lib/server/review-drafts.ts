@@ -25,6 +25,7 @@ import {
 } from "@/lib/server/ai"
 import {
   releaseDraftCredit,
+  releaseReservation,
   reserveDraftCredit,
   settleDraftCredit,
   type ExistingGeneration,
@@ -48,7 +49,7 @@ import {
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { loadReplyContext } from "@/lib/server/reply-context"
-import { addUsage, writeCheckedReply } from "@/lib/server/reply-pipeline"
+import { writeCheckedReply } from "@/lib/server/reply-pipeline"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -443,12 +444,68 @@ export async function createReviewDraft({
   let semantic: SemanticOutcome
   let verifyUsage: AiUsage | undefined
   let verifyModel: string | undefined
-  // What the provider has billed for generation so far, kept for the
+  // What the provider billed for the first generation, kept for the
   // released row if a later step throws.
   let spent: AiUsage | undefined
   // How the reply was arrived at, for the audit record.
   let pipeline: { attempts: number; history: { codes: string[] }[] } | null =
     null
+  // A correction round's own ledger rows. The phase-one reservations hold
+  // token capacity for ONE generation and ONE verification, so each further
+  // round reserves its two calls under the organisation lock before making
+  // them, and is refused past the backstop. They are uncharged rows (the
+  // ledger's `verify` kind, 0 credits): the one credit stays on the draft
+  // row, and each row is settled with what its own call cost.
+  let round = 1
+  let roundGeneration: string | null = null
+  let roundVerification: string | null = null
+  const releaseRound = async () => {
+    for (const id of [roundGeneration, roundVerification]) {
+      if (id) await finishVerifyUsage(tenant, { id })
+    }
+    roundGeneration = null
+    roundVerification = null
+  }
+  const startAnother = async (): Promise<boolean> => {
+    await releaseRound()
+    if (!timeLeftFor(MIN_ATTEMPT_MS)) return false
+    const next = round + 1
+    const refused = new Error("correction round refused")
+    try {
+      const rows = await tenant(async (sql) => {
+        const reserve = async (model: string, call: string) => {
+          const row = await reserveVerifyUsage(sql, {
+            organisationId: session.organisationId,
+            model,
+            reviewId: id,
+            draftId,
+            requestKey: `${correlationId}:correction-${next}:${call}`,
+            userId: session.userId,
+          })
+          // Past the backstop, or a key already used: no round. Throwing
+          // rolls back a generation row reserved a moment ago.
+          if (!("id" in row)) throw refused
+          return row.id
+        }
+        return {
+          generation: await reserve(
+            getServerEnv().OPENAI_MODEL_DRAFT,
+            "generation"
+          ),
+          verification: verifyReservationId
+            ? await reserve(getServerEnv().OPENAI_MODEL_VERIFY, "verification")
+            : null,
+        }
+      })
+      round = next
+      roundGeneration = rows.generation
+      roundVerification = rows.verification
+      return true
+    } catch (error) {
+      if (error === refused) return false
+      throw error
+    }
+  }
   try {
     if (source === "ai") {
       // Generate → check → correct (lib/server/reply-pipeline.ts): a reply
@@ -456,21 +513,43 @@ export async function createReviewDraft({
       // of times, before anyone sees it. One credit covers all of it.
       const checked = await writeCheckedReply({
         generate: async (correction) => {
-          const written = await generateReply(
-            {
-              reviewText: review.review_text,
-              rating: review.rating,
-              reviewerName: review.reviewer_name,
-              language,
-              venue: context.venue,
-              bannedPhrases: context.bannedPhrases,
-              recentReplies: context.recentReplies,
-              correction,
-            },
-            budget
-          )
-          spent = addUsage(spent, written.usage)
-          return written
+          const row = roundGeneration
+          roundGeneration = null
+          try {
+            const written = await generateReply(
+              {
+                reviewText: review.review_text,
+                rating: review.rating,
+                reviewerName: review.reviewer_name,
+                language,
+                venue: context.venue,
+                bannedPhrases: context.bannedPhrases,
+                recentReplies: context.recentReplies,
+                correction,
+              },
+              budget
+            )
+            if (row) {
+              await finishVerifyUsage(tenant, {
+                id: row,
+                usage: written.usage,
+                model: written.model,
+              })
+            } else {
+              spent = written.usage
+            }
+            return written
+          } catch (error) {
+            // A correction that was billed but unreadable keeps its tokens
+            // on its released row, so the backstop still sees them.
+            if (row) {
+              await releaseReservation(tenant, {
+                id: row,
+                usage: error instanceof AiOutputError ? error.usage : undefined,
+              })
+            }
+            throw error
+          }
         },
         ruleChecks: (body) =>
           deterministicVerification({
@@ -483,18 +562,37 @@ export async function createReviewDraft({
             bannedPhrases: context.bannedPhrases,
             recentPublishedReplies: context.recentReplies,
           }),
-        semantic: runSemantic,
-        hasTimeForAnother: () => timeLeftFor(MIN_ATTEMPT_MS),
+        semantic: async (body) => {
+          const row = roundVerification
+          roundVerification = null
+          try {
+            const outcome = await runSemantic(body)
+            if (row) {
+              await finishVerifyUsage(tenant, {
+                id: row,
+                usage: outcome.usage,
+                model: outcome.model,
+              })
+            } else if (round === 1) {
+              verifyUsage = outcome.usage
+              verifyModel = outcome.model
+            }
+            return outcome
+          } catch (error) {
+            if (row) await finishVerifyUsage(tenant, { id: row })
+            throw error
+          }
+        },
+        startAnother,
       })
+      await releaseRound()
       generated = {
         reply: checked.reply,
         language: checked.language,
-        usage: checked.generationUsage,
+        usage: spent,
         model: checked.model,
       }
       semantic = checked.semantic
-      verifyUsage = checked.verifyUsage
-      verifyModel = checked.verifyModel
       pipeline = { attempts: checked.attempts, history: checked.history }
     } else {
       generated = input.body
@@ -505,11 +603,11 @@ export async function createReviewDraft({
       verifyModel = semantic.model
     }
   } catch (error) {
+    await releaseRound()
     if (reservationId) {
       await releaseDraftCredit(tenant, {
         id: reservationId,
-        usage:
-          error instanceof AiOutputError ? addUsage(spent, error.usage) : spent,
+        usage: error instanceof AiOutputError && !spent ? error.usage : spent,
       })
     }
     if (verifyReservationId) {

@@ -14,6 +14,10 @@ import type { SemanticOutcome } from "@/lib/server/drafts"
  * again. The loop stops at the first clean reply, at `MAX_REPLY_ATTEMPTS`,
  * or when the request has no time left for another round.
  *
+ * Provider usage is the caller's to record: it sees every call through the
+ * functions it passes in, and reserves token capacity for each correction
+ * round in `startAnother` (lib/server/review-drafts.ts).
+ *
  * What comes out is the best attempt together with ITS verdict. A reply
  * that still fails after the last attempt is returned as failing, and is
  * stored and shown as blocked: nothing here turns a failure into a pass.
@@ -58,31 +62,23 @@ export type CheckedReply = ReplyAttempt & {
   attempts: number
   /** Every attempt's reasons, oldest first, for the audit record. */
   history: { codes: string[] }[]
-  /** Provider usage summed over every generation call. */
-  generationUsage: AiUsage
-  /** Provider usage summed over every verification call, when any ran. */
-  verifyUsage?: AiUsage
-  verifyModel?: string
-}
-
-export function addUsage(a: AiUsage | undefined, b: AiUsage | undefined) {
-  if (!a) return b
-  if (!b) return a
-  const sum = (x: number | null, y: number | null) =>
-    x === null && y === null ? null : (x ?? 0) + (y ?? 0)
-  return {
-    inputTokens: sum(a.inputTokens, b.inputTokens),
-    outputTokens: sum(a.outputTokens, b.outputTokens),
-  }
 }
 
 function fails(reasons: VerificationReason[]): number {
   return reasons.filter((reason) => reason.severity === "fail").length
 }
 
-/** Lower is better: failures first, then notes. */
+/**
+ * Lower is better: failures first, then a reply the AI pass could not
+ * check (it would be stored `pending` and could not be published, so it
+ * never outranks a checked reply that passed), then notes.
+ */
 function score(attempt: ReplyAttempt): number {
-  return fails(attempt.reasons) * 100 + attempt.reasons.length
+  return (
+    fails(attempt.reasons) * 100 +
+    (attempt.semantic.status === "unavailable" ? 50 : 0) +
+    attempt.reasons.length
+  )
 }
 
 export async function writeCheckedReply(deps: {
@@ -90,15 +86,16 @@ export async function writeCheckedReply(deps: {
   /** The deterministic checks, on text not yet stored. */
   ruleChecks: (body: string) => VerificationReason[]
   semantic: (body: string) => Promise<SemanticOutcome>
-  /** Whether the request has time for another generate and check. */
-  hasTimeForAnother: () => boolean
+  /**
+   * Asked before each correction round: whether there is time for it and,
+   * for the caller's ledger, token capacity reserved for its calls. False
+   * ends the loop with the attempts already checked.
+   */
+  startAnother: () => Promise<boolean>
   maxAttempts?: number
 }): Promise<CheckedReply> {
   const maxAttempts = deps.maxAttempts ?? MAX_REPLY_ATTEMPTS
   const attempts: ReplyAttempt[] = []
-  let generationUsage: AiUsage | undefined
-  let verifyUsage: AiUsage | undefined
-  let verifyModel: string | undefined
   let model = ""
   let correction: ReplyCorrection | null = null
   let rewroteForNotes = false
@@ -113,7 +110,6 @@ export async function writeCheckedReply(deps: {
       if (attempts.length === 0) throw error
       break
     }
-    generationUsage = addUsage(generationUsage, generated.usage)
     model = generated.model
 
     const ruleReasons = deps.ruleChecks(generated.reply)
@@ -124,10 +120,6 @@ export async function writeCheckedReply(deps: {
       fails(ruleReasons) > 0
         ? { status: "skipped", reasons: [] }
         : await deps.semantic(generated.reply)
-    if (semantic.usage) {
-      verifyUsage = addUsage(verifyUsage, semantic.usage)
-      verifyModel = semantic.model ?? verifyModel
-    }
     const reasons = [...ruleReasons, ...semantic.reasons]
     attempts.push({
       reply: generated.reply,
@@ -144,7 +136,7 @@ export async function writeCheckedReply(deps: {
       !rewroteForNotes &&
       reasons.some((reason) => REWRITE_ONCE_FOR.has(reason.code))
     if (!failed && !notes) break
-    if (attempt === maxAttempts || !deps.hasTimeForAnother()) break
+    if (attempt === maxAttempts || !(await deps.startAnother())) break
     if (notes) rewroteForNotes = true
     correction = {
       previousReply: generated.reply,
@@ -163,11 +155,5 @@ export async function writeCheckedReply(deps: {
     history: attempts.map((attempt) => ({
       codes: attempt.reasons.map((reason) => reason.code),
     })),
-    generationUsage: generationUsage ?? {
-      inputTokens: null,
-      outputTokens: null,
-    },
-    verifyUsage,
-    verifyModel,
   }
 }

@@ -274,6 +274,10 @@ describe("semantic findings", () => {
     "I'll pass this on to the kitchen.",
     "See you again soon",
     "You're always welcome back",
+    "We are sorry your visit was not what it should have been.",
+    "We're sorry to hear that",
+    "Please get in touch with us at the pub directly so we can look into what happened",
+    "Thank you for the five stars",
   ])("treats %j as a courtesy", (quote) => {
     expect(isCourtesyOnly(quote)).toBe(true)
   })
@@ -286,6 +290,11 @@ describe("semantic findings", () => {
     "Sorry that Dave was rude to you",
     "We hope to see you at our quiz night on Thursday",
     "We hope to see you at our quiz night",
+    "We are sorry we served you chicken instead of beef.",
+    "We apologise that Dave was rude to you",
+    "Thank you for the review of our new tasting menu",
+    "Please get in touch with Karen on Monday",
+    "We'll pass this on to Dave in the kitchen",
   ])("does not treat %j as a courtesy", (quote) => {
     expect(isCourtesyOnly(quote)).toBe(false)
   })

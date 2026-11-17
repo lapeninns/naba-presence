@@ -46,7 +46,7 @@ const PROMOTION_ALLOWLIST =
 const PROMOTION_ITEM =
   "(?:drinks?|pints?|rounds?|bottles?|glass(?:es)?|desserts?|puddings?|starters?|mains?|meals?|dinners?|lunch(?:es)?|breakfasts?|coffees?|sides?|gifts?|vouchers?|upgrades?|nights?|stays?|visits?)"
 const PROMOTION_PATTERN = new RegExp(
-  `\\b(?:free\\s+${PROMOTION_ITEM}|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+free|for free|on the house|on us|complimentary|discount(?:s|ed)?|promo(?:tional)? code|vouchers?|coupons?|money off|bogo|(?:2|two)[-\\s]for[-\\s](?:1|one))\\b|\\d+\\s?% off\\b`,
+  `\\b(?:free\\s+${PROMOTION_ITEM}|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+free|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+on\\s+us|for free|on the house|complimentary|discount(?:s|ed)?|promo(?:tional)? code|vouchers?|coupons?|money off|bogo|(?:2|two)[-\\s]for[-\\s](?:1|one))\\b|\\d+\\s?% off\\b`,
   "iu"
 )
 

@@ -290,6 +290,14 @@ export const BAD_REPLIES: {
     severity: "fail",
   },
   {
+    id: "drinks-on-us",
+    rating: 1,
+    reviewText: "Cold food.",
+    reply: "Sorry about the cold food. Next time the drinks are on us.",
+    code: "forbidden_promotion",
+    severity: "fail",
+  },
+  {
     id: "refund",
     rating: 1,
     reviewText: "Cold food.",
@@ -393,6 +401,11 @@ export const NOT_BLOCKED: { id: string; rating: number; reply: string }[] = [
     rating: 5,
     reply:
       "Thanks. Glad a table was free when you walked in, and feel free to ring ahead next time.",
+  },
+  {
+    id: "that-is-on-us",
+    rating: 2,
+    reply: "We are sorry about the wait. That is on us, not on you.",
   },
   {
     id: "gluten-free",
