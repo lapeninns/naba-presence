@@ -51,8 +51,14 @@ const PROMOTION_ITEM =
  */
 const OFFERED_FREE =
   "(?:a|an|your|some|another|one|two|2|the)\\s+free\\s+(?!tables?\\b|seats?\\b|spaces?\\b|spots?\\b|slots?\\b|rooms?\\b|moments?\\b|minutes?\\b|evenings?\\b|afternoons?\\b|hands?\\b|time\\b|parking\\b|house\\b|range\\b|to\\b|of\\b|from\\b|and\\b|for\\b|when\\b|at\\b|on\\b|in\\b)\\p{L}+"
+/**
+ * A complimentary drink is an incentive; complimentary feedback is praise.
+ * Only something offered counts: a named item, or "a complimentary …" that
+ * is not a review, comment or other kind words.
+ */
+const OFFERED_COMPLIMENTARY = `(?:complimentary\\s+${PROMOTION_ITEM}|(?:a|an|some|your|another|two|2)\\s+complimentary\\s+(?!reviews?\\b|comments?\\b|words?\\b|feedback\\b|remarks?\\b|notes?\\b|messages?\\b|ratings?\\b)\\p{L}+)`
 const PROMOTION_PATTERN = new RegExp(
-  `\\b(?:${OFFERED_FREE}|free\\s+${PROMOTION_ITEM}|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+free|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+on\\s+us|for free|on the house|complimentary|discount(?:s|ed)?|promo(?:tional)? code|vouchers?|coupons?|money off|bogo|(?:2|two)[-\\s]for[-\\s](?:1|one))\\b|\\d+\\s?% off\\b`,
+  `\\b(?:${OFFERED_FREE}|free\\s+${PROMOTION_ITEM}|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+free|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+on\\s+us|for free|on the house|${OFFERED_COMPLIMENTARY}|discount(?:s|ed)?|promo(?:tional)? code|vouchers?|coupons?|money off|bogo|(?:2|two)[-\\s]for[-\\s](?:1|one))\\b|\\d+\\s?% off\\b`,
   "iu"
 )
 

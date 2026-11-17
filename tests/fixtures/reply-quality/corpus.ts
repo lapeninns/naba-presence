@@ -330,6 +330,24 @@ export const BAD_REPLIES: {
     severity: "fail",
   },
   {
+    id: "complimentary-drink",
+    rating: 2,
+    reviewText: "Slow service.",
+    reply:
+      "Sorry about the wait. Come back for a complimentary bottle of wine.",
+    code: "forbidden_promotion",
+    severity: "fail",
+  },
+  {
+    id: "complimentary-unlisted-item",
+    rating: 2,
+    reviewText: "Slow service.",
+    reply:
+      "Sorry about the wait. We would like to offer you a complimentary brunch.",
+    code: "forbidden_promotion",
+    severity: "fail",
+  },
+  {
     id: "refund",
     rating: 1,
     reviewText: "Cold food.",
@@ -444,6 +462,12 @@ export const NOT_BLOCKED: { id: string; rating: number; reply: string }[] = [
     rating: 3,
     reply:
       "Thanks. Sorry there wasn't a free table when you arrived; a free moment at the bar is rarer on Fridays.",
+  },
+  {
+    id: "complimentary-feedback",
+    rating: 5,
+    reply:
+      "Thank you for your complimentary review. The team were pleased you were so complimentary about the roast.",
   },
   {
     id: "gluten-free",
