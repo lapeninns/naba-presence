@@ -76,7 +76,10 @@ export function menuItemNames(payload: unknown): string[] {
   return [...names]
 }
 
-/** The venue's own facts from its stored address, profile and menu. */
+/**
+ * The venue's own facts from its stored address, its profile as Google
+ * returned it, and the menu Google shows.
+ */
 export function venueContextFrom(input: {
   name: string
   address: unknown
@@ -118,7 +121,9 @@ export async function loadVenueContext(
         limit 1
       ) as "googleLocation",
       (
-        select m.canonical_payload
+        -- The menu as Google shows it, not canonical_payload: saved but
+        -- unpublished menu edits must not become facts for a public reply.
+        select m.google_payload
         from food_menus_state m
         where m.location_id = l.id
         limit 1
