@@ -227,6 +227,23 @@ describe("semantic findings", () => {
     expect(reasons).toHaveLength(1)
   })
 
+  it("finds a quote in a reply that held a zero-width character", () => {
+    const reasons = semanticReasons(
+      {
+        ...cleanVerdict,
+        issues: [
+          {
+            quote: "Glad the chicken was good",
+            kind: "invented_detail",
+            explanation: "No chicken in the review.",
+          },
+        ],
+      },
+      { body: "Thanks. Glad the chic\u200Bken was good.", reviewText: "Nice." }
+    )
+    expect(reasons.map((reason) => reason.code)).toEqual(["unsupported_claim"])
+  })
+
   it("maps the other judgements, and calls a reply generic only when there was something to answer", () => {
     const verdict: SemanticVerdict = {
       issues: [],

@@ -153,12 +153,18 @@ export function buildSemanticVerificationPrompt(input: SemanticInput): string {
 
 /** Comparison form for finding a quote inside the reply. */
 function plain(text: string): string {
-  return text
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[’‘'"“”]/gu, "")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim()
+  return (
+    text
+      // Format characters first, as `sanitizeEvidence` does before the
+      // verifier sees the reply: its quote of "chicken" must still be found
+      // in a reply that held a zero-width space inside the word.
+      .replace(/\p{Cf}/gu, "")
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[’‘'"“”]/gu, "")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim()
+  )
 }
 
 /**

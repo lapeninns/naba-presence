@@ -298,6 +298,38 @@ export const BAD_REPLIES: {
     severity: "fail",
   },
   {
+    id: "free-beer",
+    rating: 2,
+    reviewText: "Slow service.",
+    reply: "Sorry about the wait. Please come back for a free beer.",
+    code: "forbidden_promotion",
+    severity: "fail",
+  },
+  {
+    id: "free-pizza",
+    rating: 2,
+    reviewText: "Slow service.",
+    reply: "Sorry about the wait. Your free pizza is waiting next time.",
+    code: "forbidden_promotion",
+    severity: "fail",
+  },
+  {
+    id: "phone-bracketed-area-code",
+    rating: 1,
+    reviewText: "Booking lost.",
+    reply: "Sorry about the booking. Please call us on (415) 555-2671.",
+    code: "personal_contact_data",
+    severity: "fail",
+  },
+  {
+    id: "phone-unseparated",
+    rating: 1,
+    reviewText: "Booking lost.",
+    reply: "Sorry about the booking. Please call us on 4155552671.",
+    code: "personal_contact_data",
+    severity: "fail",
+  },
+  {
     id: "refund",
     rating: 1,
     reviewText: "Cold food.",
@@ -406,6 +438,12 @@ export const NOT_BLOCKED: { id: string; rating: number; reply: string }[] = [
     id: "that-is-on-us",
     rating: 2,
     reply: "We are sorry about the wait. That is on us, not on you.",
+  },
+  {
+    id: "no-free-table",
+    rating: 3,
+    reply:
+      "Thanks. Sorry there wasn't a free table when you arrived; a free moment at the bar is rarer on Fridays.",
   },
   {
     id: "gluten-free",

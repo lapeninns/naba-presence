@@ -35,7 +35,7 @@ it.skipIf(process.env.RUN_LIVE_AI_TESTS !== "true")(
     const written: string[] = []
     const rows: {
       id: string
-      verdict: "pass" | "warn" | "fail"
+      verdict: "pass" | "warn" | "fail" | "unchecked"
       attempts: number
       codes: string[]
       /** What each attempt was found to have, oldest first. */
@@ -83,7 +83,15 @@ it.skipIf(process.env.RUN_LIVE_AI_TESTS !== "true")(
         const fails = checked.reasons.some((r) => r.severity === "fail")
         rows.push({
           id: review.id,
-          verdict: fails ? "fail" : checked.reasons.length ? "warn" : "pass",
+          // A reply the AI pass could not check is stored `pending` in
+          // production and cannot be published: never count it as passed.
+          verdict: fails
+            ? "fail"
+            : checked.semantic.status !== "ran"
+              ? "unchecked"
+              : checked.reasons.length
+                ? "warn"
+                : "pass",
           attempts: checked.attempts,
           codes: checked.reasons.map((reason) => reason.code),
           history: checked.history.map((entry) => entry.codes),
@@ -136,9 +144,11 @@ it.skipIf(process.env.RUN_LIVE_AI_TESTS !== "true")(
         id: review.id,
         verdict: reasons.some((r) => r.severity === "fail")
           ? "fail"
-          : reasons.length
-            ? "warn"
-            : "pass",
+          : semantic.status !== "ran"
+            ? "unchecked"
+            : reasons.length
+              ? "warn"
+              : "pass",
         attempts: 1,
         codes: reasons.map((reason) => reason.code),
         history: [reasons.map((reason) => reason.code)],
@@ -147,7 +157,10 @@ it.skipIf(process.env.RUN_LIVE_AI_TESTS !== "true")(
     }
 
     const total = rows.length
-    const publishable = rows.filter((row) => row.verdict !== "fail").length
+    const unchecked = rows.filter((row) => row.verdict === "unchecked").length
+    const publishable = rows.filter(
+      (row) => row.verdict === "pass" || row.verdict === "warn"
+    ).length
     const unsupported = rows.filter((row) =>
       row.codes.some((code) =>
         ["unsupported_claim", "unsupported_commitment"].includes(code)
@@ -173,6 +186,7 @@ it.skipIf(process.env.RUN_LIVE_AI_TESTS !== "true")(
       retryRate: retried / total,
       meanAttempts: rows.reduce((sum, row) => sum + row.attempts, 0) / total,
       generationFailures: failedToGenerate,
+      uncheckedByAiPass: unchecked,
     }
     // Optional: the same figures and replies as a file, for a written record.
     if (process.env.REPLY_QUALITY_REPORT) {
@@ -191,6 +205,8 @@ it.skipIf(process.env.RUN_LIVE_AI_TESTS !== "true")(
     }
 
     expect(failedToGenerate).toBe(0)
+    // Every figure below is about replies the AI pass actually checked.
+    expect(unchecked).toBe(0)
     expect(metrics.validationPassRate).toBeGreaterThanOrEqual(0.9)
     expect(metrics.unsupportedClaimRate).toBeLessThanOrEqual(0.1)
     expect(stock).toBe(0)

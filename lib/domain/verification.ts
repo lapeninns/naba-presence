@@ -45,8 +45,14 @@ const PROMOTION_ALLOWLIST =
  */
 const PROMOTION_ITEM =
   "(?:drinks?|pints?|rounds?|bottles?|glass(?:es)?|desserts?|puddings?|starters?|mains?|meals?|dinners?|lunch(?:es)?|breakfasts?|coffees?|sides?|gifts?|vouchers?|upgrades?|nights?|stays?|visits?)"
+/**
+ * "a free beer", "your free pizza": something offered free, whatever it is.
+ * What follows must not be a thing that is merely unoccupied or spare.
+ */
+const OFFERED_FREE =
+  "(?:a|an|your|some|another|one|two|2|the)\\s+free\\s+(?!tables?\\b|seats?\\b|spaces?\\b|spots?\\b|slots?\\b|rooms?\\b|moments?\\b|minutes?\\b|evenings?\\b|afternoons?\\b|hands?\\b|time\\b|parking\\b|house\\b|range\\b|to\\b|of\\b|from\\b|and\\b|for\\b|when\\b|at\\b|on\\b|in\\b)\\p{L}+"
 const PROMOTION_PATTERN = new RegExp(
-  `\\b(?:free\\s+${PROMOTION_ITEM}|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+free|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+on\\s+us|for free|on the house|complimentary|discount(?:s|ed)?|promo(?:tional)? code|vouchers?|coupons?|money off|bogo|(?:2|two)[-\\s]for[-\\s](?:1|one))\\b|\\d+\\s?% off\\b`,
+  `\\b(?:${OFFERED_FREE}|free\\s+${PROMOTION_ITEM}|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+free|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+on\\s+us|for free|on the house|complimentary|discount(?:s|ed)?|promo(?:tional)? code|vouchers?|coupons?|money off|bogo|(?:2|two)[-\\s]for[-\\s](?:1|one))\\b|\\d+\\s?% off\\b`,
   "iu"
 )
 
@@ -103,6 +109,10 @@ export function deterministicVerification(input: {
   if (
     /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/iu.test(body) ||
     containsPhoneNumber(body) ||
+    // Shapes the shared helper leaves to post copy: a bracketed area code
+    // ("(415) 555-2671") and ten or eleven digits run together.
+    /\(\d{3}\)\s?\d{3}[-.\s]?\d{4}(?!\d)/u.test(body) ||
+    /(?<![\p{L}\p{N}£$€.,:])\d{10,11}(?![\p{L}\p{N}]|[.,:]\d)/u.test(body) ||
     containsLink(body)
   ) {
     add(
