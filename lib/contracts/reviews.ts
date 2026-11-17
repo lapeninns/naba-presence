@@ -647,20 +647,15 @@ export type ReviewWriteSnapshot = {
   detail?: ReviewDetail
 }
 
-export const DRAFT_TONES = [
-  "warm_professional",
-  "concise",
-  "empathetic",
-] as const
-export type DraftTone = (typeof DRAFT_TONES)[number]
-
 // One endpoint is Generate / Regenerate / Save.
-// Omit `body` → the server generates (AI) or templates (rating-only) — only
-// when the operator clicks Generate. Include `body` → human edit / save.
+// Omit `body` → the server writes ONE reply (AI, or the rating-only template)
+// in the venue's own voice, only when the operator clicks Generate. Include
+// `body` → human edit / save. There is no tone and no caller-supplied
+// context: what the reply may say about the venue is read from the venue's
+// own stored profile (lib/server/reply-context.ts). Keys an older client
+// still sends (`tone`, `businessContext`) are ignored.
 export const draftInputSchema = z.object({
-  tone: z.enum(DRAFT_TONES).default("warm_professional"),
   languageOverride: z.string().trim().min(2).max(12).nullable().default(null),
-  businessContext: z.string().trim().max(2000).nullable().default(null),
   body: z.string().trim().min(1).max(4096).optional(),
 })
 export type DraftInput = z.input<typeof draftInputSchema>

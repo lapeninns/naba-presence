@@ -33,7 +33,7 @@ describeDatabase("AI draft credit ordering", () => {
   let duringVerification: (() => Promise<void>) | null = null
 
   const DRAFT = {
-    reply: "Thank you for your kind review. We hope to welcome you back soon.",
+    reply: "Thank you for your kind review. Glad you enjoyed the evening.",
     language: "en",
   }
 
@@ -59,7 +59,7 @@ describeDatabase("AI draft credit ordering", () => {
         "content-type": "application/json",
         "idempotency-key": intent,
       },
-      body: JSON.stringify({ tone: "warm_professional" }),
+      body: JSON.stringify({}),
     })
   }
 
@@ -111,7 +111,9 @@ describeDatabase("AI draft credit ordering", () => {
             output_text: JSON.stringify(
               isVerification
                 ? {
-                    unsupportedClaims: [],
+                    issues: [],
+                    addressesGuestDirectly: true,
+                    relevance: "specific",
                     unsafeEscalation: false,
                     toneMismatch: false,
                   }

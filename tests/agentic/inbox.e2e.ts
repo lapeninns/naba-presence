@@ -59,7 +59,7 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
       )
       await expect(replyBox).toHaveValue(reply)
 
-      const signOff = "We hope to welcome you back soon."
+      const signOff = "Thank you again for staying with us."
       await agent.act(
         'Edit the reply: add {signOff} to the end of the text in "Your reply", keeping the rest',
         {
@@ -67,7 +67,7 @@ describe("inbox", { tags: ["desktop", "inbox", "mutates"] }, () => {
         }
       )
       await expect(replyBox).toHaveValue(
-        /We are delighted you enjoyed your stay.*We hope to welcome you back soon\.\s*$/s
+        /We are delighted you enjoyed your stay.*Thank you again for staying with us\.\s*$/s
       )
 
       // "Verify": the reply status line says the written reply can go out

@@ -23,10 +23,15 @@ const draftInput = {
   reviewText: "The pie was lovely.",
   rating: 5,
   reviewerName: "Alex",
-  locationName: "Example Inn",
   language: "en",
-  tone: "warm_professional",
-} as const
+  venue: {
+    name: "Example Inn",
+    locality: null,
+    category: null,
+    description: null,
+    menuItems: [],
+  },
+}
 const verificationInput = {
   body: "Thank you for your review.",
   reviewText: "The pie was lovely.",
@@ -36,7 +41,9 @@ const verificationInput = {
 }
 const draft = { reply: "Thank you for your review.", language: "en" }
 const verdict = {
-  unsupportedClaims: [],
+  issues: [],
+  addressesGuestDirectly: true,
+  relevance: "specific",
   unsafeEscalation: false,
   toneMismatch: false,
 }
@@ -132,15 +139,25 @@ describe("OpenAI review integration", () => {
     settings.values = { ...baseEnv, OPENAI_MODEL_VERIFY: "gpt-4.1-mini" }
     fetchMock.mockResolvedValue(
       completion({
-        unsupportedClaims: ["Invented refund"],
+        ...verdict,
+        issues: [
+          {
+            quote: "we have refunded your bill",
+            kind: "unsupported_commitment",
+            explanation: "The review mentions no refund.",
+          },
+        ],
         unsafeEscalation: true,
         toneMismatch: true,
       })
     )
-    const result = await semanticVerification(verificationInput)
+    const result = await semanticVerification({
+      ...verificationInput,
+      body: "Thank you for your review, we have refunded your bill.",
+    })
     expect(result.ran).toBe(true)
     expect(result.reasons.map((reason) => reason.code)).toEqual([
-      "unsupported_claim",
+      "unsupported_commitment",
       "unsafe_escalation",
       "tone_mismatch",
     ])

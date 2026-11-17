@@ -18,11 +18,19 @@ function verify(body: string, overrides = {}) {
 
 describe("deterministic reply verification", () => {
   it("passes a grounded, concise response", () => {
-    const reasons = verify(
-      "Thank you for sharing your feedback about your stay."
-    )
+    const reasons = verify("Thanks. Glad you enjoyed your stay.")
     expect(reasons).toEqual([])
     expect(verificationVerdict(reasons)).toBe("pass")
+  })
+
+  it("notes a stock phrase without blocking the reply", () => {
+    const reasons = verify(
+      "Thank you for your review. We really appreciate your support."
+    )
+    expect(reasons.map((reason) => [reason.code, reason.severity])).toEqual([
+      ["stock_phrase", "warn"],
+    ])
+    expect(verificationVerdict(reasons)).toBe("warn")
   })
 
   it.each([

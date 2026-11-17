@@ -41,9 +41,7 @@ describeDatabase("draft language propagation", () => {
       googleAccountName: connection.googleAccountName,
     })
     englishReviewId = seed.reviewId
-    const [external] = await admin<
-      { googleLocationName: string }[]
-    >`
+    const [external] = await admin<{ googleLocationName: string }[]>`
       select google_location_name as "googleLocationName"
       from external_location
       where id = ${seed.externalLocationId}
@@ -132,7 +130,6 @@ describeDatabase("draft language propagation", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          tone: "warm_professional",
           body: "Merci beaucoup pour votre retour.",
           languageOverride: "fr",
         }),

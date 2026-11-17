@@ -1,43 +1,51 @@
+/**
+ * The reply to a review that is a rating and nothing else. There is no
+ * experience to answer, so the reply says thank you and stops; it assumes
+ * nothing about the visit and uses none of the stock closing lines. A low
+ * rating gets one plain apology and a way to say more.
+ *
+ * These go through the same rule checks and AI verification pass as any
+ * other reply (lib/server/review-drafts.ts).
+ */
 const templates = {
   en: {
-    positive:
-      "Thank you for your rating. We really appreciate your support and hope to welcome you back soon.",
+    positive: "Thank you for the rating. Good to know you enjoyed your visit.",
     neutral:
-      "Thank you for your rating. We appreciate you taking the time to share it and hope to make your next visit even better.",
+      "Thank you for the rating. If there is anything we could have done better, we would be glad to hear it.",
     negative:
-      "Thank you for taking the time to rate your experience. We’re sorry it fell short of expectations. If you’re willing, please contact the property directly so we can better understand what happened.",
+      "Thank you for the rating. We are sorry your visit was not what it should have been. If you are willing to tell us what went wrong, please get in touch with us directly.",
   },
   de: {
     positive:
-      "Vielen Dank für Ihre Bewertung. Wir wissen Ihre Unterstützung sehr zu schätzen und hoffen, Sie bald wieder begrüßen zu dürfen.",
+      "Vielen Dank für Ihre Bewertung. Schön, dass Ihnen Ihr Besuch gefallen hat.",
     neutral:
-      "Vielen Dank für Ihre Bewertung. Wir schätzen es, dass Sie sich die Zeit dafür genommen haben, und hoffen, Ihren nächsten Aufenthalt noch besser zu gestalten.",
+      "Vielen Dank für Ihre Bewertung. Wenn wir etwas hätten besser machen können, hören wir das gern.",
     negative:
-      "Vielen Dank, dass Sie sich die Zeit für eine Bewertung genommen haben. Es tut uns leid, dass Ihr Erlebnis nicht Ihren Erwartungen entsprach. Wenn Sie möchten, wenden Sie sich bitte direkt an das Hotel, damit wir besser verstehen können, was passiert ist.",
+      "Vielen Dank für Ihre Bewertung. Es tut uns leid, dass Ihr Besuch nicht so war, wie er hätte sein sollen. Wenn Sie uns sagen möchten, was nicht gestimmt hat, melden Sie sich bitte direkt bei uns.",
   },
   es: {
     positive:
-      "Gracias por su valoración. Agradecemos mucho su apoyo y esperamos volver a darle la bienvenida pronto.",
+      "Gracias por su valoración. Nos alegra saber que disfrutó de su visita.",
     neutral:
-      "Gracias por su valoración. Agradecemos que se haya tomado el tiempo de compartirla y esperamos que su próxima visita sea aún mejor.",
+      "Gracias por su valoración. Si hay algo que podríamos haber hecho mejor, nos gustaría saberlo.",
     negative:
-      "Gracias por tomarse el tiempo de valorar su experiencia. Sentimos que no haya estado a la altura de sus expectativas. Si lo desea, póngase en contacto directamente con el hotel para que podamos comprender mejor lo ocurrido.",
+      "Gracias por su valoración. Sentimos que su visita no haya sido como debía. Si quiere contarnos qué falló, póngase en contacto con nosotros directamente.",
   },
   fr: {
     positive:
-      "Merci pour votre note. Votre soutien nous fait très plaisir et nous espérons vous accueillir à nouveau bientôt.",
+      "Merci pour votre note. Nous sommes contents que votre visite vous ait plu.",
     neutral:
-      "Merci pour votre note. Nous vous remercions d’avoir pris le temps de la partager et espérons rendre votre prochaine visite encore meilleure.",
+      "Merci pour votre note. Si nous avions pu mieux faire, nous serions heureux de le savoir.",
     negative:
-      "Merci d’avoir pris le temps de noter votre expérience. Nous sommes désolés qu’elle n’ait pas répondu à vos attentes. Si vous le souhaitez, contactez directement l’établissement afin que nous puissions mieux comprendre ce qui s’est passé.",
+      "Merci pour votre note. Nous sommes désolés que votre visite n’ait pas été à la hauteur. Si vous souhaitez nous dire ce qui n’a pas été, contactez-nous directement.",
   },
   it: {
     positive:
-      "Grazie per la sua valutazione. Apprezziamo molto il suo sostegno e speriamo di accoglierla nuovamente presto.",
+      "Grazie per la sua valutazione. Ci fa piacere che la visita le sia piaciuta.",
     neutral:
-      "Grazie per la sua valutazione. Apprezziamo il tempo che ci ha dedicato e speriamo di rendere la sua prossima visita ancora migliore.",
+      "Grazie per la sua valutazione. Se avessimo potuto fare qualcosa di meglio, ci farebbe piacere saperlo.",
     negative:
-      "Grazie per aver dedicato del tempo a valutare la sua esperienza. Ci dispiace che non sia stata all’altezza delle aspettative. Se lo desidera, contatti direttamente la struttura così potremo capire meglio cosa è successo.",
+      "Grazie per la sua valutazione. Ci dispiace che la visita non sia stata come doveva. Se vuole dirci che cosa non ha funzionato, ci contatti direttamente.",
   },
 } as const
 

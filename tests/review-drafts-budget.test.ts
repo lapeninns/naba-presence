@@ -112,7 +112,7 @@ function draft(deadline?: number) {
   return createReviewDraft({
     session,
     reviewId: REVIEW_ID,
-    input: { tone: "warm_professional" } as never,
+    input: {} as never,
     requestId: "request-1",
     tenant,
     draftId: DRAFT_ID,
@@ -222,5 +222,136 @@ describe("createReviewDraft time budget and credit ordering", () => {
       model: undefined,
     })
     expect(events).toEqual(["insert draft", "settle"])
+  })
+})
+
+describe("createReviewDraft corrects a reply the checks refuse", () => {
+  const blocked = {
+    status: "ran",
+    usage: { inputTokens: 50, outputTokens: 5 },
+    model: "verify-model",
+    reasons: [
+      {
+        code: "unsupported_claim",
+        severity: "fail",
+        message: "“the lamb shank”: The review does not say this.",
+      },
+    ],
+  }
+  const clean = {
+    status: "ran",
+    usage: { inputTokens: 50, outputTokens: 5 },
+    model: "verify-model",
+    reasons: [],
+  }
+
+  it("rewrites with the findings, charges one credit and stores the corrected reply", async () => {
+    generateReply
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Glad the lamb shank went down well.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Glad you had a good evening with us.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+    runSemanticVerification
+      .mockResolvedValueOnce(blocked)
+      .mockResolvedValueOnce(clean)
+    const result = await draft(NOW + 55_000)
+    expect(result.body).toBe(
+      "Thanks, Sam. Glad you had a good evening with us."
+    )
+    expect(generateReply).toHaveBeenCalledTimes(2)
+    // The correction pass is told what was wrong with the first reply.
+    expect(generateReply.mock.calls[0][0].correction).toBeNull()
+    expect(generateReply.mock.calls[1][0].correction).toEqual({
+      previousReply: "Thanks, Sam. Glad the lamb shank went down well.",
+      problems: ["“the lamb shank”: The review does not say this."],
+    })
+    // One credit, carrying the tokens of both generations.
+    expect(settleDraftCredit).toHaveBeenCalledTimes(1)
+    expect(settleDraftCredit.mock.calls[0][1].usage).toEqual({
+      inputTokens: 200,
+      outputTokens: 40,
+    })
+    expect(finishVerifyUsage).toHaveBeenCalledWith(tenant, {
+      id: "verify-1",
+      usage: { inputTokens: 100, outputTokens: 10 },
+      model: "verify-model",
+    })
+    expect(verifyStoredDraft.mock.calls[0][1].semantic.reasons).toEqual([])
+  })
+
+  it("stops after three attempts and stores the reply with its failing verdict", async () => {
+    runSemanticVerification.mockResolvedValue(blocked)
+    verifyStoredDraft.mockResolvedValue({
+      id: "verification-1",
+      verdict: "fail",
+      reasons: blocked.reasons,
+    })
+    const result = await draft(NOW + 600_000)
+    expect(generateReply).toHaveBeenCalledTimes(3)
+    expect(runSemanticVerification).toHaveBeenCalledTimes(3)
+    // Never shown as passed: the stored verdict is the failing one.
+    expect(verifyStoredDraft.mock.calls[0][1].semantic.reasons).toEqual(
+      blocked.reasons
+    )
+    expect(result.verification.verdict).toBe("fail")
+    expect(settleDraftCredit).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not start a correction it has no time to finish", async () => {
+    runSemanticVerification.mockResolvedValue(blocked)
+    await draft(NOW + 20_000)
+    expect(generateReply).toHaveBeenCalledTimes(1)
+  })
+
+  it("rewrites a reply the rule checks refuse without paying for the AI pass", async () => {
+    generateReply
+      .mockResolvedValueOnce({
+        reply: "The reviewer enjoyed a lovely evening and will return soon.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Glad you had a good evening with us.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+    runSemanticVerification.mockResolvedValue(clean)
+    const result = await draft(NOW + 55_000)
+    expect(result.body).toBe(
+      "Thanks, Sam. Glad you had a good evening with us."
+    )
+    expect(runSemanticVerification).toHaveBeenCalledTimes(1)
+    expect(generateReply.mock.calls[1][0].correction.problems[0]).toContain(
+      "talks about the guest instead of to them"
+    )
+  })
+
+  it("answers a rating-only review from the template, still through the AI pass", async () => {
+    const original = reviewRow.review_text
+    reviewRow.review_text = null as never
+    try {
+      runSemanticVerification.mockResolvedValue(clean)
+      const result = await draft(NOW + 55_000)
+      expect(result.body).toBe(
+        "Hi Sam, thank you for the rating. Good to know you enjoyed your visit."
+      )
+      expect(generateReply).not.toHaveBeenCalled()
+      // A template is never rewritten by the model, and is never exempt
+      // from verification.
+      expect(runSemanticVerification).toHaveBeenCalledTimes(1)
+      expect(verifyStoredDraft.mock.calls[0][1].semantic.status).toBe("ran")
+    } finally {
+      reviewRow.review_text = original
+    }
   })
 })

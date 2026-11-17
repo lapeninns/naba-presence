@@ -28,7 +28,7 @@ describeDatabase("AI generation ids and credit periods", () => {
   const tenants: string[] = []
 
   const DRAFT = {
-    reply: "Thank you for your kind review. We hope to welcome you back soon.",
+    reply: "Thank you for your kind review. Glad you enjoyed the evening.",
     language: "en",
   }
 
@@ -83,7 +83,9 @@ describeDatabase("AI generation ids and credit periods", () => {
           output_text: JSON.stringify(
             isVerification
               ? {
-                  unsupportedClaims: [],
+                  issues: [],
+                  addressesGuestDirectly: true,
+                  relevance: "specific",
                   unsafeEscalation: false,
                   toneMismatch: false,
                 }
@@ -113,22 +115,12 @@ describeDatabase("AI generation ids and credit periods", () => {
     const intent = randomUUID()
     const callsBefore = aiCalls()
 
-    const first = await draft(
-      owner.cookie,
-      review.reviewId,
-      { tone: "warm_professional" },
-      intent
-    )
+    const first = await draft(owner.cookie, review.reviewId, {}, intent)
     expect(first.status, await first.clone().text()).toBe(201)
     const created = (await first.json()) as { draftId: string; body: string }
     expect(aiCalls()).toBe(callsBefore + 2)
 
-    const retry = await draft(
-      owner.cookie,
-      review.reviewId,
-      { tone: "warm_professional" },
-      intent
-    )
+    const retry = await draft(owner.cookie, review.reviewId, {}, intent)
     expect(retry.status, await retry.clone().text()).toBe(200)
     const replayed = (await retry.json()) as {
       draftId: string
@@ -216,9 +208,7 @@ describeDatabase("AI generation ids and credit periods", () => {
       where organisation_id = ${owner.organisationId}
     `
     const callsBefore = aiCalls()
-    const generated = await draft(owner.cookie, review.reviewId, {
-      tone: "warm_professional",
-    })
+    const generated = await draft(owner.cookie, review.reviewId, {})
     expect(generated.status, await generated.clone().text()).toBe(402)
     expect(await generated.json()).toMatchObject({
       error: "ai_allowance_unknown",
@@ -226,7 +216,6 @@ describeDatabase("AI generation ids and credit periods", () => {
     expect(aiCalls()).toBe(callsBefore)
 
     const manual = await draft(owner.cookie, review.reviewId, {
-      tone: "warm_professional",
       body: "Thank you for visiting us.",
     })
     expect(manual.status, await manual.clone().text()).toBe(201)
@@ -253,9 +242,7 @@ describeDatabase("AI generation ids and credit periods", () => {
       where organisation_id = ${owner.organisationId}
     `
     const callsBefore = aiCalls()
-    const response = await draft(owner.cookie, review.reviewId, {
-      tone: "warm_professional",
-    })
+    const response = await draft(owner.cookie, review.reviewId, {})
     expect(response.status, await response.clone().text()).toBe(402)
     expect(await response.json()).toMatchObject({ error: "billing_read_only" })
     expect(aiCalls()).toBe(callsBefore)

@@ -1,13 +1,54 @@
 import {
   bannedPhraseChecks,
+  containsLink,
+  containsPhoneNumber,
   replyRepetitionChecks,
 } from "@/lib/domain/content-checks"
 import { detectLanguage } from "@/lib/domain/language"
+import { replyStyleChecks } from "@/lib/domain/reply-style"
+
+/**
+ * The rule checks on a reply (deterministic-v2). Each rule is here because
+ * publishing text that breaks it would do harm; what each one guards:
+ *
+ *   empty_reply, reply_too_long   Google would refuse the reply.
+ *   personal_contact_data         An email address, phone number or link in
+ *                                 a public reply. Phone numbers are judged
+ *                                 by shape (content-checks.ts), so a time, a
+ *                                 price or a date is not one.
+ *   forbidden_promotion           Google prohibits incentives in replies.
+ *   unsupported_commitment        A refund or compensation the review never
+ *                                 mentioned.
+ *   unsafe_language               Profanity.
+ *   asks_rating_change            Asking the guest to change or remove the
+ *                                 review, or for a rating. Only a request
+ *                                 aimed at their review counts: "thanks for
+ *                                 the review, we have changed the menu" does
+ *                                 not.
+ *   wrong_location                Another venue of the same business named.
+ *   third_person_summary,         The text is not a reply to the guest
+ *   not_a_reply, placeholder_text (reply-style.ts).
+ *   banned_phrase, reply_duplicate  The organisation's own policy; a copy of
+ *                                 a recent reply.
+ *
+ * Notes (warn) never block: complaint_not_acknowledged, reply_long,
+ * language_mismatch, stock_phrase, exclamation_overuse,
+ * reply_repeated_opening.
+ */
+export const DETERMINISTIC_CHECKS_VERSION = "deterministic-v2"
 
 const PROMOTION_ALLOWLIST =
   /\b[\w]+-free\b|\bfeel free\b|\bfree of charge\b|\bfree from\b/giu
-const PROMOTION_PATTERN =
-  /\b(free|discount|promo code|voucher|coupon|% off|bogo)\b/iu
+/**
+ * An incentive, not the word "free": a table that "was free" or a guest who
+ * is "free to call" is not a promotion, a free drink is.
+ */
+const PROMOTION_ITEM =
+  "(?:drinks?|pints?|rounds?|bottles?|glass(?:es)?|desserts?|puddings?|starters?|mains?|meals?|dinners?|lunch(?:es)?|breakfasts?|coffees?|sides?|gifts?|vouchers?|upgrades?|nights?|stays?|visits?)"
+const PROMOTION_PATTERN = new RegExp(
+  `\\b(?:free\\s+${PROMOTION_ITEM}|${PROMOTION_ITEM}\\s+(?:is|are|will\\s+be)\\s+free|for free|on the house|on us|complimentary|discount(?:s|ed)?|promo(?:tional)? code|vouchers?|coupons?|money off|bogo|(?:2|two)[-\\s]for[-\\s](?:1|one))\\b|\\d+\\s?% off\\b`,
+  "iu"
+)
 
 export type VerificationReason = {
   code: string
@@ -61,12 +102,13 @@ export function deterministicVerification(input: {
   }
   if (
     /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/iu.test(body) ||
-    /(?:\+?\d[\d\s().-]{7,}\d)/u.test(body)
+    containsPhoneNumber(body) ||
+    containsLink(body)
   ) {
     add(
       "personal_contact_data",
       "fail",
-      "The reply contains an email address or phone number."
+      "The reply contains an email address, phone number or link. Remove it and ask the guest to get in touch with the venue directly."
     )
   }
   const promotionCandidate = body.replace(PROMOTION_ALLOWLIST, " ")
@@ -74,7 +116,7 @@ export function deterministicVerification(input: {
     add(
       "forbidden_promotion",
       "fail",
-      "The reply contains a promotion or incentive."
+      "The reply offers a promotion or incentive, which Google does not allow in a review reply. Remove it."
     )
   }
   if (
@@ -86,30 +128,36 @@ export function deterministicVerification(input: {
     add(
       "unsupported_commitment",
       "fail",
-      "The reply introduces a refund, compensation, or guarantee not in evidence."
+      "The reply mentions a refund, compensation or guarantee that the review does not. Remove it."
     )
   }
   if (/\b(fuck|shit|bitch|bastard)\b/iu.test(body)) {
-    add("unsafe_language", "fail", "The reply contains unsafe language.")
+    add(
+      "unsafe_language",
+      "fail",
+      "The reply contains language that is not fit to publish. Remove it."
+    )
   }
-  // Google review best practice: never ask guests to edit, delete, or raise
-  // their public rating in the reply itself.
+  // Google review policy: a reply never asks the guest to change or remove
+  // the review, or for a rating. Only a request aimed at THEIR review counts;
+  // "thanks for the review, we have changed the menu" is not one.
+  const REVIEW_NOUN = "(?:review|rating|stars?|score)"
   if (
-    /\b(please\s+)?(update|edit|change|revise|remove|delete|take\s+down)\b.{0,40}\b(review|rating|stars?)\b/iu.test(
+    new RegExp(
+      `\\b(?:update|updating|edit|editing|change|changing|revise|revising|amend|amending|reconsider|reconsidering|remove|removing|delete|deleting|withdraw|withdrawing|take\\s+down|taking\\s+down|raise|raising|increase|increasing|improve|improving)\\s+(?:your|the|this|that)\\s+(?:\\w+\\s+){0,2}${REVIEW_NOUN}\\b`,
+      "iu"
+    ).test(body) ||
+    /\b(?:leave|give|post|write)\s+(?:us\s+)?(?:a\s+|another\s+)?(?:(?:5|five)[-\s]?star|positive|good|great|better|new|updated)\s+(?:review|rating)\b/iu.test(
       body
     ) ||
-    /\b(review|rating|stars?)\b.{0,40}\b(update|edit|change|revise|remove|delete|take\s+down)\b/iu.test(
+    /\b(?:review|rating)\s+(?:could|can|might|may|to)\s+be\s+(?:updated|changed|revised|amended|removed|deleted|reconsidered|withdrawn)\b/iu.test(
       body
-    ) ||
-    /\b(leave|give|post)\s+(us\s+)?(a\s+)?(5|five)([-\s]?star)?\s+review\b/iu.test(
-      body
-    ) ||
-    /\braise\s+your\s+(rating|stars?)\b/iu.test(body)
+    )
   ) {
     add(
       "asks_rating_change",
       "fail",
-      "The reply asks the reviewer to change, remove, or raise their rating."
+      "The reply asks the guest to change or remove their review, or to leave a rating. Google does not allow this. Remove the request."
     )
   }
   // A sibling whose name is contained in this location's own name is matched
@@ -137,19 +185,21 @@ export function deterministicVerification(input: {
   if (
     input.rating !== null &&
     input.rating <= 2 &&
-    !/\b(sorry|apolog|regret)\b/iu.test(body)
+    !/\b(?:sorry|apolog\w*|regret\w*|disappoint\w*|not good enough|fell short|falls short|let you down|should not have|shouldn(?:'|’)t have|wasn(?:'|’)t (?:right|good enough|acceptable)|unacceptable)\b/iu.test(
+      body
+    )
   ) {
     add(
       "complaint_not_acknowledged",
       "warn",
-      "The low-rating review is not explicitly acknowledged."
+      "This is a low rating and the reply does not acknowledge that something went wrong."
     )
   }
-  if (body.length > 800) {
+  if (body.length > 1000) {
     add(
-      "tone_length",
+      "reply_long",
       "warn",
-      "The reply may be too long for the selected tone."
+      "The reply is long for a public review reply. Shorter usually reads better."
     )
   }
   const expectedLanguage = input.expectedLanguage
@@ -176,6 +226,7 @@ export function deterministicVerification(input: {
   }
   return [
     ...reasons,
+    ...replyStyleChecks(body),
     ...bannedPhraseChecks(body, input.bannedPhrases ?? []),
     ...replyRepetitionChecks({
       body,

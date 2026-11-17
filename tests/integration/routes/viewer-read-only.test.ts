@@ -188,7 +188,6 @@ describeDatabase("viewer is read-only (requireLocationAction)", () => {
         "POST",
         `/api/reviews/${review.reviewId}/drafts`,
         {
-          tone: "warm_professional",
           body: "Viewer reply",
         }
       )

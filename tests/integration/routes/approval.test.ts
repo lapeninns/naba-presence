@@ -445,7 +445,7 @@ describeDatabase("reply approval", () => {
       from verification_result
       where draft_id = ${fixture.draft.draftId}
     `
-    expect(verification.checks_version).toBe("deterministic-v1")
+    expect(verification.checks_version).toBe("deterministic-v2")
     expect(verification.verdict).toBe("pass")
   })
 
