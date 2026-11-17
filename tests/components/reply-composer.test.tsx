@@ -217,16 +217,13 @@ function mount(
 
 const textbox = () => screen.getByRole("textbox", { name: "Your reply" })
 
-// Generate is a menu: pressing it opens the tones, and picking one writes the
-// reply in it. `button` is the trigger's name ("Generate reply" over an empty
-// box, "Regenerate" over text).
-async function generateIn(
+// Generate is one button that writes one reply. `button` is its name
+// ("Generate reply" over an empty box, "Regenerate" over text).
+async function generate(
   user: ReturnType<typeof userEvent.setup>,
-  tone: "Warm" | "Concise" | "Empathetic" = "Warm",
   button: "Generate reply" | "Regenerate" = "Generate reply"
 ) {
   await user.click(screen.getByRole("button", { name: button }))
-  await user.click(await screen.findByRole("menuitem", { name: RegExp(tone) }))
 }
 
 // Every value of the inbox's dirty flag that reached the screen, in order.
@@ -395,9 +392,12 @@ describe("ReplyComposer — the editor", () => {
     expect(
       screen.getByRole("button", { name: "Generate reply" })
     ).toBeInTheDocument()
-    // The tone is inside Generate, not a control of its own.
+    // One button, one reply: no tone to choose anywhere.
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument()
     expect(screen.queryByRole("radio")).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Generate reply" })
+    ).not.toHaveAttribute("aria-haspopup")
     expect(
       screen.queryByRole("button", { name: /Write my own/ })
     ).not.toBeInTheDocument()
@@ -457,43 +457,34 @@ describe("ReplyComposer — the editor", () => {
     expect(screen.queryByRole("list", { name: "Reply guidance" })).toBeNull()
   })
 
-  it("fills the box from Generate, in the tone picked inside it, without sending a body", async () => {
+  it("fills the box with one reply from one press of Generate, without sending a body", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(
       {},
       vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "AI drafted reply" })
     )
-    // Opening Generate only shows the tones; nothing is written until one is
-    // picked.
     await user.click(screen.getByRole("button", { name: "Generate reply" }))
-    for (const name of ["Warm", "Concise", "Empathetic"]) {
-      expect(
-        await screen.findByRole("menuitem", { name: RegExp(name) })
-      ).toBeInTheDocument()
-    }
-    expect(mutateAsync).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("menuitem", { name: /Concise/ }))
-    expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
-    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty("body")
+    // No menu of tones or options opens: the press writes the reply.
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument()
+    expect(mutateAsync).toHaveBeenCalledTimes(1)
+    expect(mutateAsync).toHaveBeenCalledWith({})
     expect(textbox()).toHaveValue("AI drafted reply")
     expect(
       screen.getByRole("button", { name: "Regenerate" })
     ).toBeInTheDocument()
   })
 
-  it("describes each tone in its menu row", async () => {
+  it("offers no Warm, Concise or Empathetic option anywhere", async () => {
     const user = userEvent.setup()
-    mount()
-    await user.click(screen.getByRole("button", { name: "Generate reply" }))
-    expect(
-      await screen.findByRole("menuitem", { name: /Warm/ })
-    ).toHaveTextContent(/Friendly and personal/)
-    expect(screen.getByRole("menuitem", { name: /Concise/ })).toHaveTextContent(
-      /Two sentences/
-    )
-    expect(
-      screen.getByRole("menuitem", { name: /Empathetic/ })
-    ).toHaveTextContent(/Acknowledges how they felt/)
+    mount(EXISTING)
+    for (const name of [/Warm/, /Concise/, /Empathetic/, /tone/i]) {
+      expect(screen.queryByText(name)).not.toBeInTheDocument()
+    }
+    await user.click(screen.getByRole("button", { name: "Regenerate" }))
+    for (const name of [/Warm/, /Concise/, /Empathetic/]) {
+      expect(screen.queryByRole("menuitem", { name })).not.toBeInTheDocument()
+    }
   })
 
   it("seeds the box from an existing draft, editable", () => {
@@ -522,8 +513,8 @@ describe("ReplyComposer — the editor", () => {
   })
 
   // INB-04: one tap on Regenerate used to withdraw the approval request. While
-  // the reply is parked it is text, with no tone, Generate or box.
-  it("reads a parked reply as text, with no tone, Generate or editor", () => {
+  // the reply is parked it is text, with no Generate or box.
+  it("reads a parked reply as text, with no Generate or editor", () => {
     mount(PARKED)
     expect(
       screen.queryByRole("textbox", { name: "Your reply" })
@@ -645,22 +636,20 @@ describe("ReplyComposer — the editor", () => {
       vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "Fresh AI draft" })
     )
     await user.type(textbox(), " edits")
-    await generateIn(user, "Warm", "Regenerate")
+    await generate(user, "Regenerate")
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
-    expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
+    expect(mutateAsync).toHaveBeenCalledWith({})
     await waitFor(() => expect(textbox()).toHaveValue("Fresh AI draft"))
     await user.click(await screen.findByRole("button", { name: "Undo" }))
     expect(textbox()).toHaveValue("Existing draft body edits")
   })
 
-  // The tone is picked inside Generate, so it is chosen at the moment the
-  // reply is written, in that tone, over a saved draft.
-  it("regenerates over a saved draft in the tone picked from Regenerate", async () => {
+  it("regenerates over a saved draft from Regenerate", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING)
     expect(textbox()).toHaveValue("Existing draft body")
-    await generateIn(user, "Empathetic", "Regenerate")
-    expect(mutateAsync).toHaveBeenCalledWith({ tone: "empathetic" })
+    await generate(user, "Regenerate")
+    expect(mutateAsync).toHaveBeenCalledWith({})
     expect(
       await screen.findByRole("button", { name: "Regenerate" })
     ).toBeInTheDocument()
@@ -679,13 +668,13 @@ describe("ReplyComposer — the editor", () => {
     expect(textbox()).not.toHaveAttribute("readonly")
   })
 
-  it("regenerates in a new tone over unsaved edits without asking", async () => {
+  it("regenerates over unsaved edits without asking", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING)
     await user.type(textbox(), "!")
-    await generateIn(user, "Concise", "Regenerate")
+    await generate(user, "Regenerate")
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
-    expect(mutateAsync).toHaveBeenCalledWith({ tone: "concise" })
+    expect(mutateAsync).toHaveBeenCalledWith({})
   })
 
   // The reviewer opens another review while Undo toasts are up: the composer
@@ -716,7 +705,7 @@ describe("ReplyComposer — the editor", () => {
       const unmount = mountToggle(
         vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "Fresh AI draft" })
       )
-      await generateIn(user, "Warm", "Regenerate")
+      await generate(user, "Regenerate")
       await waitFor(() => expect(undoButtons()).toHaveLength(1))
       unmount()
       await waitFor(() => expect(undoButtons()).toHaveLength(0))
@@ -729,9 +718,9 @@ describe("ReplyComposer — the editor", () => {
         .mockResolvedValueOnce({ ...DRAFT_RESULT, body: "First fresh draft" })
         .mockResolvedValueOnce({ ...DRAFT_RESULT, body: "Second fresh draft" })
       const unmount = mountToggle(mutateAsync)
-      await generateIn(user, "Warm", "Regenerate")
+      await generate(user, "Regenerate")
       await waitFor(() => expect(textbox()).toHaveValue("First fresh draft"))
-      await generateIn(user, "Concise", "Regenerate")
+      await generate(user, "Regenerate")
       await waitFor(() => expect(textbox()).toHaveValue("Second fresh draft"))
       await waitFor(() => expect(undoButtons().length).toBeGreaterThan(0))
       unmount()
@@ -745,7 +734,7 @@ describe("ReplyComposer — the editor", () => {
         arrive = resolve
       })
       const unmount = mountToggle(vi.fn().mockReturnValue(late))
-      await generateIn(user, "Warm", "Regenerate")
+      await generate(user, "Regenerate")
       unmount()
       arrive({ ...DRAFT_RESULT, body: "Too late" })
       await act(async () => {
@@ -761,7 +750,7 @@ describe("ReplyComposer — the editor", () => {
       EXISTING,
       vi.fn().mockResolvedValue({ ...DRAFT_RESULT, body: "Fresh AI draft" })
     )
-    await generateIn(user, "Warm", "Regenerate")
+    await generate(user, "Regenerate")
     await user.click(await screen.findByRole("button", { name: "Undo" }))
     expect(textbox()).toHaveValue("Existing draft body")
   })
@@ -775,11 +764,11 @@ describe("ReplyComposer — the editor", () => {
         .mockRejectedValueOnce(new TypeError("offline"))
         .mockResolvedValueOnce(DRAFT_RESULT)
     )
-    await generateIn(user)
+    await generate(user)
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("No reply was generated.")
     await user.click(within(alert).getByRole("button", { name: "Retry" }))
-    expect(mutateAsync).toHaveBeenLastCalledWith({ tone: "warm_professional" })
+    expect(mutateAsync).toHaveBeenLastCalledWith({})
     await waitFor(() =>
       expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     )
@@ -788,7 +777,7 @@ describe("ReplyComposer — the editor", () => {
   it("focuses the editor from a failed generation's Write my own", async () => {
     const user = userEvent.setup()
     mount({}, vi.fn().mockRejectedValue(new TypeError("offline")))
-    await generateIn(user)
+    await generate(user)
     const alert = await screen.findByRole("alert")
     await user.click(
       within(alert).getByRole("button", { name: "Write my own" })
@@ -856,7 +845,7 @@ describe("ReplyComposer — the editor", () => {
     it("is learned from the 503 on an older server, said once: the note, no alert", async () => {
       const user = userEvent.setup()
       const mutateAsync = mount({}, vi.fn().mockRejectedValue(NOT_CONFIGURED))
-      await generateIn(user)
+      await generate(user)
       await waitFor(() =>
         expect(
           document.querySelector('[data-slot="ai-unavailable"]')
@@ -973,7 +962,7 @@ describe("ReplyComposer — AI credits", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  it("does not open the tones, or write anything, when out of credits", async () => {
+  it("writes nothing when out of credits", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING, undefined, { used: 200, remaining: 0 })
     await user.click(screen.getByRole("button", { name: "Regenerate" }))
@@ -1059,11 +1048,35 @@ describe("ReplyComposer — checks and length", () => {
     mount(FAILED)
     const problem = screen.getByRole("alert")
     expect(problem).toHaveTextContent(
-      "Blocked by checks It promises a refund nobody offered. Edit the reply and try again."
+      "Blocked by checks It promises a refund nobody offered. Edit the reply, or generate it again."
     )
     expect(problem).toHaveAttribute("data-verdict", "fail")
     expect(textbox()).toHaveAttribute("aria-invalid", "true")
     expect(textbox()).toHaveAccessibleDescription(/^Blocked by checks/)
+  })
+
+  it("lists each failed check on its own line when there are several", () => {
+    mount({
+      ...FAILED,
+      latestVerification: {
+        verdict: "fail" as const,
+        reasons: [
+          ...FAILED.latestVerification.reasons,
+          {
+            code: "third_person_summary",
+            severity: "fail" as const,
+            message: "The reply talks about the guest instead of to them.",
+          },
+        ],
+      },
+    })
+    const items = screen
+      .getAllByRole("listitem")
+      .filter((item) => item.closest('[data-slot="reply-problem-list"]'))
+    expect(items.map((item) => item.textContent)).toEqual([
+      "It promises a refund nobody offered.",
+      "The reply talks about the guest instead of to them.",
+    ])
   })
 
   it("clears the failed check on the next input", async () => {
@@ -1187,7 +1200,6 @@ describe("ReplyComposer — the save Publish runs", () => {
     await user.click(screen.getByRole("button", { name: "Probe save" }))
     expect(mutateAsync).toHaveBeenCalledWith({
       body: "Existing draft body!",
-      tone: "warm_professional",
     })
     await expect(probeResult).resolves.toEqual({
       draftId: "d-new",
@@ -1254,12 +1266,10 @@ describe("ReplyComposer — the save Publish runs", () => {
 })
 
 describe("ReplyComposer — first draft on `g`", () => {
-  it("generates a first draft in the chosen tone when `g` asks", async () => {
+  it("generates a first draft when `g` asks", async () => {
     const mutateAsync = mount()
     fireEvent(window, new Event(REPLY_GENERATE_EVENT))
-    await waitFor(() =>
-      expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
-    )
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({}))
   })
 
   it("leaves an existing draft alone when `g` asks", () => {
@@ -1269,7 +1279,7 @@ describe("ReplyComposer — first draft on `g`", () => {
   })
 })
 
-// The bar under the words is AI rewrite (Generate, with the tone inside it)
+// The bar under the words is AI rewrite (Generate)
 // and a neutral count that appears with the first character; the limit itself
 // is the foot's, in the unit Google counts (bytes).
 describe("ReplyComposer — the insert bar", () => {

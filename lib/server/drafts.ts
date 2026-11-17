@@ -3,7 +3,9 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import type { VerificationVerdict } from "@/lib/contracts/reviews"
+import { SEMANTIC_CHECKS_VERSION } from "@/lib/domain/semantic-verification"
 import {
+  DETERMINISTIC_CHECKS_VERSION,
   deterministicVerification,
   verificationVerdict,
   type VerificationReason,
@@ -55,7 +57,8 @@ export function buildEvidenceHash(input: EvidenceInput): string {
  * What became of the semantic pass for this draft.
  *
  *   `ran`          the provider answered; `reasons` are its verdict.
- *   `skipped`      deliberately not attempted (kill switch off, or no key).
+ *   `skipped`      deliberately not attempted (kill switch off, no key, or
+ *                  generated text the rule checks had already refused).
  *                  The deterministic checks stand alone and the draft is
  *                  publishable — the degraded mode docs/runbook.md prescribes.
  *   `unavailable`  attempted and the provider failed. The operator's text is
@@ -181,8 +184,8 @@ export async function verifyStoredDraft(
   // regexes alone.
   const checksVersion =
     input.semantic.status === "ran"
-      ? "deterministic-v1+semantic-v2"
-      : "deterministic-v1"
+      ? `${DETERMINISTIC_CHECKS_VERSION}+${SEMANTIC_CHECKS_VERSION}`
+      : DETERMINISTIC_CHECKS_VERSION
   const [verification] = await sql<{ id: string }[]>`
     insert into verification_result (
       organisation_id,

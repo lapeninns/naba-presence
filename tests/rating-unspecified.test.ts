@@ -18,7 +18,7 @@ describe("unspecified review ratings", () => {
 
   it("routes a null rating to the neutral template", () => {
     expect(ratingOnlyReply(null as never, "en").reply).toContain(
-      "next visit even better"
+      "anything we could have done better"
     )
   })
 })

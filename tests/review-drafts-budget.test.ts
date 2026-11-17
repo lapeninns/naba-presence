@@ -21,6 +21,8 @@ const verifyStoredDraft = vi.fn()
 const settleDraftCredit = vi.fn()
 const releaseDraftCredit = vi.fn()
 const finishVerifyUsage = vi.fn()
+const releaseReservation = vi.fn()
+const reserveVerifyUsage = vi.fn()
 
 vi.mock("@/lib/server/env", () => ({
   getServerEnv: () => ({
@@ -55,9 +57,10 @@ vi.mock("@/lib/server/ai-credits", () => ({
     events.push("release")
     return releaseDraftCredit(...args)
   },
+  releaseReservation: (...args: unknown[]) => releaseReservation(...args),
 }))
 vi.mock("@/lib/server/ai-usage", () => ({
-  reserveVerifyUsage: async () => ({ id: "verify-1" }),
+  reserveVerifyUsage: (...args: unknown[]) => reserveVerifyUsage(...args),
   finishVerifyUsage: (...args: unknown[]) => finishVerifyUsage(...args),
 }))
 vi.mock("@/lib/server/drafts", () => ({
@@ -112,7 +115,7 @@ function draft(deadline?: number) {
   return createReviewDraft({
     session,
     reviewId: REVIEW_ID,
-    input: { tone: "warm_professional" } as never,
+    input: {} as never,
     requestId: "request-1",
     tenant,
     draftId: DRAFT_ID,
@@ -132,6 +135,17 @@ beforeEach(() => {
     usage: USAGE,
     model: "draft-model",
   })
+  // The phase-one verification row is "verify-1"; a correction round's rows
+  // are named by their request key.
+  reserveVerifyUsage.mockImplementation(
+    async (_sql: unknown, input: { requestKey: string }) => ({
+      id:
+        input.requestKey.endsWith(":verification") &&
+        !input.requestKey.includes("correction")
+          ? "verify-1"
+          : input.requestKey.replace("request-1:", ""),
+    })
+  )
   runSemanticVerification.mockResolvedValue({ status: "ran", reasons: [] })
   verifyStoredDraft.mockResolvedValue({
     id: "verification-1",
@@ -222,5 +236,230 @@ describe("createReviewDraft time budget and credit ordering", () => {
       model: undefined,
     })
     expect(events).toEqual(["insert draft", "settle"])
+  })
+})
+
+describe("createReviewDraft corrects a reply the checks refuse", () => {
+  const blocked = {
+    status: "ran",
+    usage: { inputTokens: 50, outputTokens: 5 },
+    model: "verify-model",
+    reasons: [
+      {
+        code: "unsupported_claim",
+        severity: "fail",
+        message: "“the lamb shank”: The review does not say this.",
+      },
+    ],
+  }
+  const clean = {
+    status: "ran",
+    usage: { inputTokens: 50, outputTokens: 5 },
+    model: "verify-model",
+    reasons: [],
+  }
+
+  it("rewrites with the findings, charges one credit and stores the corrected reply", async () => {
+    generateReply
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Glad the lamb shank went down well.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Glad you had a good evening with us.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+    runSemanticVerification
+      .mockResolvedValueOnce(blocked)
+      .mockResolvedValueOnce(clean)
+    const result = await draft(NOW + 55_000)
+    expect(result.body).toBe(
+      "Thanks, Sam. Glad you had a good evening with us."
+    )
+    expect(generateReply).toHaveBeenCalledTimes(2)
+    // The correction pass is told what was wrong with the first reply.
+    expect(generateReply.mock.calls[0][0].correction).toBeNull()
+    expect(generateReply.mock.calls[1][0].correction).toEqual({
+      previousReply: "Thanks, Sam. Glad the lamb shank went down well.",
+      problems: ["“the lamb shank”: The review does not say this."],
+    })
+    // One credit, on the draft row, for the first generation. The
+    // correction's two calls were reserved before they were made and are
+    // settled on rows of their own, so the backstop counts every call.
+    expect(settleDraftCredit).toHaveBeenCalledTimes(1)
+    expect(settleDraftCredit.mock.calls[0][1].usage).toEqual(USAGE)
+    expect(
+      reserveVerifyUsage.mock.calls.map((call) => [
+        call[1].requestKey,
+        call[1].model,
+      ])
+    ).toEqual([
+      ["request-1:verification", "verify-model"],
+      ["request-1:correction-2:generation", "draft-model"],
+      ["request-1:correction-2:verification", "verify-model"],
+    ])
+    expect(finishVerifyUsage.mock.calls.map((call) => call[1])).toEqual([
+      { id: "correction-2:generation", usage: USAGE, model: "draft-model" },
+      {
+        id: "correction-2:verification",
+        usage: { inputTokens: 50, outputTokens: 5 },
+        model: "verify-model",
+      },
+      {
+        id: "verify-1",
+        usage: { inputTokens: 50, outputTokens: 5 },
+        model: "verify-model",
+      },
+    ])
+    expect(verifyStoredDraft.mock.calls[0][1].semantic.reasons).toEqual([])
+  })
+
+  it("stops after three attempts and stores the reply with its failing verdict", async () => {
+    runSemanticVerification.mockResolvedValue(blocked)
+    verifyStoredDraft.mockResolvedValue({
+      id: "verification-1",
+      verdict: "fail",
+      reasons: blocked.reasons,
+    })
+    const result = await draft(NOW + 600_000)
+    expect(generateReply).toHaveBeenCalledTimes(3)
+    expect(runSemanticVerification).toHaveBeenCalledTimes(3)
+    // Never shown as passed: the stored verdict is the failing one.
+    expect(verifyStoredDraft.mock.calls[0][1].semantic.reasons).toEqual(
+      blocked.reasons
+    )
+    expect(result.verification.verdict).toBe("fail")
+    expect(settleDraftCredit).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not start a correction it has no time to finish", async () => {
+    runSemanticVerification.mockResolvedValue(blocked)
+    await draft(NOW + 20_000)
+    expect(generateReply).toHaveBeenCalledTimes(1)
+  })
+
+  it("makes no correction when the token backstop refuses the round", async () => {
+    runSemanticVerification.mockResolvedValue(blocked)
+    reserveVerifyUsage.mockImplementation(
+      async (_sql: unknown, input: { requestKey: string }) =>
+        input.requestKey.includes("correction")
+          ? { refused: "backstop" }
+          : { id: "verify-1" }
+    )
+    await draft(NOW + 600_000)
+    expect(generateReply).toHaveBeenCalledTimes(1)
+    expect(runSemanticVerification).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the tokens of a billed but unreadable correction, and the first reply", async () => {
+    const { AiOutputError } = await import("@/lib/server/ai")
+    // The file's mock of the class takes no arguments.
+    const Unreadable = AiOutputError as unknown as new () => Error
+    const unreadable = Object.assign(new Unreadable(), {
+      usage: { inputTokens: 90, outputTokens: 0 },
+    })
+    generateReply
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Glad the lamb shank went down well.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+      .mockRejectedValueOnce(unreadable)
+    runSemanticVerification.mockResolvedValue(blocked)
+    const result = await draft(NOW + 600_000)
+    expect(result.body).toBe("Thanks, Sam. Glad the lamb shank went down well.")
+    expect(releaseReservation).toHaveBeenCalledWith(tenant, {
+      id: "correction-2:generation",
+      usage: { inputTokens: 90, outputTokens: 0 },
+    })
+    // The round's unused verification reservation is released, not left.
+    expect(finishVerifyUsage).toHaveBeenCalledWith(tenant, {
+      id: "correction-2:verification",
+    })
+  })
+
+  it("keeps a checked reply over a correction the AI pass could not check", async () => {
+    const noted = {
+      status: "ran",
+      reasons: [
+        { code: "generic_reply", severity: "warn", message: "Generic." },
+        { code: "tone_mismatch", severity: "warn", message: "Tone." },
+      ],
+    }
+    generateReply
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Good to hear it.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Glad you had a good evening with us.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+    runSemanticVerification.mockResolvedValueOnce(noted).mockResolvedValueOnce({
+      status: "unavailable",
+      reasons: [
+        {
+          code: "semantic_verification_unavailable",
+          severity: "warn",
+          message: "Unavailable.",
+        },
+      ],
+    })
+    const result = await draft(NOW + 600_000)
+    expect(result.body).toBe("Thanks, Sam. Good to hear it.")
+    expect(verifyStoredDraft.mock.calls[0][1].semantic.status).toBe("ran")
+  })
+
+  it("rewrites a reply the rule checks refuse without paying for the AI pass", async () => {
+    generateReply
+      .mockResolvedValueOnce({
+        reply: "The reviewer enjoyed a lovely evening and will return soon.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+      .mockResolvedValueOnce({
+        reply: "Thanks, Sam. Glad you had a good evening with us.",
+        language: "en",
+        usage: USAGE,
+        model: "draft-model",
+      })
+    runSemanticVerification.mockResolvedValue(clean)
+    const result = await draft(NOW + 55_000)
+    expect(result.body).toBe(
+      "Thanks, Sam. Glad you had a good evening with us."
+    )
+    expect(runSemanticVerification).toHaveBeenCalledTimes(1)
+    expect(generateReply.mock.calls[1][0].correction.problems[0]).toContain(
+      "talks about the guest instead of to them"
+    )
+  })
+
+  it("answers a rating-only review from the template, still through the AI pass", async () => {
+    const original = reviewRow.review_text
+    reviewRow.review_text = null as never
+    try {
+      runSemanticVerification.mockResolvedValue(clean)
+      const result = await draft(NOW + 55_000)
+      expect(result.body).toBe(
+        "Hi Sam, thank you for the rating. Good to know you enjoyed your visit."
+      )
+      expect(generateReply).not.toHaveBeenCalled()
+      // A template is never rewritten by the model, and is never exempt
+      // from verification.
+      expect(runSemanticVerification).toHaveBeenCalledTimes(1)
+      expect(verifyStoredDraft.mock.calls[0][1].semantic.status).toBe("ran")
+    } finally {
+      reviewRow.review_text = original
+    }
   })
 })

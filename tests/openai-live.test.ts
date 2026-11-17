@@ -14,9 +14,17 @@ it.skipIf(process.env.RUN_LIVE_AI_TESTS !== "true")(
       reviewerName: "Alex",
       locationName: "Example Inn",
       language: "en",
-      tone: "warm_professional" as const,
     }
-    const draft = await generateReply(evidence)
+    const draft = await generateReply({
+      ...evidence,
+      venue: {
+        name: evidence.locationName,
+        locality: null,
+        category: null,
+        description: null,
+        menuItems: [],
+      },
+    })
     expect(draft.reply.length).toBeGreaterThan(0)
     expect(draft.language).toBe("en")
     expect(draft.model).toBe(getServerEnv().OPENAI_MODEL_DRAFT)

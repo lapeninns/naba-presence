@@ -15,9 +15,7 @@ function encryptHarnessSecret(value: string) {
   const tokenEncryptionKey =
     process.env.TOKEN_ENCRYPTION_KEY ??
     "route-harness-token-key-32-characters!!"
-  const key = createHash("sha256")
-    .update(tokenEncryptionKey, "utf8")
-    .digest()
+  const key = createHash("sha256").update(tokenEncryptionKey, "utf8").digest()
   const iv = randomBytes(12)
   const cipher = createCipheriv("aes-256-gcm", key, iv)
   const ciphertext = Buffer.concat([
@@ -361,7 +359,11 @@ export async function seedLinkedReview(
 
 export async function seedLinkedLocation(
   admin: ReturnType<typeof postgres>,
-  input: { organisationId: string; connectionId: string; googleAccountName: string }
+  input: {
+    organisationId: string
+    connectionId: string
+    googleAccountName: string
+  }
 ): Promise<{
   locationId: string
   externalLocationId: string
@@ -491,7 +493,6 @@ export async function saveHumanDraft(
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        tone: "warm_professional",
         body,
       }),
     }

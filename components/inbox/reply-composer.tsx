@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import {
   CheckIcon,
-  ChevronDownIcon,
   PenLineIcon,
   RotateCcwIcon,
   SparklesIcon,
@@ -12,12 +11,6 @@ import {
 import { ReplyChecks } from "@/components/inbox/detail/reply-checks"
 import { Alert, AlertActions, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
@@ -57,28 +50,6 @@ const BYTE_LIMIT = 4096
 // The count only appears once it matters: a running "212 / 4,096 bytes"
 // under every reply was a number nobody needed, in a unit nobody writes in.
 const BYTE_WARN_AT = Math.floor(BYTE_LIMIT * 0.8)
-
-const TONES = [
-  {
-    value: "warm_professional",
-    label: "Warm",
-    hint: "Friendly and personal. Thanks them by name and invites them back.",
-  },
-  {
-    value: "concise",
-    label: "Concise",
-    hint: "Short and polite. Two sentences, no more.",
-  },
-  {
-    value: "empathetic",
-    label: "Empathetic",
-    hint: "Acknowledges how they felt before anything else.",
-  },
-] as const
-
-type Tone = (typeof TONES)[number]["value"]
-
-const DEFAULT_TONE: Tone = "warm_professional"
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length
@@ -145,11 +116,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   })
   const fieldId = useId()
   const [body, setBody] = useState("")
-  const [tone, setTone] = useState<Tone>(DEFAULT_TONE)
   // A failed generation, said where it happened, with the two ways on.
   const [generateError, setGenerateError] = useState<{
     message: string
-    tone: Tone
     creditsOut?: boolean
   } | null>(null)
   // AI is not set up: learned from a 503 on an older server, and kept for the
@@ -362,7 +331,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     discardFromLeave
   )
 
-  // `g`: a first draft in the chosen tone, when there is nothing to lose —
+  // `g`: a first draft, when there is nothing to lose —
   // no saved draft, no live reply and nothing typed. Like `r`, the key only
   // asks; whether it is allowed is decided here.
   const generateRef = useRef<() => void>(() => {})
@@ -375,7 +344,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       if (!editableNow || generateOrSave.isPending || !review) return
       if (creditsExhausted || aiUnavailable) return
       if (review.drafts.length > 0 || liveBody !== null || body !== "") return
-      void runGenerate(tone)
+      void runGenerate()
     }
   })
   useEffect(() => {
@@ -393,7 +362,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     })
   }
 
-  async function runGenerate(withTone: Tone = tone) {
+  // One reply, written and checked by the server: there is no tone to pick
+  // and no second option. Over unsaved edits it does not ask: the "Reply
+  // ready" toast carries Undo, which puts the replaced text back (D3).
+  async function runGenerate() {
+    if (generateOrSave.isPending) return
     // What the box held, so a regenerate over it can be taken back.
     const previous = body
     setGenerateError(null)
@@ -402,7 +375,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     if (creditsExhausted || aiUnavailable) return
     try {
       // No body → server runs AI (or rating-only template). Manual only.
-      const result = await generateOrSave.mutateAsync({ tone: withTone })
+      const result = await generateOrSave.mutateAsync({})
       // The reviewer moved on while it was written: the reply is saved, but
       // there is no box to put it in and no text for an Undo to restore.
       if (!mounted.current) return
@@ -442,7 +415,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       if (isAiCreditsExhausted(error)) {
         // Told apart from drafts_paused: the balance is spent, so there is
         // nothing to retry. The mutation's settle step refetches the balance.
-        setGenerateError({ message: "", tone: withTone, creditsOut: true })
+        setGenerateError({ message: "", creditsOut: true })
         return
       }
       if (isAiNotConfigured(error)) {
@@ -451,18 +424,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         setAiUnavailable(true)
         return
       }
-      setGenerateError({ message: describeActionError(error), tone: withTone })
+      setGenerateError({ message: describeActionError(error) })
     }
-  }
-
-  // The tone is chosen inside Generate: opening its menu is the look at the
-  // options, and picking a tone is the deliberate act that writes (and
-  // spends a credit). Over unsaved edits it does not ask: the "Reply ready"
-  // toast carries Undo, which puts the replaced text back (D3).
-  function onGenerateIn(next: Tone) {
-    if (generateOrSave.isPending) return
-    setTone(next)
-    void runGenerate(next)
   }
 
   function writeOwn() {
@@ -475,7 +438,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   async function onSave(): Promise<ComposerSaveResult | null> {
     setSaving(true)
     try {
-      const result = await generateOrSave.mutateAsync({ body, tone })
+      const result = await generateOrSave.mutateAsync({ body })
       setMutationVerification(result.verification)
       setCheckedBody(body)
       setVerdictStale(false)
@@ -534,7 +497,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     : []
 
   // Someone who may not edit, or who is reading a reply parked for approval,
-  // gets the reply as text: no tone, no Generate, no credits and no box that
+  // gets the reply as text: no Generate, no credits and no box that
   // looks typeable but is not.
   if (!canEdit || parkedReadOnly) {
     return (
@@ -598,7 +561,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           <Button
             variant="secondary"
             disabled={generateOrSave.isPending}
-            onClick={() => void runGenerate(generateError.tone)}
+            onClick={() => void runGenerate()}
           >
             Retry
           </Button>
@@ -611,9 +574,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     </Alert>
   ) : null
 
-  // Tone belongs to Generate, so it is chosen inside it: the menu (the
-  // action sheet on a phone) lists the tones, and picking one writes the
-  // reply in it. Each is named by its label and described by its hint.
+  // One button writes one reply. How it should read is decided from the
+  // review itself on the server, not picked here.
   const generateLabel = empty ? "Generate reply" : "Regenerate"
   const generateControl = aiUnavailable ? (
     <p
@@ -624,38 +586,17 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       AI replies aren’t set up here. Write your own.
     </p>
   ) : (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="secondary"
-            disabled={!canGenerate}
-            pending={generateOrSave.isPending && !saving}
-            pendingLabel="Writing…"
-          />
-        }
-      >
-        <SparklesIcon aria-hidden data-icon="inline-start" />
-        {generateLabel}
-        <ChevronDownIcon aria-hidden data-icon="inline-end" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" title="Write it in a tone">
-        {TONES.map((option) => (
-          <DropdownMenuItem
-            key={option.value}
-            className="items-start"
-            onClick={() => onGenerateIn(option.value)}
-          >
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span>{option.label}</span>
-              <span className="text-caption font-normal text-ink-muted">
-                {option.hint}
-              </span>
-            </span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      variant="secondary"
+      data-slot="generate-reply"
+      disabled={!canGenerate}
+      pending={generateOrSave.isPending && !saving}
+      pendingLabel="Writing…"
+      onClick={() => void runGenerate()}
+    >
+      <SparklesIcon aria-hidden data-icon="inline-start" />
+      {generateLabel}
+    </Button>
   )
 
   return (
@@ -738,8 +679,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           )}
         />
 
-        {/* AI rewrite (Generate, with the tone inside it), putting the text
-            back, and the count. */}
+        {/* AI rewrite (Generate), putting the text back, and the count. */}
         <div
           data-slot="composer-prompt-bar"
           className="flex flex-wrap items-center gap-x-1.5 gap-y-2 border-t border-line-subtle px-2 py-2"

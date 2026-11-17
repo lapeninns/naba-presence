@@ -38,7 +38,9 @@ describeDatabase(
         json: {
           status: "completed",
           output_text: JSON.stringify({
-            unsupportedClaims: [],
+            issues: [],
+            addressesGuestDirectly: true,
+            relevance: "specific",
             unsafeEscalation: false,
             toneMismatch: false,
           }),
@@ -114,7 +116,7 @@ describeDatabase(
       expect(checked).toHaveLength(3)
       for (const row of checked)
         expect(row).toEqual({
-          checks: "deterministic-v1+semantic-v2",
+          checks: "deterministic-v2+semantic-v3",
           verdict: "pass",
         })
       expect(

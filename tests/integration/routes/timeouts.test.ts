@@ -110,7 +110,7 @@ describeDatabase("provider request timeouts", () => {
           cookie: owner.cookie,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ tone: "warm_professional" }),
+        body: JSON.stringify({}),
       }
     )
     const elapsedMs = performance.now() - startedAt
@@ -138,7 +138,7 @@ describeDatabase("provider request timeouts", () => {
             cookie: owner.cookie,
             "content-type": "application/json",
           },
-          body: JSON.stringify({ tone: "warm_professional" }),
+          body: JSON.stringify({}),
         }
       )
       const body = (await response.json()) as { error?: string }
@@ -159,8 +159,7 @@ describeDatabase("provider request timeouts", () => {
 
   it("generates and verifies with the replacement for retired configured models and records the effective model", async () => {
     const draft = {
-      reply:
-        "Thank you for your kind review. We hope to welcome you back soon.",
+      reply: "Thank you for your kind review. Glad you enjoyed the evening.",
       language: "en",
     }
     stub.respond({ method: "POST", pathIncludes: "/v1/responses" }, (call) => {
@@ -181,7 +180,9 @@ describeDatabase("provider request timeouts", () => {
                   text: JSON.stringify(
                     isVerification
                       ? {
-                          unsupportedClaims: [],
+                          issues: [],
+                          addressesGuestDirectly: true,
+                          relevance: "specific",
                           unsafeEscalation: false,
                           toneMismatch: false,
                         }
@@ -200,7 +201,7 @@ describeDatabase("provider request timeouts", () => {
       {
         method: "POST",
         headers: { cookie: owner.cookie, "content-type": "application/json" },
-        body: JSON.stringify({ tone: "warm_professional" }),
+        body: JSON.stringify({}),
       }
     )
     expect(response.status, await response.clone().text()).toBe(201)

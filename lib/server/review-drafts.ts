@@ -12,6 +12,7 @@ import {
 import type { z } from "zod"
 import { ratingOnlyReply } from "@/lib/domain/rating-only"
 import { DRAFT_POLICY_VERSION } from "@/lib/domain/reply-policy"
+import { deterministicVerification } from "@/lib/domain/verification"
 import {
   isAllowedReviewTransition,
   type ReviewWorkflowState,
@@ -24,6 +25,7 @@ import {
 } from "@/lib/server/ai"
 import {
   releaseDraftCredit,
+  releaseReservation,
   reserveDraftCredit,
   settleDraftCredit,
   type ExistingGeneration,
@@ -46,6 +48,8 @@ import {
 } from "@/lib/server/mutation-operations"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { requireLocationAccess } from "@/lib/server/permissions"
+import { loadReplyContext } from "@/lib/server/reply-context"
+import { writeCheckedReply } from "@/lib/server/reply-pipeline"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -150,6 +154,13 @@ export const PHASE_THREE_RESERVE_MS = 5_000
  * would kill before the draft is saved.
  */
 export const MIN_VERIFY_MS = 10_000
+
+/**
+ * The least time worth starting another generate-and-check round with. With
+ * less left the correction loop stops and the best reply so far is stored
+ * with its own verdict.
+ */
+export const MIN_ATTEMPT_MS = 20_000
 
 function generationNotRepeatable(): ApiError {
   return new ApiError(
@@ -363,6 +374,13 @@ export async function createReviewDraft({
     return {
       replay: null,
       review: record,
+      // This venue's own facts and the business's reply policy, read here so
+      // no connection is held while the provider is called.
+      context: await loadReplyContext(sql, {
+        reviewId: id,
+        locationId: record.location_id,
+        locationName: record.location_name,
+      }),
       reservationId,
       verifyReservationId:
         verifyReservation && "id" in verifyReservation
@@ -376,7 +394,8 @@ export async function createReviewDraft({
   })
   if (phaseOne.replay === "released") throw generationNotRepeatable()
   if (phaseOne.replay) return { ...phaseOne.replay, replayed: true }
-  const { review, reservationId, verifyReservationId, verifyRefused } = phaseOne
+  const { review, context, reservationId, verifyReservationId, verifyRefused } =
+    phaseOne
 
   const language =
     input.languageOverride ??
@@ -387,40 +406,215 @@ export async function createReviewDraft({
 
   // Phase two: no connection is held here. A failed provider call releases
   // the reservation (the customer does not pay); a billed but unreadable
-  // response keeps its tokens on the released row for the backstop. The
+  // response keeps its tokens on the released row for the backstop. Each
   // call is sized to the request deadline, keeping phase three's time back.
-  const generated: {
+  const source = input.body ? "human" : isRatingOnly ? "template" : "ai"
+  const semanticInput = (body: string) => ({
+    body,
+    reviewText: review.review_text,
+    reviewerName: review.reviewer_name,
+    locationName: review.location_name,
+    rating: review.rating,
+    expectedLanguage: language,
+    venue: context.venue,
+  })
+  const budget = { deadline, reserveMs: PHASE_THREE_RESERVE_MS }
+  const timeLeftFor = (ms: number) =>
+    deadline === undefined || hasTimeFor(deadline, PHASE_THREE_RESERVE_MS + ms)
+  // Past the token backstop semantic verification is skipped. A request key
+  // already in the ledger (one key reused for two calls) is never read as
+  // the backstop: the pass did not run, so the draft is left `pending`
+  // (`unavailable`) rather than settled on the rule checks alone. So is a
+  // pass there is no longer time for before the deadline: phase three must
+  // still run, and a kill after the provider call stores nothing.
+  const runSemantic = async (body: string): Promise<SemanticOutcome> =>
+    verifyRefused === "backstop"
+      ? { status: "skipped", reasons: [] }
+      : verifyRefused === "duplicate" ||
+          (verifyReservationId && !timeLeftFor(MIN_VERIFY_MS))
+        ? { status: "unavailable", reasons: [SEMANTIC_UNAVAILABLE] }
+        : runSemanticVerification(semanticInput(body), budget)
+
+  let generated: {
     reply: string
     language: string
     usage?: AiUsage
     model?: string
-  } = input.body
-    ? { reply: input.body, language }
-    : isRatingOnly
-      ? ratingOnlyReply(review.rating, language, review.reviewer_name)
-      : await generateReply(
-          {
+  }
+  let semantic: SemanticOutcome
+  let verifyUsage: AiUsage | undefined
+  let verifyModel: string | undefined
+  // What the provider billed for the first generation, kept for the
+  // released row if a later step throws.
+  let spent: AiUsage | undefined
+  // How the reply was arrived at, for the audit record.
+  let pipeline: { attempts: number; history: { codes: string[] }[] } | null =
+    null
+  // A correction round's own ledger rows. The phase-one reservations hold
+  // token capacity for ONE generation and ONE verification, so each further
+  // round reserves its two calls under the organisation lock before making
+  // them, and is refused past the backstop. They are uncharged rows (the
+  // ledger's `verify` kind, 0 credits): the one credit stays on the draft
+  // row, and each row is settled with what its own call cost.
+  let round = 1
+  let roundGeneration: string | null = null
+  let roundVerification: string | null = null
+  const releaseRound = async () => {
+    for (const id of [roundGeneration, roundVerification]) {
+      if (id) await finishVerifyUsage(tenant, { id })
+    }
+    roundGeneration = null
+    roundVerification = null
+  }
+  const startAnother = async (): Promise<boolean> => {
+    await releaseRound()
+    if (!timeLeftFor(MIN_ATTEMPT_MS)) return false
+    const next = round + 1
+    const refused = new Error("correction round refused")
+    try {
+      const rows = await tenant(async (sql) => {
+        const reserve = async (model: string, call: string) => {
+          const row = await reserveVerifyUsage(sql, {
+            organisationId: session.organisationId,
+            model,
+            reviewId: id,
+            draftId,
+            requestKey: `${correlationId}:correction-${next}:${call}`,
+            userId: session.userId,
+          })
+          // Past the backstop, or a key already used: no round. Throwing
+          // rolls back a generation row reserved a moment ago.
+          if (!("id" in row)) throw refused
+          return row.id
+        }
+        return {
+          generation: await reserve(
+            getServerEnv().OPENAI_MODEL_DRAFT,
+            "generation"
+          ),
+          verification: verifyReservationId
+            ? await reserve(getServerEnv().OPENAI_MODEL_VERIFY, "verification")
+            : null,
+        }
+      })
+      round = next
+      roundGeneration = rows.generation
+      roundVerification = rows.verification
+      return true
+    } catch (error) {
+      if (error === refused) return false
+      throw error
+    }
+  }
+  try {
+    if (source === "ai") {
+      // Generate → check → correct (lib/server/reply-pipeline.ts): a reply
+      // the checks refuse is rewritten with their findings, a bounded number
+      // of times, before anyone sees it. One credit covers all of it.
+      const checked = await writeCheckedReply({
+        generate: async (correction) => {
+          const row = roundGeneration
+          roundGeneration = null
+          try {
+            const written = await generateReply(
+              {
+                reviewText: review.review_text,
+                rating: review.rating,
+                reviewerName: review.reviewer_name,
+                language,
+                venue: context.venue,
+                bannedPhrases: context.bannedPhrases,
+                recentReplies: context.recentReplies,
+                correction,
+              },
+              budget
+            )
+            if (row) {
+              await finishVerifyUsage(tenant, {
+                id: row,
+                usage: written.usage,
+                model: written.model,
+              })
+            } else {
+              spent = written.usage
+            }
+            return written
+          } catch (error) {
+            // A correction that was billed but unreadable keeps its tokens
+            // on its released row, so the backstop still sees them.
+            if (row) {
+              await releaseReservation(tenant, {
+                id: row,
+                usage: error instanceof AiOutputError ? error.usage : undefined,
+              })
+            }
+            throw error
+          }
+        },
+        ruleChecks: (body) =>
+          deterministicVerification({
+            body,
             reviewText: review.review_text,
-            rating: review.rating,
-            reviewerName: review.reviewer_name,
             locationName: review.location_name,
-            language,
-            tone: input.tone,
-            businessContext: input.businessContext,
-          },
-          { deadline, reserveMs: PHASE_THREE_RESERVE_MS }
-        ).catch(async (error: unknown) => {
-          if (reservationId) {
-            await releaseDraftCredit(tenant, {
-              id: reservationId,
-              usage: error instanceof AiOutputError ? error.usage : undefined,
-            })
+            otherLocationNames: context.otherLocationNames,
+            rating: review.rating,
+            expectedLanguage: language,
+            bannedPhrases: context.bannedPhrases,
+            recentPublishedReplies: context.recentReplies,
+          }),
+        semantic: async (body) => {
+          const row = roundVerification
+          roundVerification = null
+          try {
+            const outcome = await runSemantic(body)
+            if (row) {
+              await finishVerifyUsage(tenant, {
+                id: row,
+                usage: outcome.usage,
+                model: outcome.model,
+              })
+            } else if (round === 1) {
+              verifyUsage = outcome.usage
+              verifyModel = outcome.model
+            }
+            return outcome
+          } catch (error) {
+            if (row) await finishVerifyUsage(tenant, { id: row })
+            throw error
           }
-          if (verifyReservationId) {
-            await finishVerifyUsage(tenant, { id: verifyReservationId })
-          }
-          throw error
-        })
+        },
+        startAnother,
+      })
+      await releaseRound()
+      generated = {
+        reply: checked.reply,
+        language: checked.language,
+        usage: spent,
+        model: checked.model,
+      }
+      semantic = checked.semantic
+      pipeline = { attempts: checked.attempts, history: checked.history }
+    } else {
+      generated = input.body
+        ? { reply: input.body, language }
+        : ratingOnlyReply(review.rating, language, review.reviewer_name)
+      semantic = await runSemantic(generated.reply)
+      verifyUsage = semantic.usage
+      verifyModel = semantic.model
+    }
+  } catch (error) {
+    await releaseRound()
+    if (reservationId) {
+      await releaseDraftCredit(tenant, {
+        id: reservationId,
+        usage: error instanceof AiOutputError && !spent ? error.usage : spent,
+      })
+    }
+    if (verifyReservationId) {
+      await finishVerifyUsage(tenant, { id: verifyReservationId })
+    }
+    throw error
+  }
   // The credit is NOT charged here: it is settled in phase three, in the
   // transaction that stores the draft, so the customer pays exactly when a
   // draft exists. Until then the reservation only holds the credit. A throw
@@ -438,37 +632,6 @@ export async function createReviewDraft({
     }
     throw error
   }
-  const source = input.body ? "human" : isRatingOnly ? "template" : "ai"
-  // Past the token backstop semantic verification is skipped. A request key
-  // already in the ledger (one key reused for two calls) is never read as
-  // the backstop: the pass did not run, so the draft is left `pending`
-  // (`unavailable`) rather than settled on the rule checks alone. So is a
-  // pass there is no longer time for before the deadline: phase three must
-  // still run, and a kill after the provider call stores nothing.
-  const outOfTime =
-    deadline !== undefined &&
-    !hasTimeFor(deadline, PHASE_THREE_RESERVE_MS + MIN_VERIFY_MS)
-  const semantic: SemanticOutcome =
-    verifyRefused === "backstop"
-      ? { status: "skipped", reasons: [] }
-      : verifyRefused === "duplicate" || (verifyReservationId && outOfTime)
-        ? { status: "unavailable", reasons: [SEMANTIC_UNAVAILABLE] }
-        : await runSemanticVerification(
-            {
-              body: generated.reply,
-              reviewText: review.review_text,
-              reviewerName: review.reviewer_name,
-              locationName: review.location_name,
-              rating: review.rating,
-              expectedLanguage: language,
-            },
-            { deadline, reserveMs: PHASE_THREE_RESERVE_MS }
-          ).catch(async (error: unknown) => {
-            if (verifyReservationId) {
-              await finishVerifyUsage(tenant, { id: verifyReservationId })
-            }
-            return releaseHeld(error)
-          })
 
   // Verification usage is written in its own transaction against the
   // period it was reserved in; a ledger failure never fails the request.
@@ -476,8 +639,8 @@ export async function createReviewDraft({
   if (verifyReservationId) {
     await finishVerifyUsage(tenant, {
       id: verifyReservationId,
-      usage: semantic.usage,
-      model: semantic.model,
+      usage: verifyUsage,
+      model: verifyModel,
     })
   }
 
@@ -504,8 +667,10 @@ export async function createReviewDraft({
       rating: current.rating,
       location: current.location_name,
       language,
-      tone: input.tone,
-      businessContext: input.businessContext,
+      // One voice, and no context typed in by the caller: both columns are
+      // kept for drafts written before the tone selector was removed.
+      tone: null,
+      businessContext: null,
       draftPolicyVersion: DRAFT_POLICY_VERSION,
     })
     const [draft] = await sql<{ id: string }[]>`
@@ -533,9 +698,9 @@ export async function createReviewDraft({
           ${generated.reply},
           ${Buffer.byteLength(generated.reply, "utf8")},
           ${evidenceHash},
-          ${input.tone},
+          ${null},
           ${language},
-          ${input.businessContext},
+          ${null},
           ${DRAFT_POLICY_VERSION},
           ${source === "ai" ? getServerEnv().OPENAI_MODEL_DRAFT : null},
           'pending',
@@ -599,6 +764,12 @@ export async function createReviewDraft({
         verdict: verification.verdict,
         reasons: verification.reasons,
         semanticPass: semantic.status,
+        ...(pipeline
+          ? {
+              generationAttempts: pipeline.attempts,
+              attemptReasonCodes: pipeline.history.map((entry) => entry.codes),
+            }
+          : {}),
         clientRequestId,
       },
     })

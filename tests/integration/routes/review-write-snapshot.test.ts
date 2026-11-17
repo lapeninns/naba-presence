@@ -106,7 +106,7 @@ describeDatabase("review write snapshots", () => {
 
     const saved = await call(`/api/reviews/${reviewId}/drafts`, owner.cookie, {
       method: "POST",
-      body: { tone: "warm_professional", body: "Thank you for visiting us." },
+      body: { body: "Thank you for visiting us." },
     })
     expect(saved.status).toBe(201)
     const draft = (await saved.json()) as {

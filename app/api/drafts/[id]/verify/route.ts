@@ -17,6 +17,7 @@ import {
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
+import { loadVenueContext } from "@/lib/server/reply-context"
 import { PHASE_THREE_RESERVE_MS } from "@/lib/server/review-drafts"
 import { readReviewWriteSnapshot } from "@/lib/server/review-reads"
 import { route } from "@/lib/server/route"
@@ -113,28 +114,36 @@ export const POST = route({
     // transaction (verification costs no credit), so verify and draft calls
     // running at once cannot together pass the backstop; the usage is then
     // recorded against the credit period it was reserved in.
-    const enabled = semanticVerificationEnabled()
-    const { draft, reservationId, refused } = await tenant(async (sql) => {
-      const record = await loadDraft(sql, id)
-      await requireLocationAccess(sql, session, record.location_id)
-      const reservation = enabled
-        ? await reserveVerifyUsage(sql, {
-            organisationId: session.organisationId,
-            model: getServerEnv().OPENAI_MODEL_VERIFY,
-            reviewId: record.review_id,
-            draftId: record.id,
-            requestKey: `${requestId}:verification`,
-            userId: session.userId,
-          })
-        : null
-      return {
-        draft: record,
-        reservationId:
-          reservation && "id" in reservation ? reservation.id : null,
-        refused:
-          reservation && "refused" in reservation ? reservation.refused : null,
+    const { draft, venue, reservationId, refused } = await tenant(
+      async (sql) => {
+        const record = await loadDraft(sql, id)
+        await requireLocationAccess(sql, session, record.location_id)
+        const reservation = semanticVerificationEnabled()
+          ? await reserveVerifyUsage(sql, {
+              organisationId: session.organisationId,
+              model: getServerEnv().OPENAI_MODEL_VERIFY,
+              reviewId: record.review_id,
+              draftId: record.id,
+              requestKey: `${requestId}:verification`,
+              userId: session.userId,
+            })
+          : null
+        return {
+          draft: record,
+          // This venue's own stored facts, which a reply may rely on.
+          venue: await loadVenueContext(sql, {
+            locationId: record.location_id,
+            locationName: record.location_name,
+          }),
+          reservationId:
+            reservation && "id" in reservation ? reservation.id : null,
+          refused:
+            reservation && "refused" in reservation
+              ? reservation.refused
+              : null,
+        }
       }
-    })
+    )
 
     // Past the token backstop the check is skipped (reported as not run). A
     // request key already in the ledger is not the backstop: the pass did
@@ -152,6 +161,7 @@ export const POST = route({
                 locationName: draft.location_name,
                 rating: draft.rating,
                 expectedLanguage: expectedLanguage(draft) ?? "en",
+                venue,
               },
               // Sized to the request deadline, keeping the settle's time back.
               { deadline, reserveMs: PHASE_THREE_RESERVE_MS }

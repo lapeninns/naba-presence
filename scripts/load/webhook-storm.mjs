@@ -36,24 +36,14 @@ async function main() {
   const verificationToken = String(
     options.pubsubToken ?? "rel501-pubsub-verification-token"
   )
-  const retryWindowSeconds = boundedNumber(
-    options.retryWindow,
-    120,
-    1,
-    600
-  )
+  const retryWindowSeconds = boundedNumber(options.retryWindow, 120, 1, 600)
   const ambiguousDelaySeconds = boundedNumber(
     options.ambiguousPutDelay,
     30,
     0,
     600
   )
-  const ambiguousSeconds = boundedNumber(
-    options.ambiguousPutSeconds,
-    0,
-    0,
-    300
-  )
+  const ambiguousSeconds = boundedNumber(options.ambiguousPutSeconds, 0, 0, 300)
   const admin = openAdmin(options.databaseUrl)
   const organisationIds = []
   const fixture = JSON.parse(await readFile(fixturePath, "utf8"))
@@ -80,8 +70,7 @@ async function main() {
     `
     const routes = []
     for (let index = 0; index < routeCount; index += 1) {
-      const marker =
-        `webhook-${tenant.organisationId.slice(0, 8)}-${index}`
+      const marker = `webhook-${tenant.organisationId.slice(0, 8)}-${index}`
       const connection = await seedConnection(admin, {
         organisationId: tenant.organisationId,
         tokenEncryptionKey: options.tokenEncryptionKey,
@@ -98,10 +87,8 @@ async function main() {
     }
     const { connection, location } = routes[0]
     const startedAt = Date.now()
-    const ambiguousStartsAt =
-      startedAt + ambiguousDelaySeconds * 1_000
-    const ambiguousEndsAt =
-      ambiguousStartsAt + ambiguousSeconds * 1_000
+    const ambiguousStartsAt = startedAt + ambiguousDelaySeconds * 1_000
+    const ambiguousEndsAt = ambiguousStartsAt + ambiguousSeconds * 1_000
     stub = await startLoadStub({
       port: stubPort,
       handler: ({ method, url, body }) => {
@@ -274,18 +261,15 @@ async function deliverWithRetry({
   let attempt = 0
   while (Date.now() < retryUntil) {
     attempt += 1
-    const result = await timedFetch(
-      `${baseUrl}/api/webhooks/google/pubsub`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-goog-pubsub-token": verificationToken,
-        },
-        body: JSON.stringify(envelope),
-        signal: AbortSignal.timeout(20_000),
-      }
-    )
+    const result = await timedFetch(`${baseUrl}/api/webhooks/google/pubsub`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-pubsub-token": verificationToken,
+      },
+      body: JSON.stringify(envelope),
+      signal: AbortSignal.timeout(20_000),
+    })
     state.sent += 1
     state.durationsMs.push(result.durationMs)
     if (result.response?.ok) {
@@ -378,7 +362,6 @@ async function runAmbiguousPublishInjection({
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          tone: "warm_professional",
           body: "Thank you for your excellent review and kind words about the service.",
         }),
         signal: AbortSignal.timeout(20_000),
@@ -424,18 +407,15 @@ async function runAmbiguousPublishInjection({
       where organisation_id = ${tenant.organisationId}
         and status in ('ambiguous', 'retryable')
     `
-    const result = await timedFetch(
-      `${options.baseUrl}/api/jobs/run`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${options.cronSecret}`,
-          "content-type": "application/json",
-        },
-        body: "{}",
-        signal: AbortSignal.timeout(30_000),
+    const result = await timedFetch(`${options.baseUrl}/api/jobs/run`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${options.cronSecret}`,
+        "content-type": "application/json",
       },
-    )
+      body: "{}",
+      signal: AbortSignal.timeout(30_000),
+    })
     const [remaining] = await admin`
       select count(*)::integer as count
       from publish_attempt
@@ -484,9 +464,7 @@ function percentileSummary(values) {
   return {
     samples: sorted.length,
     p95Ms: at(0.95),
-    maxMs: sorted.length
-      ? Math.round(sorted.at(-1) * 100) / 100
-      : 0,
+    maxMs: sorted.length ? Math.round(sorted.at(-1) * 100) / 100 : 0,
   }
 }
 

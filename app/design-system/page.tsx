@@ -834,13 +834,13 @@ export default function Page() {
               note="Segmented picks one view; chips filter and scope. A pressed chip is ink, not accent; a zero count draws no figure."
             >
               <Demo>
-                <SegmentedControl defaultValue="warm" aria-label="Tone">
-                  <SegmentedControlItem value="warm">Warm</SegmentedControlItem>
-                  <SegmentedControlItem value="concise">
-                    Concise
+                <SegmentedControl defaultValue="week" aria-label="Period">
+                  <SegmentedControlItem value="week">Week</SegmentedControlItem>
+                  <SegmentedControlItem value="month">
+                    Month
                   </SegmentedControlItem>
-                  <SegmentedControlItem value="empathetic">
-                    Empathetic
+                  <SegmentedControlItem value="quarter">
+                    Quarter
                   </SegmentedControlItem>
                 </SegmentedControl>
                 <FilterChip pressed count={5}>

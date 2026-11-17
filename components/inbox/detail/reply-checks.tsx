@@ -44,9 +44,24 @@ function ReplyChecks({
           />
           {describeOutcome("blocked").label}
         </p>{" "}
-        <p className="m-0 text-caption text-ink">
-          {failing.map((reason) => reason.message).join(" ")} Edit the reply and
-          try again.
+        {/* Each failed check on its own line: what was found, and what to
+            do about it. */}
+        {failing.length > 1 ? (
+          <ul
+            data-slot="reply-problem-list"
+            className="m-0 flex list-disc flex-col gap-1 pl-5 text-caption text-ink"
+          >
+            {failing.map((reason, index) => (
+              <li key={`${reason.code}-${index}`}>{reason.message}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="m-0 text-caption text-ink">
+            {failing.map((reason) => reason.message).join(" ")}
+          </p>
+        )}{" "}
+        <p className="m-0 text-caption text-ink-secondary">
+          Edit the reply, or generate it again.
         </p>
       </div>
     )

@@ -330,7 +330,6 @@ describeDatabase("Content checks at save and publish", () => {
           method: "POST",
           headers,
           body: JSON.stringify({
-            tone: "warm_professional",
             ...(body ? { body } : {}),
           }),
         }
