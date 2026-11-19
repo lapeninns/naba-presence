@@ -46,13 +46,16 @@ whatever else covers them.
 
 ## Running tests
 
+Which lane to run when is the testing policy in `AGENTS.md`.
+
 ```bash
-pnpm test                    # unit + component, in parallel (VITEST_MAX_WORKERS caps the pool)
+pnpm check                   # while iterating: typecheck, lint, format, tests affected since origin/main
 pnpm exec vitest run tests/foo.test.ts          # one file
-pnpm test:integration        # starts its own throwaway PostgreSQL 17, migrates, runs, stops it
-pnpm build && pnpm test:e2e  # the browser suite needs the standalone build of this commit
-pnpm verify                  # typecheck, lint, format check, unit + component, design ratchet
-pnpm verify:release          # everything, on a fresh worktree, writing the release receipt
+pnpm test                    # unit + component, in parallel (VITEST_MAX_WORKERS caps the pool)
+pnpm verify                  # before handoff: the release gate's quick steps exactly
+pnpm test:integration [files] # starts its own throwaway PostgreSQL 17, migrates, runs, stops it
+pnpm build && pnpm test:e2e [specs]  # the browser suite needs the standalone build of this commit
+pnpm verify:release          # everything, on a fresh worktree, writing the release receipt (local-ci runs it)
 ```
 
 `pnpm test:integration` and `pnpm test:e2e` never touch the developer's
@@ -75,6 +78,16 @@ example `pnpm test:integration tests/integration/routes/leases.test.ts`.
   case (`vi.useRealTimers()`, `vi.unstubAllEnvs()`).
 - **Force races; do not hope for them.** The Google stub's `hold()` latch
   holds one request inside its provider call while another runs.
+- **Integration servers do not pace the stub.** The integration app server
+  (and the isolated e2e backends) set `GOOGLE_REQUESTS_PER_SECOND=100`; at
+  production's 8 the transport waits 500 ms per Google call, which made a
+  verification request take 2 s against the stub. Pacing is unit-tested
+  (`tests/google-pacing.test.ts`). The shared e2e server still runs at the
+  production pace: unpaced, the listings verification journey finds a
+  second, hidden copy of the streamed console (open question, 2026-11-19).
+- **Load lazy modules before timing a UI.** A `next/dynamic` sheet's first
+  import transforms the whole module; import it in `beforeAll` so a
+  `findBy*` waits for the interaction, not the transform.
 - **Timeouts are sized from measurements.** Integration tests default to
   30 s per test and 60 s per hook; a test that needs more says so with a
   bound a few times its observed duration.

@@ -85,6 +85,11 @@ export function throwawayClusterEnv(env, pgDir) {
     // removes only the container ID it created, never the first run's). The
     // directory is unique, so its name replaces any SHARD the caller exported.
     SHARD: basename(pgDir),
+    // Homebrew PostgreSQL refuses to start without a UTF-8 locale
+    // ("postmaster became multithreaded during startup"), and agent and
+    // editor shells often have none. The release gate sets the same.
+    LC_ALL: env.LC_ALL || "en_US.UTF-8",
+    LANG: env.LANG || "en_US.UTF-8",
   }
   // Print the exports rather than append them to a CI job's environment.
   delete clusterEnv.GITHUB_ENV

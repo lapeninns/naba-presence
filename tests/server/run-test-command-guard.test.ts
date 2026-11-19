@@ -329,14 +329,25 @@ describe("run-test-command cluster lifecycle", () => {
       PATH: "/usr/bin",
       NABA_PG_DIR: firstDir,
       SHARD: "naba-pg-run-aB3xYz",
+      LC_ALL: "en_US.UTF-8",
+      LANG: "en_US.UTF-8",
     })
     expect(second).toEqual({
       PATH: "/usr/bin",
       NABA_PG_DIR: secondDir,
       SHARD: "naba-pg-run-Qr7kLm",
+      LC_ALL: "en_US.UTF-8",
+      LANG: "en_US.UTF-8",
     })
     expect(throwawayClusterEnv({}, firstDir).SHARD).toBe("naba-pg-run-aB3xYz")
     expect(caller.SHARD).toBe("2")
+    // A locale the caller set is kept.
+    expect(
+      throwawayClusterEnv(
+        { LC_ALL: "en_GB.UTF-8", LANG: "en_GB.UTF-8" },
+        firstDir
+      )
+    ).toMatchObject({ LC_ALL: "en_GB.UTF-8", LANG: "en_GB.UTF-8" })
   })
 
   it("exits 128 + the signal's number for each signal that ends a run", () => {

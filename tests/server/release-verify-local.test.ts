@@ -10,7 +10,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
@@ -45,7 +45,10 @@ import {
   outputCollector,
   parseArgs,
   parseExports,
+  processTree,
   releaseAfter,
+  stoppedStepResult,
+  stopProcessTree,
   summarizeOutput,
 } from "../../scripts/release/verify-local.mjs"
 import { SIGNAL_EXIT_CODES } from "../../scripts/run-test-command.mjs"
@@ -224,7 +227,8 @@ describe("verify:release steps", () => {
   it("parses arguments and rejects unknown steps", () => {
     expect(parseArgs([])).toMatchObject({
       skip: [],
-      failFast: false,
+      // The first failure stops the run unless --keep-going.
+      failFast: true,
       baseRef: null,
       receiptsDir: null,
       keepWorktree: false,
@@ -257,6 +261,7 @@ describe("verify:release steps", () => {
     expect(
       parseArgs(["--skip", "e2e,audit", "--skip", "e2e", "--fail-fast"])
     ).toMatchObject({ skip: ["e2e", "audit"], failFast: true })
+    expect(parseArgs(["--keep-going"]).failFast).toBe(false)
     expect(() => parseArgs(["--skip", "deploy"])).toThrow(/Unknown step/)
     expect(() => parseArgs(["--base-ref"])).toThrow(/needs a ref/)
     expect(parseArgs(["--base-ref", PROD_SHA]).baseRef).toBe(PROD_SHA)
@@ -425,8 +430,120 @@ describe("verify:release steps", () => {
     // runStep goes through both, and nothing else sets the stop flag.
     const source = readRepoText("scripts/release/verify-local.mjs")
     expect(source).toContain("await acquireUnlessStopped(run, () =>")
-    expect(source).toContain("releaseAfter(run, result, release)")
+    expect(source).toContain("releaseAfter(run, result, release, stopActive)")
     expect(source.match(/\.stop = true/g)).toHaveLength(1)
+  })
+
+  it("ends the steps still running once, when the first failure stops the run", () => {
+    const run = { failFast: true, stop: false } as {
+      failFast: boolean
+      stop: boolean
+      stoppedBy?: string
+    }
+    let stops = 0
+    const onStop = () => (stops += 1)
+    releaseAfter(run, { id: "lint", status: "passed" }, () => {}, onStop)
+    expect(stops).toBe(0)
+    releaseAfter(run, { id: "unit", status: "failed" }, () => {}, onStop)
+    expect(run).toMatchObject({ stop: true, stoppedBy: "unit" })
+    expect(stops).toBe(1)
+    // The steps it ended finish failed too; they neither stop it again nor
+    // take the blame.
+    releaseAfter(run, { id: "e2e", status: "failed" }, () => {}, onStop)
+    expect(stops).toBe(1)
+    expect(run.stoppedBy).toBe("unit")
+
+    const killed = {
+      id: "integration",
+      status: "failed" as const,
+      durationMs: 1,
+    }
+    expect(stoppedStepResult(run, killed)).toMatchObject({
+      id: "integration",
+      status: "not-run",
+      note: "stopped: unit failed",
+    })
+    // The failing step keeps its verdict, and so does a step that passed.
+    const unit = { id: "unit", status: "failed" as const, durationMs: 1 }
+    expect(stoppedStepResult(run, unit)).toBe(unit)
+    const passed = { id: "build", status: "passed" as const, durationMs: 1 }
+    expect(stoppedStepResult(run, passed)).toBe(passed)
+    // --keep-going: nothing stops, nothing is relabelled.
+    const keepGoing = { failFast: false, stop: false }
+    releaseAfter(keepGoing, { id: "unit", status: "failed" }, () => {}, onStop)
+    expect(keepGoing.stop).toBe(false)
+    expect(stops).toBe(1)
+    expect(stoppedStepResult(keepGoing, killed)).toBe(killed)
+  })
+
+  it("waits for a stopped tree to exit, and SIGKILLs what ignores SIGTERM", async () => {
+    // A process that ignores SIGTERM, like an app server mid-shutdown.
+    const stubborn = spawn(
+      process.execPath,
+      [
+        "-e",
+        "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); console.log('ready')",
+      ],
+      { stdio: ["ignore", "pipe", "ignore"] }
+    )
+    await new Promise((ready) => stubborn.stdout!.once("data", ready))
+    const exited = new Promise((done) =>
+      stubborn.once("exit", (_, signal) => done(signal))
+    )
+    const started = Date.now()
+    await stopProcessTree([stubborn.pid!], { graceMs: 300, pollMs: 50 })
+    expect(await exited).toBe("SIGKILL")
+    expect(Date.now() - started).toBeGreaterThanOrEqual(300)
+
+    // A tree that exits on SIGTERM is not waited on for the grace period.
+    const sent: string[] = []
+    let alive = true
+    await stopProcessTree([7], {
+      graceMs: 60_000,
+      pollMs: 1,
+      kill: (_pid, signal) => {
+        sent.push(signal)
+        alive = false
+      },
+      alive: () => alive,
+      sleep: () => Promise.resolve(),
+    })
+    expect(sent).toEqual(["SIGTERM"])
+
+    // The gate awaits the stop before removing the worktree and exiting.
+    const source = readRepoText("scripts/release/verify-local.mjs")
+    expect(source).toMatch(/\} finally \{\n\s+await stopping\n\s+cleanup\(\)/)
+    // Once stopped, nothing new starts inside a step that is still running
+    // (queued integration shards), and the stop flag is set before the
+    // process tree is captured.
+    expect(source).toMatch(
+      /function stopActive\(\) \{\n\s+stopRequested = true/
+    )
+    expect(source).toMatch(
+      /\) \{\n\s+if \(stopRequested\) \{[\s\S]{0,200}return Promise\.resolve\(\{\n\s+code: GATE_SIGNAL_EXIT_CODES\.SIGTERM/
+    )
+    expect(source.match(/stopRequested = true/g)).toHaveLength(1)
+  })
+
+  it("finds every descendant of the commands a stopped step started", () => {
+    const listing = [
+      "  1     0",
+      " 10     1", // the gate
+      " 20    10", // pnpm test:integration
+      " 21    20", // run-test-command.mjs
+      " 22    21", // vitest
+      " 23    22", // app server
+      " 30    10", // another step, not stopped
+      " 31    30",
+      "garbage",
+    ].join("\n")
+    expect(processTree(listing, [20]).sort((a, b) => a - b)).toEqual([
+      20, 21, 22, 23,
+    ])
+    expect(processTree(listing, [20, 30]).sort((a, b) => a - b)).toEqual([
+      20, 21, 22, 23, 30, 31,
+    ])
+    expect(processTree("", [99])).toEqual([99])
   })
 
   it("parses the CPU budget", () => {

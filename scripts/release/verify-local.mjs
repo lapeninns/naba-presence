@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Local release gate: the whole CI graph, run on this machine.
 //
-//   pnpm verify:release [--skip <id,...>] [--fail-fast] [--base-ref <ref>]
+//   pnpm verify:release [--skip <id,...>] [--keep-going] [--base-ref <ref>]
 //                       [--receipts-dir <dir>] [--keep-worktree] [--list]
 //                       [--serial] [--integration-shards <n>] [--cpus <n>]
 //
@@ -54,8 +54,14 @@
 // and upgrade steps would compare HEAD with itself). Without either, the
 // base falls back to origin/main, which suits a branch but not a release.
 //
-// --skip and --fail-fast are for iterating: a receipt with a requested skip
-// or a step that did not run never passes promotion. Nor does one written
+// The first step that fails stops the run: steps still running are
+// terminated and, with those not yet started, recorded as not-run, so a red
+// unit test does not hold the shared runner for the rest of the integration
+// and browser suites. --keep-going runs every step anyway, to see all the
+// failures at once. A run that passes is the same either way.
+//
+// --skip is for iterating: a receipt with a requested skip or a step that
+// did not run never passes promotion. Nor does one written
 // while the invoking checkout has uncommitted edits to the gate's own code
 // (GATE_SOURCE_PATHS), since that code, not the commit's, ran the gate.
 
@@ -405,14 +411,15 @@ export class CpuBudget {
 }
 
 /**
- * The run's --fail-fast state, shared by every step.
- * @typedef {{ failFast: boolean, stop: boolean }} FailFastRun
+ * The run's fail-fast state, shared by every step (fail-fast unless
+ * --keep-going). `stoppedBy` is the step whose failure stopped the run.
+ * @typedef {{ failFast: boolean, stop: boolean, stoppedBy?: string }} FailFastRun
  */
 
 /**
  * Waits for a step's CPU share. A step can wait there long after it checked
  * whether the run was stopped, so it checks again once served: when
- * --fail-fast stopped the run meanwhile, it gives the share straight back and
+ * a failure stopped the run meanwhile, it gives the share straight back and
  * resolves to null, and the step does not start.
  * @param {FailFastRun} run
  * @param {() => Promise<() => void>} acquire
@@ -428,22 +435,135 @@ export async function acquireUnlessStopped(run, acquire) {
 }
 
 /**
- * Gives a finished step's CPU share back. Under --fail-fast a step that did
+ * Gives a finished step's CPU share back. When failing fast, a step that did
  * not pass stops the run first, so the share it frees cannot start a step
- * that was waiting for it.
+ * that was waiting for it; `onStop` then ends the steps still running.
  * @param {FailFastRun} run
- * @param {{ status: string }} result
+ * @param {{ id?: string, status: string }} result
  * @param {() => void} release
+ * @param {() => void} [onStop]
  */
-export function releaseAfter(run, result, release) {
+export function releaseAfter(run, result, release, onStop = () => {}) {
+  let stopping = false
   if (
     run.failFast &&
+    !run.stop &&
     result.status !== "passed" &&
     result.status !== "skipped"
   ) {
     run.stop = true
+    run.stoppedBy = result.id
+    stopping = true
   }
   release()
+  if (stopping) onStop()
+}
+
+/**
+ * The given processes and all their descendants, from `ps -A -o pid=,ppid=`
+ * output: what stopping a step has to reach.
+ * @param {string} listing
+ * @param {number[]} roots
+ * @returns {number[]}
+ */
+export function processTree(listing, roots) {
+  /** @type {Map<number, number[]>} */
+  const children = new Map()
+  for (const line of listing.split("\n")) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number)
+    if (!Number.isInteger(pid) || !Number.isInteger(ppid)) continue
+    children.set(ppid, [...(children.get(ppid) ?? []), pid])
+  }
+  const seen = new Set()
+  const queue = [...roots]
+  while (queue.length > 0) {
+    const pid = /** @type {number} */ (queue.shift())
+    if (seen.has(pid)) continue
+    seen.add(pid)
+    queue.push(...(children.get(pid) ?? []))
+  }
+  return [...seen]
+}
+
+/** @param {number} pid */
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    // Gone, or (EPERM) not ours to signal: nothing more to do.
+    return false
+  }
+}
+
+/**
+ * Stops a captured process tree: SIGTERM to every process, so the test
+ * wrappers stop their servers and clusters, then SIGKILL to any still alive
+ * after `graceMs`. Resolves once none is left (or a short wait after the
+ * SIGKILL), so the caller can remove the worktree and exit without leaving
+ * orphans.
+ * @param {number[]} pids
+ * @param {{
+ *   graceMs: number,
+ *   pollMs?: number,
+ *   kill?: (pid: number, signal: NodeJS.Signals) => void,
+ *   alive?: (pid: number) => boolean,
+ *   sleep?: (ms: number) => Promise<unknown>,
+ * }} options
+ */
+export async function stopProcessTree(
+  pids,
+  {
+    graceMs,
+    pollMs = 250,
+    kill = (pid, signal) => process.kill(pid, signal),
+    alive = processAlive,
+    sleep = delay,
+  }
+) {
+  const send = (/** @type {NodeJS.Signals} */ signal) => {
+    for (const pid of pids) {
+      try {
+        kill(pid, signal)
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+  const left = () => pids.filter((pid) => alive(pid))
+  send("SIGTERM")
+  for (let waited = 0; waited < graceMs; waited += pollMs) {
+    if (left().length === 0) return
+    await sleep(pollMs)
+  }
+  send("SIGKILL")
+  for (let tries = 0; tries < 20 && left().length > 0; tries += 1) {
+    await sleep(pollMs)
+  }
+}
+
+/**
+ * A step that was still running when another step's failure stopped the
+ * run ends with whatever its terminated commands returned. That is not a
+ * verdict on the step, so it is recorded as not-run, naming the cause.
+ * @param {FailFastRun} run
+ * @param {import("./local-receipt.mjs").StepResult} result
+ * @returns {import("./local-receipt.mjs").StepResult}
+ */
+export function stoppedStepResult(run, result) {
+  if (
+    !run.stop ||
+    run.stoppedBy === result.id ||
+    result.status === "passed" ||
+    result.status === "skipped"
+  ) {
+    return result
+  }
+  return {
+    ...result,
+    status: "not-run",
+    note: `stopped: ${run.stoppedBy ?? "an earlier step"} failed`,
+  }
 }
 
 /**
@@ -494,7 +614,7 @@ export function childEnv(base) {
 export function parseArgs(argv, env = {}) {
   const options = {
     skip: /** @type {string[]} */ ([]),
-    failFast: false,
+    failFast: true,
     baseRef: /** @type {string | null} */ (null),
     receiptsDir: /** @type {string | null} */ (null),
     keepWorktree: false,
@@ -515,7 +635,9 @@ export function parseArgs(argv, env = {}) {
           .map((id) => id.trim())
           .filter(Boolean)
       )
-    } else if (arg === "--fail-fast") options.failFast = true
+    } else if (arg === "--keep-going") options.failFast = false
+    // The default since 2026-11-19; still accepted.
+    else if (arg === "--fail-fast") options.failFast = true
     else if (arg === "--base-ref") options.baseRef = argv[++index] ?? ""
     else if (arg === "--receipts-dir") options.receiptsDir = argv[++index] ?? ""
     else if (arg === "--keep-worktree") options.keepWorktree = true
@@ -684,6 +806,12 @@ export function mergeVitestSummaries(summaries) {
 
 const DATABASE = "nabareview_test"
 const TAIL_LIMIT = 256 * 1024
+/**
+ * How long a stopped step's commands get to exit on SIGTERM (the test
+ * wrappers stop servers and clusters) before SIGKILL; run-test-command.mjs
+ * gives its own command 30 s.
+ */
+const STOP_GRACE_MS = 40_000
 
 /**
  * A child process's collected output: the last `limit` characters (enough
@@ -871,6 +999,41 @@ async function main() {
     }
   }
 
+  /** Commands still running. */
+  /** @type {Set<import("node:child_process").ChildProcess>} */
+  const active = new Set()
+
+  /**
+   * Ends every running command and everything it started (pnpm, vitest
+   * workers, app servers, browsers): SIGTERM, so the test wrappers stop
+   * their servers and clusters, then SIGKILL for any still there after the
+   * grace period. The commands stay in the gate's process group, so a
+   * terminal's Ctrl-C or local-ci's group kill still reaches them too.
+   */
+  function stopActive() {
+    stopRequested = true
+    const roots = [...active].map((child) => child.pid).filter(Boolean)
+    if (roots.length === 0) return
+    const listing = spawnSync("ps", ["-A", "-o", "pid=,ppid="], {
+      encoding: "utf8",
+    })
+    const pids = processTree(listing.stdout ?? "", roots)
+    // Awaited before the cleanup and exit: a descendant with its own pipes
+    // (an app server a test started) can outlive the step's command, and a
+    // timer would die with the gate's process.exit.
+    stopping = stopProcessTree(pids, { graceMs: STOP_GRACE_MS })
+  }
+
+  /** Settles once every process a stop reached is gone. */
+  let stopping = Promise.resolve()
+  /**
+   * Set by the first stop. From then on `exec` starts nothing: a step that
+   * is already running (integration shards queued behind startCluster, the
+   * next command of a sequence) cannot start new work the stop would never
+   * reach. Cleanup does not go through `exec`.
+   */
+  let stopRequested = false
+
   /**
    * Runs a command in the worktree, writing its output to `sink`, and
    * resolves to its exit code and output tail. Never rejects on a non-zero
@@ -882,12 +1045,21 @@ async function main() {
     args,
     { extraEnv = {}, dbEnv = {}, input, stdoutOnly = false } = {}
   ) {
+    if (stopRequested) {
+      sink.write(`${command}: not started, the run was stopped\n`)
+      return Promise.resolve({
+        code: GATE_SIGNAL_EXIT_CODES.SIGTERM,
+        output: "not started: the run was stopped\n",
+      })
+    }
     return new Promise((done) => {
       const child = spawn(command, args, {
         cwd: worktreeAdded ? worktree : root,
         env: { ...env, ...dbEnv, ...extraEnv },
         stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       })
+      active.add(child)
+      child.on("close", () => active.delete(child))
       // stdoutOnly: the whole of stdout, nothing from stderr (a schema dump
       // must be complete and must not have warnings mixed into it).
       const output = outputCollector(stdoutOnly ? null : TAIL_LIMIT)
@@ -1374,8 +1546,22 @@ async function main() {
         stdio: "ignore",
       })
       spawnSync("git", ["worktree", "prune"], { cwd: root, stdio: "ignore" })
-      rmSync(worktree, { recursive: true, force: true })
-      rmSync(join(runDir, "base"), { recursive: true, force: true })
+      // After a signal, commands that are still exiting can write into the
+      // tree while it is removed (ENOTEMPTY ended a run on 2026-11-12 with
+      // exit 1 instead of the signal's code). Retry, and report what is left
+      // rather than throw out of the cleanup.
+      for (const dir of [worktree, join(runDir, "base")]) {
+        try {
+          rmSync(dir, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 200,
+          })
+        } catch (error) {
+          say(`cleanup: could not remove ${dir} (${error.code ?? error})\n`)
+        }
+      }
       worktreeAdded = false
     }
   }
@@ -1407,7 +1593,7 @@ async function main() {
     id,
     status: "not-run",
     durationMs: 0,
-    note: "stopped by --fail-fast",
+    note: `stopped: ${run.stoppedBy ?? "an earlier step"} failed`,
   })
 
   /** @param {typeof GATE_STEPS[number]} step */
@@ -1470,7 +1656,8 @@ async function main() {
         note: String(error.message).slice(0, 300),
       }
     }
-    releaseAfter(run, result, release)
+    result = stoppedStepResult(run, result)
+    releaseAfter(run, result, release, stopActive)
     await sink.close()
     say(
       `=== ${step.id}: ${result.status} in ${(result.durationMs / 1000).toFixed(1)}s${result.note ? ` (${result.note})` : ""}\n`
@@ -1510,6 +1697,7 @@ async function main() {
       await Promise.all(running.values())
     }
   } finally {
+    await stopping
     cleanup()
   }
 

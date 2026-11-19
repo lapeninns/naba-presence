@@ -23,6 +23,7 @@ type Fixture = {
   owner: Awaited<ReturnType<typeof createTestTenant>>
   connectionId: string
   externalLocationId: string
+  googleLocationName: string
   reviewId: string
   googleReviewName: string
 }
@@ -67,6 +68,7 @@ describeDatabase("durable background jobs", () => {
       owner,
       connectionId: connection.connectionId,
       externalLocationId: linked.externalLocationId,
+      googleLocationName: linked.googleLocationName,
       reviewId: linked.reviewId,
       googleReviewName: linked.googleReviewName,
     }
@@ -816,8 +818,23 @@ describeDatabase("durable background jobs", () => {
     const subject = await fixture()
     healthyReviews()
     await seedWebhook(subject, 1)
+    // The first tick is held inside its Google call, with the fleet lease
+    // taken, until the second has answered: the two overlap by construction.
+    // Two ticks fired together only overlapped when the first was still
+    // running as the second arrived, and failed on a fast server (2026-11-17).
+    const hold = stub.hold(
+      { method: "GET", pathIncludes: `${subject.googleLocationName}/reviews` },
+      { status: 200, json: { reviews: [] } }
+    )
+    const first = runJobs()
+    await hold.entered()
+    const second = runJobs()
+    // A second tick that also took the lease would reach the same call;
+    // stop waiting then, and let the assertions below report it.
+    await Promise.race([second, hold.entered(2)])
+    hold.release()
 
-    const responses = await Promise.all([runJobs(), runJobs()])
+    const responses = await Promise.all([first, second])
     expect(responses.every((response) => response.status === 200)).toBe(true)
     const summaries = await Promise.all(
       responses.map(

@@ -189,18 +189,23 @@ inside the same job, so there is no build artifact to pass between jobs.
 ## 5. Local workflow
 
 ```bash
-pnpm verify            # typecheck, lint, format check of changed files, unit + component tests, design ratchet; no database
-pnpm test:integration  # integration suite on its own throwaway PostgreSQL 17
+pnpm check             # while iterating: typecheck, lint (cached), changed-files format, tests affected since origin/main
+pnpm verify            # before handoff: the gate's quick steps exactly (typecheck, lint, format, unit + component, design ratchet, contrast); no database
+pnpm test:integration  # integration suite on its own throwaway PostgreSQL 17 (needs pnpm build)
 pnpm build && pnpm test:e2e   # browser journeys (pnpm test:a11y: accessibility only)
 pnpm format:changed    # Prettier-format the files your branch changed
 pnpm lint:workflows    # actionlint + zizmor over .github/
 pnpm verify:release    # the whole gate on a fresh worktree; writes the receipt
 ```
 
-Run `verify` before pushing (the opt-in hook does). Run `test:integration`,
-`test:e2e` and `test:a11y` as well when you touch server code, the database
-or UI flows, and `verify:release` before asking for a merge. How the suites
-are organised and the rules they follow: [docs/testing.md](testing.md).
+The testing policy (which lane when, and when to run the browser suites) is
+in `AGENTS.md`. In short: `check` while iterating, `verify` before handing a
+branch to local-ci (the opt-in pre-push hook runs it), the integration and
+browser suites only for the files a change affects, and local-ci once on the
+rebased final head. local-ci's `gate` job *is* `verify:release`, so do not
+also run it locally before a merge; run it yourself only for a release
+receipt (§7) or to reproduce a gate failure. How the suites are organised and
+the rules they follow: [docs/testing.md](testing.md).
 
 ### Local release gate (`pnpm verify:release`)
 
@@ -273,8 +278,15 @@ cleanup path; retained logs and failed or kept artifacts can consume disk space.
 Review them manually and confirm a run is inactive and its evidence is no longer
 needed before removing it. This also applies to directories under `NABA_GATE_DIR`.
 
-Every step runs even after a failure, unless `--fail-fast` (steps not yet
-started are then `not-run`). A step whose need failed is `not-run`. Each
+The first step that fails stops the run: steps still running are terminated
+(their whole process tree, SIGTERM then SIGKILL after 40 s; the gate waits
+for the tree to exit before removing the worktree) and recorded as
+`not-run` with the note `stopped: <step> failed`, and steps not yet started
+are `not-run` too. A red unit test therefore ends the run in minutes instead
+of holding the shared runner through integration and e2e. `--keep-going`
+runs every step anyway, to see all the failures in one run (`--fail-fast` is
+the default and still accepted). A passing run is the same either way. A
+step whose need failed is `not-run`. Each
 step's output goes to `logs/<step>.log` in the printed run directory, all of
 it to `verify.log` there with each line prefixed by its step, and a failed
 step's last 80 lines are printed. The receipt (version 3) is written to
@@ -283,8 +295,7 @@ checkout stays clean for promotion): SHA, base ref, base and merge-base SHAs,
 Node, pnpm, PostgreSQL, gitleaks, actionlint, zizmor and Playwright versions,
 the options (skips, `--serial`, shard count), and each step's status,
 duration, test counts and note. The exit code is 0 only when the gate passed.
-`--skip <id,...>` and `--fail-fast` are for iterating; such a receipt never
-passes promotion. `--list` prints the steps; `--keep-worktree` keeps the
+`--skip <id,...>` is for iterating; such a receipt never passes promotion. `--list` prints the steps; `--keep-worktree` keeps the
 worktree for debugging. Rules are unit-tested in
 `tests/server/release-verify-local.test.ts`.
 
@@ -814,8 +825,8 @@ pnpm exec playwright show-trace /tmp/gate/<run dir>/src/test-results/<test>/trac
 ```
 
 **Reproduce it locally:** `pnpm verify:release` runs exactly what the Gate
-ran (`--keep-worktree` keeps the checkout; `--skip`/`--fail-fast` to
-iterate). One suite on its own: `pnpm test:integration [files]` or
+ran (`--keep-worktree` keeps the checkout; `--skip` to iterate,
+`--keep-going` to see every failing step instead of stopping at the first). One suite on its own: `pnpm test:integration [files]` or
 `pnpm build && pnpm test:e2e -g "<test name>"`.
 
 **Re-run:** Re-run all jobs (a re-run of only `CI result` re-reads the same
