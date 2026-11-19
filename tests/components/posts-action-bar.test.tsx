@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { PostsActionBar } from "@/components/locations/posts-action-bar"
 import { Toaster } from "@/components/ui/toast"
@@ -87,6 +87,18 @@ function renderBar(props: Partial<BarProps> = {}) {
 }
 
 afterEach(() => vi.clearAllMocks())
+
+// The composer and scheduler sheets are next/dynamic imports. The first
+// import in a worker transforms the whole sheet, which on a loaded machine
+// outlasted findByRole's 1 s and failed "offers Edit on drafts" in the
+// 2026-11-17 gate. Load them up front so the tests time the interaction,
+// not the module transform.
+beforeAll(async () => {
+  await Promise.all([
+    import("@/components/locations/posts/post-composer-sheet"),
+    import("@/components/locations/posts/schedule-post-sheet"),
+  ])
+})
 
 // Everything but a post's one next step sits in its "More actions" menu.
 async function openMore() {

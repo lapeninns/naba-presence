@@ -251,8 +251,8 @@ describe("pre-push hook skip rules", () => {
     const ran = readFileSync(log, "utf8").split("\n").filter(Boolean)
     return { status: result.status, ran, out: result.stdout + result.stderr }
   }
+  // `pnpm verify` runs the changed-files format check itself.
   const CHECKS = [
-    "format-changed",
     "pnpm verify",
     "gitleaks git --no-banner --redact --log-opts=origin/main..HEAD .",
   ]
@@ -270,9 +270,11 @@ describe("pre-push hook skip rules", () => {
     copyFileSync(hook, join(dir, ".githooks/pre-push"))
     // Stubs record the checks instead of running them.
     mkdirSync(join(dir, "bin"))
+    // ASSERT_CLEAN_GIT_ENV: fail when Git's repository variables leaked
+    // through to the checks.
     writeFileSync(
       join(dir, "bin/pnpm"),
-      `#!/bin/sh\necho "pnpm $*" >> "${log}"\n`
+      `#!/bin/sh\nif [ "$ASSERT_CLEAN_GIT_ENV" = 1 ] && { [ -n "\${GIT_DIR+x}" ] || [ -n "\${GIT_WORK_TREE+x}" ] || [ -n "\${GIT_IMPLICIT_WORK_TREE+x}" ] || [ -n "\${GIT_INDEX_FILE+x}" ]; }; then exit 9; fi\necho "pnpm $*" >> "${log}"\n`
     )
     chmodSync(join(dir, "bin/pnpm"), 0o755)
     writeFileSync(
@@ -280,15 +282,6 @@ describe("pre-push hook skip rules", () => {
       `#!/bin/sh\necho "gitleaks $*" >> "${log}"\n`
     )
     chmodSync(join(dir, "bin/gitleaks"), 0o755)
-    mkdirSync(join(dir, "scripts"))
-    writeFileSync(
-      join(dir, "scripts/format-changed.mjs"),
-      `import { appendFileSync } from "node:fs"\n
-if (process.env.ASSERT_CLEAN_GIT_ENV === "1" &&
-    ["GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE"]
-      .some((name) => name in process.env)) process.exit(9)
-appendFileSync("${log}", "format-changed\\n")\n`
-    )
     put("README.md", "root\n")
     rootCommit = commit("root")
     git("update-ref", "refs/remotes/origin/main", rootCommit)
@@ -311,16 +304,16 @@ appendFileSync("${log}", "format-changed\\n")\n`
   it("only scans for secrets when an update touches docs and markdown", () => {
     const result = push(line(docsCommit, rootCommit))
     expect(result.status).toBe(0)
-    expect(result.ran).toEqual([CHECKS[2]])
+    expect(result.ran).toEqual([CHECKS[1]])
     expect(result.out).toContain("only documentation")
   })
 
   it("only scans for secrets on a new branch whose commits are all documentation", () => {
     const result = push(line(docsCommit, ZERO))
-    expect(result.ran).toEqual([CHECKS[2]])
+    expect(result.ran).toEqual([CHECKS[1]])
   })
 
-  it("runs verify and the format check when code changed", () => {
+  it("runs verify when code changed", () => {
     const result = push(line(codeCommit, rootCommit))
     expect(result.status).toBe(0)
     expect(result.ran).toEqual(CHECKS)

@@ -2,14 +2,14 @@
 # Opt-in pre-push check: `pnpm hooks:install` (git config core.hooksPath .githooks).
 # Undo with `git config --unset core.hooksPath`.
 #
-# Runs the changed-files format check and `pnpm verify` (typecheck, lint, unit
-# tests; no database), then a gitleaks scan of the commits being pushed when
-# gitleaks is installed.
+# Runs `pnpm verify` (typecheck, lint, the changed-files format check, unit and
+# component tests, design ratchet and contrast; no database), then a gitleaks
+# scan of the commits being pushed when gitleaks is installed.
 #
 # A push that only deletes branches runs nothing. One whose every ref only
 # changes documentation (`docs/**` and `*.md`, but not AGENTS.md or the docs
 # tests read; the same rule as scripts/vercel-ignore-build.mjs and ci.yml's
-# plan job) skips the format check and `pnpm verify`
+# plan job) skips `pnpm verify`
 # but still gets the secret scan: a token pasted into a Markdown file is still
 # a leak. When git cannot tell what a push changes, everything runs.
 #
@@ -98,16 +98,14 @@ if [ ! -t 0 ]; then
     if [ "$deletes" -eq "$seen" ]; then
       echo "pre-push: push only deletes branches, skipping checks"
     else
-      echo "pre-push: push changes only documentation, skipping format check and pnpm verify"
+      echo "pre-push: push changes only documentation, skipping pnpm verify"
       secret_scan
     fi
     exit 0
   fi
 fi
 
-echo "pre-push: format check (changed files)"
-node scripts/format-changed.mjs --check
-
+# `pnpm verify` includes the changed-files format check.
 echo "pre-push: pnpm verify"
 pnpm verify
 

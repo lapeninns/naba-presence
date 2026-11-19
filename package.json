@@ -36,7 +36,7 @@
     "test:e2e:touch": "node scripts/run-test-command.mjs e2e pnpm exec playwright test --project=touch-390",
     "test:integration": "node scripts/run-test-command.mjs integration pnpm exec vitest run --project integration",
     "test:watch": "vitest --project unit --project components",
-    "lint": "eslint --max-warnings 0",
+    "lint": "eslint --max-warnings 0 --cache --cache-location node_modules/.cache/eslint/",
     "lint:workflows": "actionlint && zizmor --offline .github/",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:design": "node scripts/check-design.mjs",
@@ -44,7 +44,8 @@
     "format:check": "node scripts/format-changed.mjs --check",
     "format:changed": "node scripts/format-changed.mjs --write",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm check:design --ratchet",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && vitest run --project unit --project components --changed origin/main",
+    "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm check:design --ratchet && pnpm check:contrast",
     "hooks:install": "git config core.hooksPath .githooks"
   },
   "dependencies": {

@@ -70,6 +70,13 @@ export function serverEnv(
     // Retry-After. It is switched on, with real limits, only by the suites
     // that test it (rate-budget, fleet-scale).
     GOOGLE_RATE_BUDGET_ENABLED: "false",
+    // The transport paces each connection at a quarter of this rate
+    // (default 8, so 500 ms a Google call). Against the in-repo stub that
+    // pacing was most of the suite's time: a verification review makes four
+    // stub calls, so each request took 2 s (2026-11-19 measurement). Pacing
+    // itself is covered by tests/google-pacing.test.ts; a suite that needs
+    // the production pace passes its own value.
+    GOOGLE_REQUESTS_PER_SECOND: "100",
     // Abuse-limit counters are shared the same way, and suites sign in and
     // draft far faster than any person. Only abuse-limits.test.ts turns them
     // on.

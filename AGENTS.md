@@ -1,4 +1,5 @@
 <!-- BEGIN:nextjs-agent-rules -->
+
 # Next.js documentation
 
 Before changing Next.js APIs, routing, rendering, caching, or configuration,
@@ -8,54 +9,91 @@ guide is unavailable, use official documentation for the project's installed
 Next.js version.
 <!-- END:nextjs-agent-rules -->
 
-## Bundler
+# NabaPresence operating guide
 
-`pnpm dev` runs Turbopack; `pnpm build` runs webpack (`--webpack`). The
-archived milestone plans under `docs/archive/2026-07-frontend-rebuild/` repeat
-a rule to never change the `--webpack` flags. That rule was written against an
-older Next.js, where Turbopack spawned runaway PostCSS workers in this project;
-it no longer holds for dev since 16.2.6 (now 16.4.1) and the dev script has
-moved. Leave `build` on webpack: it is the path CI validates through
-`scripts/prepare-standalone.mjs`.
+Next.js 16 (App Router) on PostgreSQL 17, deployed on Vercel. Node 24
+(`.nvmrc`), pnpm 10 (`packageManager`); install with
+`pnpm install --frozen-lockfile`. Reference: `docs/ci.md` (gate, migrations,
+deploys), `docs/testing.md` (test layers and rules), `docs/runbook.md`.
 
-## Tailwind source detection
+## Commands and testing policy
 
-`app/globals.css` disables automatic source detection and registers `app/`,
-`components/`, and `lib/` explicitly. Register any new application source
-location there. Keep evidence, saved HTML, test artifacts, and archived source
-copies outside the scan: HTML-escaped arbitrary variants in snapshots can
-produce invalid CSS that webpack warns about and Turbopack rejects.
+This is the one place for testing policy.
 
-## Historical plans
+| When                             | Command                                                                                                             | Time       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------- |
+| While iterating                  | `pnpm check`: typecheck, lint (cached), changed-files format, unit and component tests affected since `origin/main` | ~30 s warm |
+| One test file                    | `pnpm exec vitest run tests/foo.test.ts`                                                                            | seconds    |
+| Before handoff                   | `pnpm verify`: the gate's quick steps exactly (adds the full unit and component suite, design ratchet, contrast)    | 4–8 min    |
+| Server, database or route change | `pnpm build`, then `pnpm test:integration <files>` for the affected files                                           | minutes    |
+| Change to what users see         | `pnpm build`, then `pnpm test:e2e <specs>` (`pnpm test:a11y`, `pnpm test:e2e:touch`) for the affected journeys      | minutes    |
+| Final head                       | local-ci, once (below)                                                                                              | ~16 min    |
 
-`docs/archive/2026-07-frontend-rebuild/` is a historical record of the 2026-07
-frontend rebuild, and its branch, protected-path, workflow, testing, and commit
-instructions are not active project rules. Read those documents for background
-on how and why a milestone was built; take your actual instructions from this
-file, the current project configuration, and the user's task. Attribute commits
-only to actual contributors; historical model trailers are not reusable
-defaults. See `docs/archive/2026-07-frontend-rebuild/README.md` for the index.
+- Run `pnpm verify` and see it pass before starting local-ci. local-ci's
+  `quick-verify` is not a separate run: it fails whenever the gate fails, so
+  a lint or unit failure found there has cost a whole gate slot.
+- Browser suites run only when a change affects what users see. Pure server,
+  library, script or docs changes do not need them locally; the gate runs
+  everything on the final head.
+- Do not run `pnpm verify:release` before a merge: local-ci's `gate` job is
+  that command. Run it yourself only for a release receipt (`docs/ci.md` §7)
+  or to reproduce a gate failure. It stops at the first failing step;
+  `--keep-going` runs every step to show all failures.
+- `pnpm format:changed` formats what your branch changed; the format check
+  covers changed files only.
+- The opt-in pre-push hook (`pnpm hooks:install`) runs `pnpm verify` and a
+  gitleaks scan of the pushed commits.
 
-## Skill selection and scope
+Test-writing rules (no fixed sleeps, forced races with the stub's `hold()`,
+own tenants per file, no retries to hide flakes) are in `docs/testing.md`.
 
-Use skills when their workflow is relevant to the requested task. A keyword
-match or a skill's presence in `node_modules/` or `.ds-sync/` is not sufficient.
-Read supporting references only as needed. Dependency-owned `AGENTS.md` files
-describe work on those dependencies; they do not define NabaPresence policy.
+## local-ci
 
-- For environment configuration, use the existing Next.js / `@next/env` loading
-  conventions. Load dotenv guidance for actual dotenv loading or parsing work;
-  dotenvx migration and hook installation require a task-specific need.
-- For browser work, use available browser tools or the project's installed
-  Playwright tooling. Interactive annotation is for collecting user feedback
-  when requested or needed. Choose component-test setup and isolation based on
-  the actual framework and browser-context configuration.
-- The app uses TanStack Query. Apply Redux and RTK Query guidance to explicit
-  Redux work; dependency-bundled skills do not justify an architecture migration.
+- Profile `naba-presence`. Jobs: `gate` (`pnpm verify:release`: install,
+  typecheck, lint, unit, format, design, build, bundle budget, migrations,
+  integration in 4 shards, e2e, audit, workflow lint, gitleaks), `secret-scan`,
+  and the aggregates `quick-verify` and `release-gate`.
+- Rebase on the latest `origin/main`, then run once on the final head:
+  `lci run naba-presence --pr <N> --post --comment`. Not on intermediate
+  pushes. A commit with an already-passing tree reuses its result.
+- The runner is shared and holds one global lock; another repository's run
+  may hold it for up to ~2 h. Wait in the foreground; never `--force` or
+  `--only`.
+- Merge only through `lci merge`. No admin merges, `--no-codex`, skipped
+  checks or forged statuses. GitHub Actions is disabled; `.github/workflows/`
+  is reference for the same gate script.
+- One PR per piece of work. Run `gh auth switch --user lapeninns` before any
+  push or `gh` write.
 
-The Storybook guide in `.ds-sync/` is staged support material for design sync.
-When that workflow is requested, locate its complete maintained source package
-and required references before relying on it. Missing sync material does not
-block unrelated application work. Make durable skill fixes in the maintained
-source, keeping the entry document a short router to workflow-specific
-references; edits to installed dependencies or staged copies are overwritten.
+## Safety
+
+- Never read or print `.env*`. Tests never touch the dev database: the test
+  wrappers start throwaway PostgreSQL 17 clusters (Homebrew `postgresql@17`)
+  and refuse port 54322.
+- Production migrations, `pnpm release:promote` and `pnpm release:rollback`
+  are operator steps (`docs/ci.md` §6–7). Run them only when asked.
+- Migrations are append-only and expand-only; the gate checks both
+  (`migration-policy`, `migrate-upgrade`).
+- Uncommitted edits to the gate's own code (`scripts/release/`,
+  `scripts/ci/`, `package.json`, `.nvmrc`) are recorded in its receipt and
+  block promotion of that receipt.
+
+## Repo facts
+
+- Bundler: `pnpm dev` runs Turbopack; `pnpm build` runs webpack
+  (`--webpack`). Keep `build` on webpack: CI validates that path through
+  `scripts/prepare-standalone.mjs` and the standalone server, which the
+  integration and e2e suites run against.
+- Tailwind: `app/globals.css` disables automatic source detection and
+  registers `app/`, `components/` and `lib/`. Register any new source
+  location there, and keep saved HTML, test artifacts and archived source out
+  of the scan (escaped arbitrary variants produce invalid CSS).
+- `docs/archive/2026-07-frontend-rebuild/` is a historical record. Its branch,
+  protected-path, workflow, testing and commit instructions are not active
+  rules. Attribute commits only to actual contributors.
+- The app uses TanStack Query. Dependency-bundled skills and `AGENTS.md`
+  files (in `node_modules/`, `.ds-sync/`) describe those dependencies, not
+  NabaPresence policy, and do not justify an architecture change. The
+  Storybook guide in `.ds-sync/` is staged design-sync material; missing sync
+  material does not block application work.
+- Environment loading follows Next.js / `@next/env` conventions.

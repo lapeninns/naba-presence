@@ -162,14 +162,15 @@ deployment gate, the kill switches and the rollback unit.
 The gate every change must pass locally:
 
 ```bash
-pnpm verify        # typecheck + lint + unit and component tests + design ratchet, no database: before every push
-pnpm verify:release # release gate: the whole CI graph on a fresh worktree and throwaway Postgres
+pnpm check          # while iterating: typecheck, lint, format, affected unit and component tests
+pnpm verify         # before handoff: the release gate's quick steps, no database
+pnpm verify:release # release gate: the whole CI graph on a fresh worktree and throwaway Postgres (local-ci runs it)
 ```
 
 `pnpm test:integration`, `pnpm test:e2e` and `pnpm test:a11y` run the database
-and browser suites separately; run them, or `verify:release`, when a change
-touches server code, the database or UI flows. `pnpm hooks:install` opts in to a pre-push hook that
-runs `pnpm verify`.
+and browser suites separately; run the files a change affects when it touches
+server code, the database or what users see. Testing policy: `AGENTS.md`.
+`pnpm hooks:install` opts in to a pre-push hook that runs `pnpm verify`.
 
 `pnpm test` runs the unit and contract suites; its embedded PGlite migration
 contract applies only `0001_initial.sql`. `pnpm verify:release` runs

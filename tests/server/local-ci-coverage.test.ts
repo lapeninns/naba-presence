@@ -9,8 +9,11 @@ describe("local-ci quick-verify coverage by the full release gate", () => {
     for (const id of ["typecheck", "lint", "unit", "format", "design"])
       expect(ids).toContain(id)
     const scripts = JSON.parse(readRepoText("package.json")).scripts
+    // `pnpm verify` is the gate's quick steps exactly (its design step runs
+    // the ratchet and the contrast check), so it is the check to run before
+    // handing a branch to local-ci.
     expect(scripts.verify).toBe(
-      "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm check:design --ratchet"
+      "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm check:design --ratchet && pnpm check:contrast"
     )
   })
 
@@ -23,6 +26,7 @@ describe("local-ci quick-verify coverage by the full release gate", () => {
       '"scripts/format-changed.mjs",',
       '"--check",',
       'must(sink, "pnpm", ["check:design", "--ratchet"])',
+      'must(sink, "pnpm", ["check:contrast"])',
     ])
       expect(gate).toContain(command)
   })
