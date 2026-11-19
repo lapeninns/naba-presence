@@ -485,6 +485,63 @@ export function processTree(listing, roots) {
   return [...seen]
 }
 
+/** @param {number} pid */
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    // Gone, or (EPERM) not ours to signal: nothing more to do.
+    return false
+  }
+}
+
+/**
+ * Stops a captured process tree: SIGTERM to every process, so the test
+ * wrappers stop their servers and clusters, then SIGKILL to any still alive
+ * after `graceMs`. Resolves once none is left (or a short wait after the
+ * SIGKILL), so the caller can remove the worktree and exit without leaving
+ * orphans.
+ * @param {number[]} pids
+ * @param {{
+ *   graceMs: number,
+ *   pollMs?: number,
+ *   kill?: (pid: number, signal: NodeJS.Signals) => void,
+ *   alive?: (pid: number) => boolean,
+ *   sleep?: (ms: number) => Promise<unknown>,
+ * }} options
+ */
+export async function stopProcessTree(
+  pids,
+  {
+    graceMs,
+    pollMs = 250,
+    kill = (pid, signal) => process.kill(pid, signal),
+    alive = processAlive,
+    sleep = delay,
+  }
+) {
+  const send = (/** @type {NodeJS.Signals} */ signal) => {
+    for (const pid of pids) {
+      try {
+        kill(pid, signal)
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+  const left = () => pids.filter((pid) => alive(pid))
+  send("SIGTERM")
+  for (let waited = 0; waited < graceMs; waited += pollMs) {
+    if (left().length === 0) return
+    await sleep(pollMs)
+  }
+  send("SIGKILL")
+  for (let tries = 0; tries < 20 && left().length > 0; tries += 1) {
+    await sleep(pollMs)
+  }
+}
+
 /**
  * A step that was still running when another step's failure stopped the
  * run ends with whatever its terminated commands returned. That is not a
@@ -960,18 +1017,14 @@ async function main() {
       encoding: "utf8",
     })
     const pids = processTree(listing.stdout ?? "", roots)
-    const signal = (/** @type {NodeJS.Signals} */ name) => {
-      for (const pid of pids) {
-        try {
-          process.kill(pid, name)
-        } catch {
-          // Already gone.
-        }
-      }
-    }
-    signal("SIGTERM")
-    setTimeout(() => signal("SIGKILL"), STOP_GRACE_MS).unref()
+    // Awaited before the cleanup and exit: a descendant with its own pipes
+    // (an app server a test started) can outlive the step's command, and a
+    // timer would die with the gate's process.exit.
+    stopping = stopProcessTree(pids, { graceMs: STOP_GRACE_MS })
   }
+
+  /** Settles once every process a stop reached is gone. */
+  let stopping = Promise.resolve()
 
   /**
    * Runs a command in the worktree, writing its output to `sink`, and
@@ -1629,6 +1682,7 @@ async function main() {
       await Promise.all(running.values())
     }
   } finally {
+    await stopping
     cleanup()
   }
 

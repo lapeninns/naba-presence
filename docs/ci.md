@@ -279,7 +279,8 @@ Review them manually and confirm a run is inactive and its evidence is no longer
 needed before removing it. This also applies to directories under `NABA_GATE_DIR`.
 
 The first step that fails stops the run: steps still running are terminated
-(their whole process tree, SIGTERM then SIGKILL after 40 s) and recorded as
+(their whole process tree, SIGTERM then SIGKILL after 40 s; the gate waits
+for the tree to exit before removing the worktree) and recorded as
 `not-run` with the note `stopped: <step> failed`, and steps not yet started
 are `not-run` too. A red unit test therefore ends the run in minutes instead
 of holding the shared runner through integration and e2e. `--keep-going`

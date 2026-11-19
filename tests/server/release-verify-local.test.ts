@@ -10,7 +10,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
@@ -48,6 +48,7 @@ import {
   processTree,
   releaseAfter,
   stoppedStepResult,
+  stopProcessTree,
   summarizeOutput,
 } from "../../scripts/release/verify-local.mjs"
 import { SIGNAL_EXIT_CODES } from "../../scripts/run-test-command.mjs"
@@ -473,6 +474,45 @@ describe("verify:release steps", () => {
     expect(keepGoing.stop).toBe(false)
     expect(stops).toBe(1)
     expect(stoppedStepResult(keepGoing, killed)).toBe(killed)
+  })
+
+  it("waits for a stopped tree to exit, and SIGKILLs what ignores SIGTERM", async () => {
+    // A process that ignores SIGTERM, like an app server mid-shutdown.
+    const stubborn = spawn(
+      process.execPath,
+      [
+        "-e",
+        "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); console.log('ready')",
+      ],
+      { stdio: ["ignore", "pipe", "ignore"] }
+    )
+    await new Promise((ready) => stubborn.stdout!.once("data", ready))
+    const exited = new Promise((done) =>
+      stubborn.once("exit", (_, signal) => done(signal))
+    )
+    const started = Date.now()
+    await stopProcessTree([stubborn.pid!], { graceMs: 300, pollMs: 50 })
+    expect(await exited).toBe("SIGKILL")
+    expect(Date.now() - started).toBeGreaterThanOrEqual(300)
+
+    // A tree that exits on SIGTERM is not waited on for the grace period.
+    const sent: string[] = []
+    let alive = true
+    await stopProcessTree([7], {
+      graceMs: 60_000,
+      pollMs: 1,
+      kill: (_pid, signal) => {
+        sent.push(signal)
+        alive = false
+      },
+      alive: () => alive,
+      sleep: () => Promise.resolve(),
+    })
+    expect(sent).toEqual(["SIGTERM"])
+
+    // The gate awaits the stop before removing the worktree and exiting.
+    const source = readRepoText("scripts/release/verify-local.mjs")
+    expect(source).toMatch(/\} finally \{\n\s+await stopping\n\s+cleanup\(\)/)
   })
 
   it("finds every descendant of the commands a stopped step started", () => {
