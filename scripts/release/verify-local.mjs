@@ -1011,6 +1011,7 @@ async function main() {
    * terminal's Ctrl-C or local-ci's group kill still reaches them too.
    */
   function stopActive() {
+    stopRequested = true
     const roots = [...active].map((child) => child.pid).filter(Boolean)
     if (roots.length === 0) return
     const listing = spawnSync("ps", ["-A", "-o", "pid=,ppid="], {
@@ -1025,6 +1026,13 @@ async function main() {
 
   /** Settles once every process a stop reached is gone. */
   let stopping = Promise.resolve()
+  /**
+   * Set by the first stop. From then on `exec` starts nothing: a step that
+   * is already running (integration shards queued behind startCluster, the
+   * next command of a sequence) cannot start new work the stop would never
+   * reach. Cleanup does not go through `exec`.
+   */
+  let stopRequested = false
 
   /**
    * Runs a command in the worktree, writing its output to `sink`, and
@@ -1037,6 +1045,13 @@ async function main() {
     args,
     { extraEnv = {}, dbEnv = {}, input, stdoutOnly = false } = {}
   ) {
+    if (stopRequested) {
+      sink.write(`${command}: not started, the run was stopped\n`)
+      return Promise.resolve({
+        code: GATE_SIGNAL_EXIT_CODES.SIGTERM,
+        output: "not started: the run was stopped\n",
+      })
+    }
     return new Promise((done) => {
       const child = spawn(command, args, {
         cwd: worktreeAdded ? worktree : root,

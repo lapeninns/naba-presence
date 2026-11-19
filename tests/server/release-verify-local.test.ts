@@ -513,6 +513,16 @@ describe("verify:release steps", () => {
     // The gate awaits the stop before removing the worktree and exiting.
     const source = readRepoText("scripts/release/verify-local.mjs")
     expect(source).toMatch(/\} finally \{\n\s+await stopping\n\s+cleanup\(\)/)
+    // Once stopped, nothing new starts inside a step that is still running
+    // (queued integration shards), and the stop flag is set before the
+    // process tree is captured.
+    expect(source).toMatch(
+      /function stopActive\(\) \{\n\s+stopRequested = true/
+    )
+    expect(source).toMatch(
+      /\) \{\n\s+if \(stopRequested\) \{[\s\S]{0,200}return Promise\.resolve\(\{\n\s+code: GATE_SIGNAL_EXIT_CODES\.SIGTERM/
+    )
+    expect(source.match(/stopRequested = true/g)).toHaveLength(1)
   })
 
   it("finds every descendant of the commands a stopped step started", () => {
