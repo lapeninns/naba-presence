@@ -325,12 +325,23 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       )
       expect(created.status()).toBe(201)
       await f.goto(`/listings/${f.linked[0].locationId}/posts`)
-      await page
-        .getByRole("button", { name: "More actions for Autumn menu launch" })
-        .click()
-      await page
-        .getByRole("menuitem", { name: "Schedule publication", exact: true })
-        .click()
+      // The menu button is server-rendered: a press before hydration opens
+      // nothing (reproduced at 4x CPU throttling, 2026-11-19). Press until
+      // the menu is open, and never again once it is.
+      const schedule = page.getByRole("menuitem", {
+        name: "Schedule publication",
+        exact: true,
+      })
+      await expect(async () => {
+        if (!(await schedule.isVisible()))
+          await page
+            .getByRole("button", {
+              name: "More actions for Autumn menu launch",
+            })
+            .click()
+        await expect(schedule).toBeVisible({ timeout: 1_000 })
+      }).toPass()
+      await schedule.click()
       const sheet = page.getByRole("dialog", {
         name: "Schedule publication",
         exact: true,
@@ -591,11 +602,17 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
       const f = await backend.fixture(page, 2)
       await f.enableFeature("bulk_actions")
       await f.goto("/listings")
-      await page
-        .getByRole("checkbox", {
-          name: "Select Fixture Inn 1 for a bulk change",
-        })
-        .check()
+      // The list is server-rendered: a press on a checkbox before hydration
+      // changes nothing (reproduced at 4x CPU throttling, 2026-11-19).
+      // check() itself fails unless the box ends up checked, so try again
+      // until the page answers.
+      await expect(async () => {
+        await page
+          .getByRole("checkbox", {
+            name: "Select Fixture Inn 1 for a bulk change",
+          })
+          .check({ timeout: 1_000 })
+      }).toPass()
       await page
         .getByRole("checkbox", {
           name: "Select Fixture Inn 2 for a bulk change",
@@ -660,7 +677,20 @@ for (const width of [JOURNEY_WIDTH, ...LAYOUT_WIDTHS])
           `/listings/bulk?ids=${f.linked.map((entry) => entry.locationId).join(",")}`
         )
         const date = page.getByLabel("Date", { exact: true })
-        await date.fill(nextDecember())
+        // The form is server-rendered, so the field takes text before React
+        // hydrates it; that text is not the composer's state and "Add to the
+        // batch" stays blocked, its reason inside the button (reproduced 3/3
+        // at 8x CPU throttling, 2026-11-19). Fill until the button is usable.
+        const add = page.getByRole("button", {
+          name: "Add to the batch",
+          exact: true,
+        })
+        // Clear first: a value React already saw in the field is not a change.
+        await expect(async () => {
+          await date.fill("")
+          await date.fill(nextDecember())
+          await expect(add).toBeEnabled({ timeout: 1_000 })
+        }).toPass()
         await date.focus()
         await tabToAndPress(page, "Add to the batch")
         await date.fill(nextDecember().replace(/-24$/, "-31"))

@@ -866,12 +866,13 @@ describe("ListingsBoard", () => {
     }))
     stub({ entries: many, summaries: [] })
     render(<ListingsBoard role="owner" bulkEnabled />)
-    for (let index = 0; index < 50; index++)
-      fireEvent.click(
-        screen.getByRole("checkbox", {
-          name: `Select Listing ${String(index).padStart(2, "0")} for a bulk change`,
-        })
-      )
+    // One role query for all rows, not one per click: 50 name lookups over
+    // 51 rows took ~2 s alone and 20 s on a loaded gate (2026-11-19).
+    const rows = screen.getAllByRole("checkbox", {
+      name: /^Select Listing \d\d for a bulk change$/,
+    })
+    expect(rows).toHaveLength(51)
+    for (const row of rows.slice(0, 50)) fireEvent.click(row)
     const last = screen.getByRole("checkbox", {
       name: "Select Listing 50 for a bulk change",
     })

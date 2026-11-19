@@ -4,6 +4,7 @@
 //   pnpm verify:release [--skip <id,...>] [--keep-going] [--base-ref <ref>]
 //                       [--receipts-dir <dir>] [--keep-worktree] [--list]
 //                       [--serial] [--integration-shards <n>] [--cpus <n>]
+//                       [--e2e-lanes <n>]
 //
 // Hosted CI is not a release gate (docs/ci.md §5); this run is the evidence.
 // It checks HEAD out into a fresh detached git worktree (under
@@ -33,7 +34,10 @@
 // at the end of the run. Integration is split into
 // --integration-shards (default 4, or NABA_GATE_INTEGRATION_SHARDS) vitest
 // shards, each on its own cluster; their counts are added up for the
-// receipt. The CPU-heavy steps (build, e2e, integration, unit, typecheck,
+// receipt. The browser suite is split by spec file into --e2e-lanes
+// (default 6, or NABA_GATE_E2E_LANES) Playwright runs, each with its own
+// cluster, app server, Google stub and journey tenant (scripts/ci/
+// e2e-lanes.mjs); every lane must run exactly the tests planned for it. The CPU-heavy steps (build, e2e, integration, unit, typecheck,
 // lint) share a budget of three quarters of the cores (--cpus or
 // NABA_GATE_CPUS), served in that order, so the machine is not
 // oversubscribed. --serial runs one step at a time, in receipt order, for a
@@ -83,6 +87,13 @@ import { basename, dirname, join, relative, resolve } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import {
+  DEFAULT_E2E_LANES,
+  countTestsByFile,
+  laneCountProblem,
+  planLanes,
+  settleLanes,
+} from "../ci/e2e-lanes.mjs"
 import { stopFailureReport } from "../ci/pg-stop-report.mjs"
 
 import {
@@ -152,6 +163,9 @@ export const INHERITED_ENV_PREFIXES = [
 
 /** Preferred e2e port: the harness origin the same-origin guard expects. */
 export const E2E_PORT = 3100
+
+/** Seconds per browser spec file, for balancing the e2e lanes. */
+export const E2E_LANE_WEIGHTS = "tests/e2e/lane-weights.json"
 
 /**
  * Where each run's directory (worktree, clusters, logs) goes. Not the macOS
@@ -293,11 +307,12 @@ export const GATE_SIGNAL_EXIT_CODES = Object.freeze({
 
 /** Integration shards when neither the flag nor the variable sets them. */
 export const DEFAULT_INTEGRATION_SHARDS = 4
+export { DEFAULT_E2E_LANES }
 
 /**
  * The CPU-heavy steps, in the order they get CPU when several are ready:
  * the build first (everything after it waits for it), then e2e (the longest
- * step, one Playwright worker), integration, unit, typecheck and lint. The
+ * step, one Playwright worker per lane), integration, unit, typecheck and lint. The
  * other steps are light and start whenever their needs have passed.
  */
 export const HEAVY_STEP_PRIORITY = [
@@ -326,12 +341,19 @@ export function defaultCpuBudget(cores) {
  * the budget allows it.
  * @param {number} budget
  * @param {number} integrationShards
+ * @param {number} [e2eLanes] each lane is one browser and one app server,
+ *   mostly waiting on each other: one share per lane, at least the 4 the
+ *   two-invocation suite had
  * @returns {Record<string, number>}
  */
-export function heavyStepWeights(budget, integrationShards) {
+export function heavyStepWeights(
+  budget,
+  integrationShards,
+  e2eLanes = DEFAULT_E2E_LANES
+) {
   return {
     build: 4,
-    e2e: 4,
+    e2e: Math.min(budget, Math.max(4, e2eLanes)),
     integration: integrationShards + 2,
     unit: Math.min(8, Math.max(2, Math.floor(budget / 2))),
     typecheck: 2,
@@ -624,8 +646,12 @@ export function parseArgs(argv, env = {}) {
       env.NABA_GATE_INTEGRATION_SHARDS ?? DEFAULT_INTEGRATION_SHARDS
     ),
     cpus: /** @type {number | string | null} */ (env.NABA_GATE_CPUS ?? null),
+    e2eLanes: /** @type {number | string} */ (
+      env.NABA_GATE_E2E_LANES ?? DEFAULT_E2E_LANES
+    ),
   }
   let shardsGiven = env.NABA_GATE_INTEGRATION_SHARDS !== undefined
+  let lanesGiven = env.NABA_GATE_E2E_LANES !== undefined
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--skip") {
@@ -646,6 +672,9 @@ export function parseArgs(argv, env = {}) {
     else if (arg === "--integration-shards") {
       options.integrationShards = argv[++index] ?? ""
       shardsGiven = true
+    } else if (arg === "--e2e-lanes") {
+      options.e2eLanes = argv[++index] ?? ""
+      lanesGiven = true
     } else if (arg === "--cpus") options.cpus = argv[++index] ?? ""
     else throw new Error(`Unknown argument: ${arg}`)
   }
@@ -668,8 +697,14 @@ export function parseArgs(argv, env = {}) {
     }
     options.cpus = cpus
   }
-  // --serial is for a busy machine: one integration shard unless asked.
+  const lanes = Number(options.e2eLanes)
+  if (!Number.isInteger(lanes) || lanes < 1 || lanes > 12) {
+    throw new Error("--e2e-lanes needs a whole number from 1 to 12")
+  }
+  // --serial is for a busy machine: one integration shard and one browser
+  // lane unless asked.
   options.integrationShards = options.serial && !shardsGiven ? 1 : shards
+  options.e2eLanes = options.serial && !lanesGiven ? 1 : lanes
   options.skip = [...new Set(options.skip)]
   return options
 }
@@ -958,7 +993,11 @@ async function main() {
   const log = createWriteStream(logPath)
   const env = childEnv(process.env)
   const cpuBudget = options.cpus ?? defaultCpuBudget(availableParallelism())
-  const weights = heavyStepWeights(cpuBudget, options.integrationShards)
+  const weights = heavyStepWeights(
+    cpuBudget,
+    options.integrationShards,
+    options.e2eLanes
+  )
   let worktreeAdded = false
 
   let interrupted = false
@@ -1440,72 +1479,134 @@ async function main() {
     e2e: async (sink) => {
       // The pinned browser for this Playwright version; a no-op when present.
       await must(sink, "pnpm", ["exec", "playwright", "install", "chromium"])
-      const dbEnv = await migratedCluster(sink, "e2e")
-      let port = E2E_PORT
-      if (!((await isFree(port)) && (await isFree(port + 1)))) {
-        const ports = await must(sink, "node", [
-          "scripts/ci/postgres.mjs",
-          "ports",
-        ])
-        port = Number(parseExports(ports.output).PLAYWRIGHT_PORT)
-        if (!port) throw new Error("could not choose an e2e port")
-        sink.write(`Port ${E2E_PORT} is busy; e2e uses ${port}\n`)
-      }
-      // Two Playwright runs on the same database, side by side (one after
-      // the other with --serial): the shared suite against the :3100 server
-      // and its journey tenants, and the isolated backend specs, which start
-      // their own servers, stubs and tenants (playwright.config.ts
-      // PLAYWRIGHT_SUITE).
-      const suites = [
-        {
-          name: "shared",
-          env: {
-            PLAYWRIGHT_SUITE: "shared",
-            PLAYWRIGHT_PORT: String(port),
-            PLAYWRIGHT_OUTPUT_DIR: "test-results-shared",
-            E2E_JOURNEY_STATE_PATH:
-              "test-results-shared/e2e-journey-state.json",
-          },
-        },
-        {
-          name: "isolated",
-          env: {
-            PLAYWRIGHT_SUITE: "isolated",
-            PLAYWRIGHT_PORT: String(port + 10),
-            PLAYWRIGHT_OUTPUT_DIR: "test-results-isolated",
-          },
-        },
-      ]
-      const runSuite = async ({ name, env: suiteEnv }) => {
-        const suiteSink = {
-          write: (text) => sink.write(text.replace(/^(?=.)/gm, `[${name}] `)),
+      // Playwright's own list of what `pnpm test:e2e` runs (both suites and
+      // the touch project), split by spec file into lanes. Each lane is one
+      // Playwright invocation with every suite enabled: its own cluster, app
+      // server and Google stub (on port, port + 1), journey tenant and output
+      // folder. The isolated backend specs start their own servers as well.
+      const listed = await must(
+        { write() {} },
+        "pnpm",
+        ["exec", "playwright", "test", "--list", "--reporter=json"],
+        { stdoutOnly: true }
+      )
+      const counts = countTestsByFile(JSON.parse(listed.output))
+      const weights = JSON.parse(
+        readFileSync(join(worktree, E2E_LANE_WEIGHTS), "utf8")
+      )
+      const lanes = planLanes(counts, weights, options.e2eLanes)
+      const planned = lanes.reduce((sum, lane) => sum + lane.tests, 0)
+      sink.write(
+        `${planned} tests in ${counts.size} files, ${lanes.length} lane(s):\n${lanes
+          .map(
+            (lane) =>
+              `  lane ${lane.index}: ${lane.tests} tests, ~${lane.seconds}s, ${lane.files.join(" ")}\n`
+          )
+          .join("")}`
+      )
+      // A port pair per lane: 3100, 3110, ... when free (the default
+      // harness origin first), otherwise any free pair.
+      const usedPorts = new Set()
+      const lanePort = async (index) => {
+        const preferred = E2E_PORT + 10 * (index - 1)
+        if ((await isFree(preferred)) && (await isFree(preferred + 1))) {
+          usedPorts.add(preferred)
+          return preferred
         }
-        const result = await exec(
-          suiteSink,
-          "pnpm",
-          ["test:e2e", "--forbid-only"],
-          {
-            dbEnv,
-            extraEnv: suiteEnv,
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const ports = await must(sink, "node", [
+            "scripts/ci/postgres.mjs",
+            "ports",
+          ])
+          const port = Number(parseExports(ports.output).PLAYWRIGHT_PORT)
+          if (port && !usedPorts.has(port) && !usedPorts.has(port + 1)) {
+            usedPorts.add(port)
+            return port
           }
-        )
-        return {
-          name,
-          code: result.code,
-          summary: summarizeOutput(result.output),
+        }
+        throw new Error(`could not choose ports for e2e lane ${index}`)
+      }
+      // Failing fast, the step ends at the first red lane while the others
+      // are still being stopped; their last words must not reach a closed log.
+      let stepDone = false
+      const runLane = async (lane) => {
+        const name = `lane ${lane.index}`
+        const laneSink = {
+          write: (text) => {
+            if (stepDone) return
+            sink.write(
+              lanes.length === 1 ? text : text.replace(/^(?=.)/gm, `[${name}] `)
+            )
+          },
+        }
+        /** @type {Record<string, string> | undefined} */
+        let dbEnv
+        try {
+          const port = await lanePort(lane.index)
+          dbEnv = await migratedCluster(laneSink, `e2e-${lane.index}`)
+          const out = `test-results-lane-${lane.index}`
+          laneSink.write(`App on ${port}, Google stub on ${port + 1}\n`)
+          const result = await exec(
+            laneSink,
+            "pnpm",
+            [
+              "test:e2e",
+              "--forbid-only",
+              ...lane.files.map((file) => `tests/e2e/${file}`),
+            ],
+            {
+              dbEnv,
+              extraEnv: {
+                PLAYWRIGHT_PORT: String(port),
+                PLAYWRIGHT_OUTPUT_DIR: out,
+                E2E_JOURNEY_STATE_PATH: `${out}/e2e-journey-state.json`,
+              },
+            }
+          )
+          const summary = summarizeOutput(result.output)
+          const problem =
+            result.code === 0 ? laneCountProblem(lane, summary) : null
+          if (problem) laneSink.write(`${problem}\n`)
+          return {
+            name,
+            code: problem ? 1 : result.code,
+            summary,
+            problem,
+          }
+        } catch (error) {
+          laneSink.write(`${error.message}\n`)
+          return {
+            name,
+            code: error.exitCode ?? 1,
+            summary: summarizeOutput(String(error.output ?? "")),
+            problem: String(error.message),
+          }
+        } finally {
+          // Only after the lane's run has exited; a cluster with sessions
+          // left stays for final cleanup.
+          if (dbEnv) await releaseCluster(laneSink, dbEnv)
         }
       }
-      const runs = options.serial
-        ? [await runSuite(suites[0]), await runSuite(suites[1])]
-        : await Promise.all(suites.map(runSuite))
+      /** @type {Awaited<ReturnType<typeof runLane>>[]} */
+      let runs = []
+      if (options.serial) {
+        for (const lane of lanes) {
+          const run = await runLane(lane)
+          runs.push(run)
+          if (run.code !== 0 && options.failFast) break
+        }
+      } else runs = await settleLanes(lanes.map(runLane), options.failFast)
+      stepDone = true
       const summary = mergePlaywrightSummaries(runs.map((run) => run.summary))
-      const note = `shared and isolated suites, port ${port}`
+      const note = `${lanes.length} lane(s), one cluster each`
       const failed = runs.filter((run) => run.code !== 0)
-      if (failed.length > 0) {
+      if (failed.length > 0 || runs.length !== lanes.length) {
         const error = new Error(
-          `e2e suite(s) ${failed.map((run) => run.name).join(", ")} failed`
+          failed.length > 0
+            ? `e2e ${failed.map((run) => run.problem ?? `${run.name} failed`).join("; ")}`
+            : "e2e lanes did not all finish"
         )
-        error.exitCode = failed[0].code
+        error.exitCode = failed[0]?.code ?? 1
         error.summary = summary
         throw error
       }
@@ -1676,7 +1777,7 @@ async function main() {
     git(root, "worktree", "add", "--detach", worktree, sha)
     worktreeAdded = true
     say(
-      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\nlogs: ${logDir}\n${options.serial ? "serial" : `concurrent, CPU budget ${cpuBudget} (${availableParallelism()} cores), integration in ${options.integrationShards} shard(s)`}\n\n`
+      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\nlogs: ${logDir}\n${options.serial ? "serial" : `concurrent, CPU budget ${cpuBudget} (${availableParallelism()} cores), integration in ${options.integrationShards} shard(s), e2e in up to ${options.e2eLanes} lane(s)`}\n\n`
     )
     if (options.serial) {
       for (const step of GATE_STEPS) {
@@ -1731,6 +1832,7 @@ async function main() {
       failFast: options.failFast,
       serial: options.serial,
       integrationShards: options.integrationShards,
+      e2eLanes: options.e2eLanes,
       cpuBudget: options.serial ? null : cpuBudget,
     },
     startedAt,

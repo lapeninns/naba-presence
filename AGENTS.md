@@ -27,7 +27,7 @@ This is the one place for testing policy.
 | Before handoff                   | `pnpm verify`: the gate's quick steps exactly (adds the full unit and component suite, design ratchet, contrast)    | 4–8 min    |
 | Server, database or route change | `pnpm build`, then `pnpm test:integration <files>` for the affected files                                           | minutes    |
 | Change to what users see         | `pnpm build`, then `pnpm test:e2e <specs>` (`pnpm test:a11y`, `pnpm test:e2e:touch`) for the affected journeys      | minutes    |
-| Final head                       | local-ci, once (below)                                                                                              | ~16 min    |
+| Final head                       | local-ci, once (below)                                                                                              | ~10 min    |
 
 - Run `pnpm verify` and see it pass before starting local-ci. local-ci's
   `quick-verify` is not a separate run: it fails whenever the gate fails, so
@@ -51,7 +51,7 @@ own tenants per file, no retries to hide flakes) are in `docs/testing.md`.
 
 - Profile `naba-presence`. Jobs: `gate` (`pnpm verify:release`: install,
   typecheck, lint, unit, format, design, build, bundle budget, migrations,
-  integration in 4 shards, e2e, audit, workflow lint, gitleaks), `secret-scan`,
+  integration in 4 shards, e2e in 6 lanes, audit, workflow lint, gitleaks), `secret-scan`,
   and the aggregates `quick-verify` and `release-gate`.
 - Rebase on the latest `origin/main`, then run once on the final head:
   `lci run naba-presence --pr <N> --post --comment`. Not on intermediate

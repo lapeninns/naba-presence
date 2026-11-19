@@ -194,10 +194,14 @@ describe("where the gate releases its clusters", () => {
     )
   })
 
-  it("keeps e2e's cluster through both suites, and final cleanup for the rest", () => {
-    expect(step("e2e: async", '"workflow-lint": async')).not.toContain(
-      "releaseCluster"
+  it("releases each e2e lane's cluster only after its run, and final cleanup for the rest", () => {
+    const e2e = step("e2e: async", '"workflow-lint": async')
+    expect(e2e).toMatch(
+      /\} finally \{[^}]*if \(dbEnv\) await releaseCluster\(laneSink, dbEnv\)/
     )
+    expect(
+      e2e.indexOf("if (dbEnv) await releaseCluster(laneSink, dbEnv)")
+    ).toBeGreaterThan(e2e.indexOf('"test:e2e",'))
     expect(source).toMatch(/const cleanup = \(\) => \{\s*stopClusters\(\)/)
     // Idle means no client session on the cluster but the check's own.
     expect(source).toContain(

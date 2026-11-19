@@ -366,6 +366,26 @@ test.describe("inbox critical journeys", () => {
  * transition from no open dialog to one), so a second question is caught even
  * when it replaces the first between two polls.
  */
+/**
+ * Write `text` into the reply box and wait until the composer holds it. A
+ * deep link server-renders the box, so it is visible before React hydrates
+ * it; text filled in then is not the composer's state, nothing is dirty and
+ * leaving does not ask (reproduced at 4x and 8x CPU throttling, 2026-11-19).
+ * The byte count is rendered from the composer's state. Each try clears the
+ * box first: a value React already saw there is not a change.
+ */
+async function fillReplyUntilHeld(page: Page, text: string) {
+  const box = await replyBox(page)
+  await expect(async () => {
+    await box.fill("")
+    await box.fill(text)
+    await expect(page.locator('[data-slot="char-count"]')).toHaveText(
+      new RegExp(`^${Buffer.byteLength(text)} of `),
+      { timeout: 1_000 }
+    )
+  }).toPass()
+}
+
 async function countDiscardPrompts(page: Page) {
   await page.evaluate(() => {
     const w = window as unknown as { __discardOpens: number }
@@ -439,7 +459,7 @@ test.describe("dirty draft: one question per way out", () => {
         await page.goto(`/inbox?queue=all&selected=${state.approvalReview.id}`)
       }
       await expect(page).toHaveURL(/[?&]selected=/)
-      await (await replyBox(page)).fill(UNSAVED)
+      await fillReplyUntilHeld(page, UNSAVED)
       const opens = await countDiscardPrompts(page)
 
       await page
@@ -522,7 +542,7 @@ test.describe("dirty draft: one question per way out", () => {
       await expect(
         page.getByRole("link", { name: "Back to Inbox" })
       ).toHaveCount(0)
-      await (await replyBox(page)).fill(UNSAVED)
+      await fillReplyUntilHeld(page, UNSAVED)
       const opens = await countDiscardPrompts(page)
 
       // Exact: the navigation's link is "Listings", and nothing that merely

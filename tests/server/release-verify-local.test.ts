@@ -28,6 +28,7 @@ import {
 import {
   CI_PLACEHOLDER_ENV,
   CpuBudget,
+  DEFAULT_E2E_LANES,
   DEFAULT_INTEGRATION_SHARDS,
   GATE_SIGNAL_EXIT_CODES,
   HEAVY_STEP_PRIORITY,
@@ -258,6 +259,14 @@ describe("verify:release steps", () => {
         /--integration-shards/
       )
     }
+    // Browser lanes: 6 by default, 1 with --serial unless given.
+    expect(parseArgs([]).e2eLanes).toBe(DEFAULT_E2E_LANES)
+    expect(parseArgs(["--serial"]).e2eLanes).toBe(1)
+    expect(parseArgs(["--serial", "--e2e-lanes", "3"]).e2eLanes).toBe(3)
+    expect(parseArgs([], { NABA_GATE_E2E_LANES: "2" }).e2eLanes).toBe(2)
+    for (const bad of ["0", "13", "two", ""]) {
+      expect(() => parseArgs(["--e2e-lanes", bad])).toThrow(/--e2e-lanes/)
+    }
     expect(
       parseArgs(["--skip", "e2e,audit", "--skip", "e2e", "--fail-fast"])
     ).toMatchObject({ skip: ["e2e", "audit"], failFast: true })
@@ -297,6 +306,11 @@ describe("verify:release steps", () => {
       ).toBe(true)
     }
     expect(weights.unit).toBe(6)
+    // One share per browser lane, never below the old two-suite 4 nor
+    // above the budget.
+    expect(heavyStepWeights(13, 4, 6).e2e).toBe(6)
+    expect(heavyStepWeights(13, 4, 1).e2e).toBe(4)
+    expect(heavyStepWeights(4, 4, 12).e2e).toBe(4)
 
     const settle = () => new Promise((done) => setTimeout(done, 0))
     const budget = new CpuBudget(10)
