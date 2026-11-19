@@ -452,7 +452,11 @@ describe("verify:release steps", () => {
     expect(stops).toBe(1)
     expect(run.stoppedBy).toBe("unit")
 
-    const killed = { id: "integration", status: "failed" as const, durationMs: 1 }
+    const killed = {
+      id: "integration",
+      status: "failed" as const,
+      durationMs: 1,
+    }
     expect(stoppedStepResult(run, killed)).toMatchObject({
       id: "integration",
       status: "not-run",

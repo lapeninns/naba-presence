@@ -343,7 +343,10 @@ describe("run-test-command cluster lifecycle", () => {
     expect(caller.SHARD).toBe("2")
     // A locale the caller set is kept.
     expect(
-      throwawayClusterEnv({ LC_ALL: "en_GB.UTF-8", LANG: "en_GB.UTF-8" }, firstDir)
+      throwawayClusterEnv(
+        { LC_ALL: "en_GB.UTF-8", LANG: "en_GB.UTF-8" },
+        firstDir
+      )
     ).toMatchObject({ LC_ALL: "en_GB.UTF-8", LANG: "en_GB.UTF-8" })
   })
 
