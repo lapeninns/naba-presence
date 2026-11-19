@@ -329,123 +329,145 @@ async function spawnedAll(children: ChildProcess[]) {
   await new Promise((resolve) => setTimeout(resolve, 300))
 }
 
-describe("self-hosted job hooks: cleanup is scoped to the job", () => {
-  afterEach(() => {
-    for (const child of decoys.splice(0))
-      if (alive(child)) child.kill("SIGKILL")
-    expectNoPkill()
-  })
-
-  function jobAndNeighbours() {
-    const ownServer = started({
-      cwd: join(mine.workspace, ".next", "standalone"),
+// Each case starts five decoy node processes and runs a hook that walks the
+// process table: about 2.1 s on an idle Mac. The release gate runs this file
+// beside the build and the other unit workers (load average ~20 on 18 cores
+// on 2026-11-19), where it overran the 5 s default twice. 20 s is ~10x idle.
+describe(
+  "self-hosted job hooks: cleanup is scoped to the job",
+  { timeout: 20_000 },
+  () => {
+    afterEach(() => {
+      for (const child of decoys.splice(0))
+        if (alive(child)) child.kill("SIGKILL")
+      expectNoPkill()
     })
-    const ownPostgres = started({ argPath: join(mine.temp, "naba-pg", "data") })
-    const otherServer = started({
-      cwd: join(other.workspace, ".next", "standalone"),
+
+    function jobAndNeighbours() {
+      const ownServer = started({
+        cwd: join(mine.workspace, ".next", "standalone"),
+      })
+      const ownPostgres = started({
+        argPath: join(mine.temp, "naba-pg", "data"),
+      })
+      const otherServer = started({
+        cwd: join(other.workspace, ".next", "standalone"),
+      })
+      const otherPostgres = started({
+        argPath: join(other.temp, "naba-pg", "data"),
+      })
+      // Same user, outside any job folder (the runner listener, the owner's
+      // own processes when run locally).
+      const unrelated = started({ cwd: root })
+      return { ownServer, ownPostgres, otherServer, otherPostgres, unrelated }
+    }
+
+    it("pre-job stops this instance's leftovers and leaves the other instance's live job running", async () => {
+      const p = jobAndNeighbours()
+      await spawnedAll(Object.values(p))
+
+      const run = preJob(onMain("push"))
+      expect(run.status).toBe(0)
+
+      expect(await exited(p.ownServer)).toBe(true)
+      expect(await exited(p.ownPostgres)).toBe(true)
+      expect(alive(p.otherServer)).toBe(true)
+      expect(alive(p.otherPostgres)).toBe(true)
+      expect(alive(p.unrelated)).toBe(true)
     })
-    const otherPostgres = started({
-      argPath: join(other.temp, "naba-pg", "data"),
+
+    it("a refused job stops nothing", async () => {
+      const p = jobAndNeighbours()
+      await spawnedAll(Object.values(p))
+
+      const run = preJob(
+        prEvent(pullRequest({ head: "someone/naba-presence" }))
+      )
+      expect(run.status).toBe(1)
+
+      for (const child of Object.values(p)) expect(alive(child)).toBe(true)
     })
-    // Same user, outside any job folder (the runner listener, the owner's
-    // own processes when run locally).
-    const unrelated = started({ cwd: root })
-    return { ownServer, ownPostgres, otherServer, otherPostgres, unrelated }
-  }
 
-  it("pre-job stops this instance's leftovers and leaves the other instance's live job running", async () => {
-    const p = jobAndNeighbours()
-    await spawnedAll(Object.values(p))
+    it("post-job stops this job's processes, deletes the whole workspace and empties RUNNER_TEMP", async () => {
+      const p = jobAndNeighbours()
+      await spawnedAll(Object.values(p))
+      mkdirSync(join(mine.workspace, ".git", "hooks"), { recursive: true })
+      writeFileSync(
+        join(mine.workspace, ".git", "config"),
+        "[core]\n\tfsmonitor = /tmp/x\n"
+      )
+      writeFileSync(join(mine.workspace, "tracked.txt"), "x")
+      writeFileSync(join(mine.temp, ".hidden"), "x")
+      writeFileSync(join(other.workspace, "keep.txt"), "x")
+      writeFileSync(join(other.temp, "keep.txt"), "x")
 
-    const run = preJob(onMain("push"))
-    expect(run.status).toBe(0)
+      const run = runHook(POST_JOB, onMain("push"))
+      expect(run.status).toBe(0)
+      expect(run.stdout).toContain(
+        `post-job: deleted workspace ${mine.workspace}`
+      )
 
-    expect(await exited(p.ownServer)).toBe(true)
-    expect(await exited(p.ownPostgres)).toBe(true)
-    expect(alive(p.otherServer)).toBe(true)
-    expect(alive(p.otherPostgres)).toBe(true)
-    expect(alive(p.unrelated)).toBe(true)
-  })
+      expect(await exited(p.ownServer)).toBe(true)
+      expect(await exited(p.ownPostgres)).toBe(true)
+      expect(alive(p.otherServer)).toBe(true)
+      expect(alive(p.otherPostgres)).toBe(true)
+      expect(alive(p.unrelated)).toBe(true)
 
-  it("a refused job stops nothing", async () => {
-    const p = jobAndNeighbours()
-    await spawnedAll(Object.values(p))
+      expect(readdirSync(mine.workspace)).toEqual([])
+      expect(readdirSync(mine.temp)).toEqual([])
+      expect(existsSync(join(other.workspace, "keep.txt"))).toBe(true)
+      expect(existsSync(join(other.temp, "keep.txt"))).toBe(true)
+    })
 
-    const run = preJob(prEvent(pullRequest({ head: "someone/naba-presence" })))
-    expect(run.status).toBe(1)
+    // One hook run per case: each spawns bash and ps (~0.45 s idle), and four
+    // in one test overran the 5 s default on a loaded gate (2026-11-19).
+    it.each([
+      ["a checkout outside _work", "outside"],
+      ["the fixture root", "root"],
+      ["the filesystem root", "/"],
+      ["an empty value", ""],
+    ])(
+      "post-job never deletes a workspace outside a runner _work folder: %s",
+      (_label, given) => {
+        const outside = join(root, "not-a-runner", "checkout")
+        expect(
+          outside,
+          "the fixture root sits inside a _work folder"
+        ).not.toContain("/_work/")
+        mkdirSync(outside, { recursive: true })
+        writeFileSync(join(outside, "keep.txt"), "x")
+        const workspace =
+          given === "outside" ? outside : given === "root" ? root : given
 
-    for (const child of Object.values(p)) expect(alive(child)).toBe(true)
-  })
-
-  it("post-job stops this job's processes, deletes the whole workspace and empties RUNNER_TEMP", async () => {
-    const p = jobAndNeighbours()
-    await spawnedAll(Object.values(p))
-    mkdirSync(join(mine.workspace, ".git", "hooks"), { recursive: true })
-    writeFileSync(
-      join(mine.workspace, ".git", "config"),
-      "[core]\n\tfsmonitor = /tmp/x\n"
+        const run = runHook(
+          POST_JOB,
+          { ...onMain("push"), GITHUB_WORKSPACE: workspace },
+          root
+        )
+        expect(run.status).toBe(0)
+        expect(run.stdout).not.toContain("deleted workspace")
+        expect(existsSync(join(outside, "keep.txt"))).toBe(true)
+      }
     )
-    writeFileSync(join(mine.workspace, "tracked.txt"), "x")
-    writeFileSync(join(mine.temp, ".hidden"), "x")
-    writeFileSync(join(other.workspace, "keep.txt"), "x")
-    writeFileSync(join(other.temp, "keep.txt"), "x")
 
-    const run = runHook(POST_JOB, onMain("push"))
-    expect(run.status).toBe(0)
-    expect(run.stdout).toContain(
-      `post-job: deleted workspace ${mine.workspace}`
-    )
+    it("an unset RUNNER_TEMP and workspace stop nothing", async () => {
+      const p = jobAndNeighbours()
+      await spawnedAll(Object.values(p))
 
-    expect(await exited(p.ownServer)).toBe(true)
-    expect(await exited(p.ownPostgres)).toBe(true)
-    expect(alive(p.otherServer)).toBe(true)
-    expect(alive(p.otherPostgres)).toBe(true)
-    expect(alive(p.unrelated)).toBe(true)
-
-    expect(readdirSync(mine.workspace)).toEqual([])
-    expect(readdirSync(mine.temp)).toEqual([])
-    expect(existsSync(join(other.workspace, "keep.txt"))).toBe(true)
-    expect(existsSync(join(other.temp, "keep.txt"))).toBe(true)
-  })
-
-  it("post-job never deletes a workspace outside a runner _work folder", () => {
-    const outside = join(root, "not-a-runner", "checkout")
-    expect(
-      outside,
-      "the fixture root sits inside a _work folder"
-    ).not.toContain("/_work/")
-    mkdirSync(outside, { recursive: true })
-    writeFileSync(join(outside, "keep.txt"), "x")
-
-    for (const workspace of [outside, root, "/", ""]) {
       const run = runHook(
         POST_JOB,
-        { ...onMain("push"), GITHUB_WORKSPACE: workspace },
+        {
+          ...onMain("push"),
+          RUNNER_TEMP: undefined,
+          GITHUB_WORKSPACE: undefined,
+        },
         root
       )
       expect(run.status).toBe(0)
-      expect(run.stdout).not.toContain("deleted workspace")
-    }
-    expect(existsSync(join(outside, "keep.txt"))).toBe(true)
-  })
-
-  it("an unset RUNNER_TEMP and workspace stop nothing", async () => {
-    const p = jobAndNeighbours()
-    await spawnedAll(Object.values(p))
-
-    const run = runHook(
-      POST_JOB,
-      {
-        ...onMain("push"),
-        RUNNER_TEMP: undefined,
-        GITHUB_WORKSPACE: undefined,
-      },
-      root
-    )
-    expect(run.status).toBe(0)
-    for (const child of Object.values(p)) expect(alive(child)).toBe(true)
-  })
-})
+      for (const child of Object.values(p)) expect(alive(child)).toBe(true)
+    })
+  }
+)
 
 describe("self-hosted post-job hook: workspace guard", () => {
   afterEach(() => {

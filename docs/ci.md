@@ -230,7 +230,7 @@ PostgreSQL 17 cluster, started one at a time:
 | `migrate-upgrade`    | migrate-fresh  | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one                                                                                                                                                                                                                                                                                                                                                                                          |
 | `migrate-concurrent` | install        | two `db:migrate` runs at once on a fresh cluster; each version recorded exactly once                                                                                                                                                                                                                                                                                                                                                                                         |
 | `integration`        | install, build | `pnpm test:integration` in `--integration-shards` vitest shards (default 4, `NABA_GATE_INTEGRATION_SHARDS`), each on its own migrated cluster; the shards' counts are added up, and the step passes only if more than 0 passed and none skipped                                                                                                                                                                                                                              |
-| `e2e`                | install, build | installs Playwright's pinned Chromium (a no-op when present), then two `pnpm test:e2e --forbid-only` runs side by side on one migrated cluster: the shared suite (`PLAYWRIGHT_SUITE=shared`, the :3100 server and its journey tenants; a free port pair if 3100/3101 are busy) and the 13 isolated backend specs (`PLAYWRIGHT_SUITE=isolated`, each starting its own server, stub and tenant). Their counts are added up; passes only if more than 0 passed and none skipped |
+| `e2e`                | install, build | installs Playwright's pinned Chromium (a no-op when present), lists the suite (`playwright test --list`) and splits it by spec file into `--e2e-lanes` lanes (default 6, `NABA_GATE_E2E_LANES`; 1 with `--serial`), balanced by `tests/e2e/lane-weights.json` (`scripts/ci/e2e-lanes.mjs`). Each lane is one `pnpm test:e2e --forbid-only <files>` run with its own migrated cluster, app server and Google stub (3100/3101, 3110/3111, … or a free pair), journey tenant and output folder. A lane must account for exactly the tests planned for it; the counts are added up, and the step passes only if more than 0 passed and none skipped. Failing fast, the first red lane stops the others |
 | `audit`              |                | `pnpm audit --prod --audit-level high`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `workflow-lint`      |                | `actionlint` and `zizmor --offline .github/`. Optional: skipped with a note where the tools are not installed (`brew install actionlint zizmor`); a finding fails the gate                                                                                                                                                                                                                                                                                                   |
 | `secret-scan`        |                | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see). **Required**: without gitleaks installed the step is skipped with a note and the gate fails (SEC-13 follow-up)                                                                                                                                                                                                                          |
@@ -238,8 +238,17 @@ PostgreSQL 17 cluster, started one at a time:
 On an M-series Mac the integration shards and e2e dominate: before this
 change the same steps ran one after another in 54-74 minutes, integration
 alone 34-38 and e2e 17-31 (receipts of five promotions). `--serial` runs one
-step at a time in the table's order, with integration in one shard, for a
-busy or small machine.
+step at a time in the table's order, with integration in one shard and e2e
+in one lane, for a busy or small machine.
+
+E2e lanes (2026-11-19, 18-core Mac at load average ~24 from other work): the
+e2e step went from 766 s (shared suite 12.7 min and isolated suite 8.0 min,
+one worker each) to 289 s in six lanes of 4.0-4.7 min, and the whole gate
+from 15.0 to 9.5 min. The critical path is now unit (~280 s), then
+integration (~275 s), which waits for unit's CPU share. Refresh
+`tests/e2e/lane-weights.json` with `node scripts/ci/e2e-lanes.mjs weights
+<run dir>/logs/e2e.log` when the lanes drift apart; a stale or missing
+weight only unbalances them.
 
 The base is the release production serves according to the committed
 receipts in `docs/release/receipts/`, read at `HEAD` (`servingRelease` in

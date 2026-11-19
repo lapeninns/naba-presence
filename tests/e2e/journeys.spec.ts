@@ -439,7 +439,19 @@ test.describe("dirty draft: one question per way out", () => {
         await page.goto(`/inbox?queue=all&selected=${state.approvalReview.id}`)
       }
       await expect(page).toHaveURL(/[?&]selected=/)
-      await (await replyBox(page)).fill(UNSAVED)
+      // A deep link server-renders the reply box, so it is visible before
+      // React hydrates it; text filled into it then is not the composer's
+      // state, nothing is dirty and Back leaves without asking (reproduced at
+      // 8x CPU throttling, 2026-11-19). Fill until the composer's own byte
+      // count shows the text: that count is rendered from its state.
+      const box = await replyBox(page)
+      await expect(async () => {
+        await box.fill(UNSAVED)
+        await expect(page.locator('[data-slot="char-count"]')).toHaveText(
+          new RegExp(`^${Buffer.byteLength(UNSAVED)} of `),
+          { timeout: 1_000 }
+        )
+      }).toPass()
       const opens = await countDiscardPrompts(page)
 
       await page
