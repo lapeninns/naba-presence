@@ -1346,7 +1346,7 @@ async function main() {
     "frozen-install": (sink) =>
       must(sink, "pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]),
     typecheck: (sink) => must(sink, "pnpm", ["typecheck"]),
-    lint: (sink) => must(sink, "pnpm", ["lint"]),
+    lint: (sink) => must(sink, "pnpm", ["lint:gate"]),
     unit: (sink) =>
       must(sink, "pnpm", ["test"], {
         extraEnv: { VITEST_MAX_WORKERS: String(weights.unit) },

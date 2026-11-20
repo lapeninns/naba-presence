@@ -23,7 +23,7 @@ This is the one place for testing policy.
 | When                             | Command                                                                                                             | Time       |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------- |
 | While iterating                  | `pnpm check`: typecheck, lint (cached), changed-files format, unit and component tests affected since `origin/main` | ~30 s warm |
-| One test file                    | `pnpm exec vitest run tests/foo.test.ts`                                                                            | seconds    |
+| One test file                    | `pnpm exec vitest run tests/env-flags.test.ts`                                                                      | seconds    |
 | Before handoff                   | `pnpm verify`: the gate's quick steps exactly (adds the full unit and component suite, design ratchet, contrast)    | 4–8 min    |
 | Server, database or route change | `pnpm build`, then `pnpm test:integration <files>` for the affected files                                           | minutes    |
 | Change to what users see         | `pnpm build`, then `pnpm test:e2e <specs>` (`pnpm test:a11y`, `pnpm test:e2e:touch`) for the affected journeys      | minutes    |
@@ -41,6 +41,12 @@ This is the one place for testing policy.
   `--keep-going` runs every step to show all failures.
 - `pnpm format:changed` formats what your branch changed; the format check
   covers changed files only.
+- `pnpm check:quality` runs the same source-quality ratchets as the release
+  gate. Use camelCase for functions, PascalCase for components and types,
+  and attach `TODO(#123)` or `FIXME(#123)` to an open GitHub issue.
+- When a route's path, HTTP method or wrapper contract changes, regenerate
+  the [OpenAPI inventory](docs/openapi.json) with `pnpm docs:openapi`.
+  `pnpm check:agents` verifies this guide's commands and local references.
 - The opt-in pre-push hook (`pnpm hooks:install`) runs `pnpm verify` and a
   gitleaks scan of the pushed commits.
 

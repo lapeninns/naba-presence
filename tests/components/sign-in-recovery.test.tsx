@@ -38,7 +38,8 @@ describe("sign-in retry", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "That email or password is incorrect."
     )
-    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    // The error can render before the async transition releases the button.
+    await user.click(await screen.findByRole("button", { name: "Sign in" }))
     // While the second attempt waits, the old answer is gone rather than
     // taking focus as if it were the reply.
     await waitFor(() =>

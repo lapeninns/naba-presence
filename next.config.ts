@@ -162,6 +162,8 @@ const CLIENT_MAX_INITIAL_REQUESTS = 50
 const CLIENT_MIN_SHARED_CHUNK = 16000
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@sentry/node"],
+  experimental: { serverSourceMaps: Boolean(process.env.SENTRY_DSN) },
   output: "standalone",
   webpack(config, { dev, isServer }) {
     if (!dev && !isServer && config.optimization?.splitChunks) {

@@ -10,6 +10,11 @@ import { existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 export async function resolve(specifier, context, nextResolve) {
+  if (specifier.startsWith("@/")) {
+    const candidate = new URL(`../${specifier.slice(2)}.ts`, import.meta.url)
+    if (existsSync(fileURLToPath(candidate)))
+      return nextResolve(candidate.href, context)
+  }
   if (specifier.startsWith(".") && !/\.[cm]?[jt]sx?$/.test(specifier)) {
     for (const extension of [".ts", ".tsx", "/index.ts"]) {
       const candidate = new URL(specifier + extension, context.parentURL)

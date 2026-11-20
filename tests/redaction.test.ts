@@ -3,8 +3,48 @@ import { describe, expect, it } from "vitest"
 import { redactForLog, redactUrls } from "@/lib/domain/redaction"
 
 describe("structured log redaction", () => {
+  it("scrubs contact details and cookie header text without losing correlation", () => {
+    const requestId = "be331b11-47c4-470a-8671-5bf494704f10"
+    const error = new Error("Contact guest@example.test at +1 (202) 555-0123")
+    expect(
+      redactForLog(
+        { error, requestId, context: ["Cookie: session=private"] },
+        0,
+        true
+      )
+    ).toEqual({
+      error: {
+        name: "Error",
+        message: "Contact [REDACTED_EMAIL] at [REDACTED_PHONE]",
+      },
+      requestId,
+      context: ["cookie: [REDACTED]"],
+    })
+  })
   it("redacts verification PIN field variants without hiding unrelated pinning fields", () => {
-    expect(redactForLog({ pin: "001234", PIN_CODE: "001234", verificationPin: "001234", nested: { verification_pin_code: "001234", pinCode: "001234", pinned: true, spinning: "visible" } })).toEqual({ pin: "[REDACTED]", PIN_CODE: "[REDACTED]", verificationPin: "[REDACTED]", nested: { verification_pin_code: "[REDACTED]", pinCode: "[REDACTED]", pinned: true, spinning: "visible" } })
+    expect(
+      redactForLog({
+        pin: "001234",
+        PIN_CODE: "001234",
+        verificationPin: "001234",
+        nested: {
+          verification_pin_code: "001234",
+          pinCode: "001234",
+          pinned: true,
+          spinning: "visible",
+        },
+      })
+    ).toEqual({
+      pin: "[REDACTED]",
+      PIN_CODE: "[REDACTED]",
+      verificationPin: "[REDACTED]",
+      nested: {
+        verification_pin_code: "[REDACTED]",
+        pinCode: "[REDACTED]",
+        pinned: true,
+        spinning: "visible",
+      },
+    })
   })
   it("redacts credential-shaped object fields recursively", () => {
     expect(
@@ -73,9 +113,9 @@ describe("structured log redaction", () => {
   })
 
   it("redacts URL strings nested inside objects", () => {
-    expect(
-      redactForLog({ url: "https://x.test/?refresh_token=r1" })
-    ).toEqual({ url: "https://x.test/?refresh_token=[REDACTED]" })
+    expect(redactForLog({ url: "https://x.test/?refresh_token=r1" })).toEqual({
+      url: "https://x.test/?refresh_token=[REDACTED]",
+    })
   })
 
   it("redacts a token carried in a URL fragment", () => {

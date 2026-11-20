@@ -22,6 +22,24 @@ must be Prettier-formatted), `pnpm check:design --ratchet`, the first-load JS
 ceilings (`tests/perf/route-js.mjs`), migration policy and upgrade checks,
 `pnpm audit --prod`, gitleaks, and actionlint plus zizmor over `.github/`.
 
+## Source quality
+
+`pnpm check:quality` runs before push and in the release gate. It checks
+source files for excess lines above 500, cyclomatic complexity above 15,
+unlinked debt markers, declaration names, and imports from server code into
+the UI. The contracts unit tests separately enforce that shared contracts
+cannot reach server-only code. Knip detects unused modules, exports and
+dependencies; jscpd measures duplicate source lines and their percentage.
+The tracked counts can only decrease. If you remove a finding, regenerate
+the file with `pnpm check:quality --record` and review the diff.
+
+When adding a runtime `featureFlag` in `lib/server/env.ts`, identify its
+owner and intended end condition, document its default in the environment
+template, and test both states. Keep long-lived kill switches explicit.
+Once a temporary rollout flag is no longer needed, remove its definition,
+consumers and template entry together. The quality gate rejects definitions
+without a production reference.
+
 ## Where a new test goes
 
 1. Pure function, constant or schema: **unit**. Inject the clock, the
@@ -65,6 +83,20 @@ provides, or, with `NABA_TEST_DB=existing`, use the configured URLs, still
 refusing port 54322 unless `NABA_ALLOW_DEV_DB=1`. Details in
 [docs/ci.md](ci.md) §5. Pass vitest arguments after the script, for
 example `pnpm test:integration tests/integration/routes/leases.test.ts`.
+
+For a database query regression, run
+`pnpm test:integration tests/integration/client-query-budget.test.ts`. It
+counts SQL statements under the runtime role for one and eight clients with
+linked listings, without logging SQL or parameters.
+
+For supplemental passive OWASP ZAP coverage, start a disposable local
+standalone test server with synthetic data under the integration harness.
+Run `zap-baseline.py -t http://127.0.0.1:<test-port> -m 1` in the same isolated
+network namespace as that server, with external egress blocked. Use only an
+unauthenticated test origin. Do not add `-j`, run the full/active ZAP scan,
+follow redirects to providers, or target staging or production. Treat the
+report as local QA evidence; the release gate retains its existing HTTP
+security assertions.
 
 ## Reliability rules
 
@@ -139,7 +171,10 @@ Stub at the process boundary, not inside the code under test:
 
 ## Coverage
 
-There is no global coverage target. Gaps are tracked by behaviour: the
+There is no global coverage target. The release gate and pre-push verification
+enforce the measured minimum for the log scrubber with `pnpm check:coverage`:
+88% lines, 81% statements, 84% branches and 83% functions. Gaps elsewhere are
+tracked by behaviour: the
 critical behaviours, the layers that protect each and the open gaps are in
 the audit's coverage map (`AUDIT_REPORT.md` §4) and the release ledger
 (`docs/release/ledger.md`).

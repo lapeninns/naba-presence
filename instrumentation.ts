@@ -2,24 +2,25 @@ import type { Instrumentation } from "next"
 import { registerOTel } from "@vercel/otel"
 
 import { redactForLog } from "@/lib/domain/redaction"
+import {
+  INTERNAL_REQUEST_ID_HEADER,
+  isRequestId,
+} from "@/lib/domain/request-id"
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { telemetryDisabledReason, withExportStatus } = await import(
-      "@/lib/server/telemetry-status"
-    )
+    const { telemetryDisabledReason, withExportStatus } =
+      await import("@/lib/server/telemetry-status")
     // Metrics are exported only to a configured collector, and every export
     // records its outcome for the readiness endpoint. With no endpoint the
     // SDK would post to localhost:4318 every interval and fail unseen; the
     // readiness endpoint reports telemetry as disabled instead.
     if (telemetryDisabledReason() === null) {
-      const [
-        { OTLPMetricExporter },
-        { PeriodicExportingMetricReader },
-      ] = await Promise.all([
-        import("@opentelemetry/exporter-metrics-otlp-http"),
-        import("@opentelemetry/sdk-metrics"),
-      ])
+      const [{ OTLPMetricExporter }, { PeriodicExportingMetricReader }] =
+        await Promise.all([
+          import("@opentelemetry/exporter-metrics-otlp-http"),
+          import("@opentelemetry/sdk-metrics"),
+        ])
       const configuredInterval = Number(
         process.env.OTEL_METRIC_EXPORT_INTERVAL ?? 60_000
       )
@@ -39,13 +40,29 @@ export async function register() {
     } else {
       registerOTel({ serviceName: "nabapresence" })
     }
-    const { assertProductionSafety } = await import(
-      "@/lib/server/startup"
-    )
+    const { assertProductionSafety } = await import("@/lib/server/startup")
     await assertProductionSafety()
+    if (process.env.SENTRY_DSN) {
+      const { startErrorTracking } = await import("@/lib/server/error-tracking")
+      startErrorTracking()
+    }
     return
   }
   registerOTel({ serviceName: "nabapresence" })
+}
+
+function supportDigest(error: unknown, routeType: string) {
+  if (!error || typeof error !== "object" || !("digest" in error)) return
+  const { digest } = error
+  if (typeof digest !== "string") return
+  // Next render errors use a uint32 hash in canonical decimal notation.
+  // Log that hash as a number so the string scrubber does not mistake it
+  // for a phone number. Nonstandard digests still go through redaction.
+  if (routeType === "render" && /^(0|[1-9]\d{0,9})$/.test(digest)) {
+    const hash = Number(digest)
+    if (hash <= 0xffffffff && String(hash) === digest) return hash
+  }
+  return digest
 }
 
 export const onRequestError: Instrumentation.onRequestError = async (
@@ -53,23 +70,40 @@ export const onRequestError: Instrumentation.onRequestError = async (
   request,
   context
 ) => {
+  const requestHeader = request.headers[INTERNAL_REQUEST_ID_HEADER]
+  const requestId =
+    context.routeType === "render" &&
+    typeof requestHeader === "string" &&
+    isRequestId(requestHeader)
+      ? requestHeader
+      : undefined
+  const details = {
+    error,
+    // The error boundaries display this digest as a support reference.
+    digest: supportDigest(error, context.routeType),
+    requestId,
+    method: request.method,
+    routePath: context.routePath,
+    routeType: context.routeType,
+    routerKind: context.routerKind,
+  }
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { log } = await import("@/lib/server/logger")
+    log.error("next.request_error", details)
+    if (process.env.SENTRY_DSN) {
+      const { reportException } = await import("@/lib/server/error-tracking")
+      await reportException(error, {
+        event: "next.request_error",
+        requestId,
+        method: request.method,
+        route: context.routePath,
+      })
+    }
+    return
+  }
   console.error(
     JSON.stringify(
-      redactForLog({
-        timestamp: new Date().toISOString(),
-        level: "error",
-        event: "next.request_error",
-        service: "nabapresence",
-        error,
-        digest:
-          error && typeof error === "object" && "digest" in error
-            ? error.digest
-            : undefined,
-        method: request.method,
-        routePath: context.routePath,
-        routeType: context.routeType,
-        routerKind: context.routerKind,
-      })
+      redactForLog({ ...details, event: "next.request_error" }, 0, true)
     )
   )
 }

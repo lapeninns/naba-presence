@@ -1,0 +1,19 @@
+{
+  "name": "NabaPresence (Node 24)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-24-bookworm",
+  "remoteUser": "node",
+  "postCreateCommand": "corepack pnpm install --frozen-lockfile",
+  "forwardPorts": [3000],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-typescript-next"
+      ],
+      "settings": {
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  }
+}

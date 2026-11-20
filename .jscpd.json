@@ -1,0 +1,12 @@
+{
+  "path": ["app", "components", "lib"],
+  "format": ["typescript", "tsx", "javascript", "jsx"],
+  "ignore": ["**/node_modules/**"],
+  "minLines": 8,
+  "minTokens": 75,
+  "maxLines": 20000,
+  "maxSize": "1mb",
+  "noSymlinks": true,
+  "reporters": ["json"],
+  "silent": true
+}

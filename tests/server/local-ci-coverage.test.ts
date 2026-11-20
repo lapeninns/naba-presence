@@ -13,7 +13,10 @@ describe("local-ci quick-verify coverage by the full release gate", () => {
     // the ratchet and the contrast check), so it is the check to run before
     // handing a branch to local-ci.
     expect(scripts.verify).toBe(
-      "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm check:design --ratchet && pnpm check:contrast"
+      "pnpm typecheck && pnpm lint:gate && pnpm format:check && pnpm test && pnpm check:design --ratchet && pnpm check:contrast"
+    )
+    expect(scripts["lint:gate"]).toBe(
+      "pnpm lint && pnpm check:quality && pnpm check:coverage && pnpm check:agents && pnpm check:openapi && pnpm release:notes"
     )
   })
 
@@ -21,7 +24,7 @@ describe("local-ci quick-verify coverage by the full release gate", () => {
     const gate = readRepoText("scripts/release/verify-local.mjs")
     for (const command of [
       'must(sink, "pnpm", ["typecheck"])',
-      'must(sink, "pnpm", ["lint"])',
+      'must(sink, "pnpm", ["lint:gate"])',
       'must(sink, "pnpm", ["test"],',
       '"scripts/format-changed.mjs",',
       '"--check",',

@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible NabaPresence problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: List the route, workspace mode, role and steps. Use synthetic data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+      description: State the impact and whether a workaround exists.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe evidence
+      description: Share the commit or release, browser and redacted diagnostics. Do not include credentials, account details or review content.

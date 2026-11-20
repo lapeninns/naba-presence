@@ -1,6 +1,7 @@
 import "server-only"
 
 import { redactForLog } from "@/lib/domain/redaction"
+import { requestContext } from "@/lib/server/request-context"
 
 type LogContext = {
   requestId?: string
@@ -16,13 +17,18 @@ function emit(
   event: string,
   context: LogContext = {}
 ) {
-  const record = redactForLog({
-    timestamp: new Date().toISOString(),
-    level,
-    event,
-    service: "nabapresence",
-    ...context,
-  })
+  const record = redactForLog(
+    {
+      timestamp: new Date().toISOString(),
+      level,
+      event,
+      service: "nabapresence",
+      ...context,
+      requestId: requestContext()?.requestId ?? context.requestId ?? null,
+    },
+    0,
+    true
+  )
   const line = JSON.stringify(record)
   if (level === "error") console.error(line)
   else if (level === "warn") console.warn(line)
