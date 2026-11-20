@@ -53,8 +53,14 @@ own tenants per file, no retries to hide flakes) are in `docs/testing.md`.
   typecheck, lint, unit, format, design, build, bundle budget, migrations,
   integration in 4 shards, e2e in 6 lanes, audit, workflow lint, gitleaks), `secret-scan`,
   and the aggregates `quick-verify` and `release-gate`.
+- A pull request that changes only documentation nothing reads (`docs/**`
+  and `*.md`, not `AGENTS.md`, `docs/release/` or the docs tests read) takes
+  the gate's docs-only fast path: install, format, secret scan and workflow
+  lint, marked "docs-only fast path" and never a release receipt
+  (`docs/ci.md` §5).
 - Rebase on the latest `origin/main`, then run once on the final head:
-  `lci run naba-presence --pr <N> --post --comment`. Not on intermediate
+  `lci run naba-presence --pr <N> --post --comment --wait` (`--wait` queues
+  for the shared runner). Not on intermediate
   pushes. A commit with an already-passing tree reuses its result.
 - The runner is shared and holds one global lock; another repository's run
   may hold it for up to ~2 h. Wait in the foreground; never `--force` or

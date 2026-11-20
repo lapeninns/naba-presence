@@ -4,7 +4,7 @@
 //   pnpm verify:release [--skip <id,...>] [--keep-going] [--base-ref <ref>]
 //                       [--receipts-dir <dir>] [--keep-worktree] [--list]
 //                       [--serial] [--integration-shards <n>] [--cpus <n>]
-//                       [--e2e-lanes <n>]
+//                       [--e2e-lanes <n>] [--full]
 //
 // Hosted CI is not a release gate (docs/ci.md §5); this run is the evidence.
 // It checks HEAD out into a fresh detached git worktree (under
@@ -58,6 +58,13 @@
 // and upgrade steps would compare HEAD with itself). Without either, the
 // base falls back to origin/main, which suits a branch but not a release.
 //
+// Docs-only fast path (scripts/release/fast-path.mjs): with --base-ref (a
+// pull request run under local-ci), when every file the diff from the merge
+// base touches is documentation nothing in the gate reads, only install,
+// format, secret scan and workflow lint run; the other steps are recorded as
+// skipped, the output says "docs-only fast path", and the receipt is never a
+// release receipt. --full (or NABA_GATE_FULL=1) runs the full gate anyway.
+//
 // The first step that fails stops the run: steps still running are
 // terminated and, with those not yet started, recorded as not-run, so a red
 // unit test does not hold the shared runner for the rest of the integration
@@ -71,6 +78,7 @@
 
 import { execFileSync, spawn, spawnSync } from "node:child_process"
 import {
+  appendFileSync,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -95,6 +103,14 @@ import {
   settleLanes,
 } from "../ci/e2e-lanes.mjs"
 import { stopFailureReport } from "../ci/pg-stop-report.mjs"
+import {
+  DOCS_ONLY,
+  FAST_PATH_NOTE,
+  FAST_PATH_STEPS,
+  changedFilesBetween,
+  chooseGatePath,
+  fastPathProblems,
+} from "./fast-path.mjs"
 
 import {
   BUNDLE_BUDGET_ARGS,
@@ -649,6 +665,7 @@ export function parseArgs(argv, env = {}) {
     e2eLanes: /** @type {number | string} */ (
       env.NABA_GATE_E2E_LANES ?? DEFAULT_E2E_LANES
     ),
+    full: env.NABA_GATE_FULL === "1",
   }
   let shardsGiven = env.NABA_GATE_INTEGRATION_SHARDS !== undefined
   let lanesGiven = env.NABA_GATE_E2E_LANES !== undefined
@@ -667,6 +684,7 @@ export function parseArgs(argv, env = {}) {
     else if (arg === "--base-ref") options.baseRef = argv[++index] ?? ""
     else if (arg === "--receipts-dir") options.receiptsDir = argv[++index] ?? ""
     else if (arg === "--keep-worktree") options.keepWorktree = true
+    else if (arg === "--full") options.full = true
     else if (arg === "--list") options.list = true
     else if (arg === "--serial") options.serial = true
     else if (arg === "--integration-shards") {
@@ -906,6 +924,21 @@ function isFree(port) {
   })
 }
 
+/**
+ * Appends to the job summary when the runner provides one ($GITHUB_STEP_SUMMARY,
+ * which local-ci sets too). Best effort: the console says the same.
+ * @param {Record<string, string | undefined>} env
+ * @param {string} text
+ */
+function writeStepSummary(env, text) {
+  if (!env.GITHUB_STEP_SUMMARY) return
+  try {
+    appendFileSync(env.GITHUB_STEP_SUMMARY, text)
+  } catch {
+    // The console line is the record.
+  }
+}
+
 async function main() {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
   const options = parseArgs(process.argv.slice(2), process.env)
@@ -968,6 +1001,14 @@ async function main() {
       `verify:release: the merge base with ${baseRef} is HEAD itself, so migration-policy and migrate-upgrade compare HEAD with itself; promotion refuses this receipt.`
     )
   }
+  const changedFiles = changedFilesBetween(root, mergeBase, sha)
+  const gatePath = chooseGatePath({
+    baseRefGiven: options.baseRef !== null,
+    full: options.full,
+    files: changedFiles,
+  })
+  const fastPath = gatePath.path === DOCS_ONLY
+
   const uncommitted = git(root, "status", "--porcelain")
     .split("\n")
     .filter(Boolean)
@@ -1699,6 +1740,14 @@ async function main() {
 
   /** @param {typeof GATE_STEPS[number]} step */
   async function runStep(step) {
+    if (fastPath && !FAST_PATH_STEPS.includes(step.id)) {
+      return {
+        id: step.id,
+        status: "skipped",
+        durationMs: 0,
+        note: FAST_PATH_NOTE,
+      }
+    }
     for (const need of step.needs) await running.get(need)
     if (options.skip.includes(step.id)) {
       return {
@@ -1777,7 +1826,7 @@ async function main() {
     git(root, "worktree", "add", "--detach", worktree, sha)
     worktreeAdded = true
     say(
-      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\nlogs: ${logDir}\n${options.serial ? "serial" : `concurrent, CPU budget ${cpuBudget} (${availableParallelism()} cores), integration in ${options.integrationShards} shard(s), e2e in up to ${options.e2eLanes} lane(s)`}\n\n`
+      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\n${fastPath ? "DOCS-ONLY FAST PATH" : "full gate"}: ${gatePath.reason}\nworktree: ${worktree}\nlogs: ${logDir}\n${options.serial ? "serial" : `concurrent, CPU budget ${cpuBudget} (${availableParallelism()} cores), integration in ${options.integrationShards} shard(s), e2e in up to ${options.e2eLanes} lane(s)`}\n\n`
     )
     if (options.serial) {
       for (const step of GATE_STEPS) {
@@ -1834,6 +1883,8 @@ async function main() {
       integrationShards: options.integrationShards,
       e2eLanes: options.e2eLanes,
       cpuBudget: options.serial ? null : cpuBudget,
+      gatePath: gatePath.path,
+      gatePathReason: gatePath.reason,
     },
     startedAt,
     finishedAt: new Date().toISOString(),
@@ -1845,7 +1896,11 @@ async function main() {
   await new Promise((done) => log.end(done))
 
   const wallMs = Date.parse(receipt.finishedAt) - Date.parse(startedAt)
-  console.log(`\nLocal release gate (${(wallMs / 60000).toFixed(1)} min)`)
+  console.log(
+    fastPath
+      ? `\nLocal release gate: DOCS-ONLY FAST PATH, not a full pass (${(wallMs / 60000).toFixed(1)} min)\n  ${gatePath.reason}`
+      : `\nLocal release gate (${(wallMs / 60000).toFixed(1)} min)`
+  )
   for (const step of receipt.steps) {
     console.log(
       `  ${step.status.padEnd(8)} ${step.id.padEnd(20)} ${(step.durationMs / 1000).toFixed(1).padStart(7)}s${step.summary ? `  ${step.summary.join("; ")}` : ""}${step.note ? `  (${step.note})` : ""}`
@@ -1856,6 +1911,24 @@ async function main() {
   console.log(`Log: ${logPath}`)
   if (options.keepWorktree && existsSync(worktree)) {
     console.log(`Worktree kept: ${worktree} (git worktree remove --force it)`)
+  }
+  if (fastPath) {
+    const fastProblems = fastPathProblems(
+      receipt.steps,
+      GATE_STEPS.map((step) => step.id)
+    )
+    const verdict =
+      fastProblems.length === 0
+        ? `verify:release passed the docs-only fast path for ${sha.slice(0, 12)}: install, format, secret scan and workflow lint only. Build, tests, migrations and e2e did not run; this is not a release receipt.`
+        : `verify:release FAILED the docs-only fast path for ${sha.slice(0, 12)}`
+    writeStepSummary(process.env, `${verdict}\n\n${gatePath.reason}\n`)
+    if (fastProblems.length > 0) {
+      for (const problem of fastProblems) console.error(`gate: ${problem}`)
+      console.error(verdict)
+      return 1
+    }
+    console.log(verdict)
+    return 0
   }
   if (!receipt.ok) {
     for (const problem of problems) console.error(`gate: ${problem}`)
