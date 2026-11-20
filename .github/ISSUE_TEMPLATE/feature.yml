@@ -1,0 +1,19 @@
+name: Feature request
+description: Propose a product or contributor-workflow improvement.
+title: "[Feature]: "
+labels: ["feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and affected workflow
+      description: Describe who is affected and what they cannot do today.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Proposed outcome and acceptance criteria
+      description: Explain how to verify the outcome and note any permission or provider constraints.
+    validations:
+      required: true

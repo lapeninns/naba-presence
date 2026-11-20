@@ -51,6 +51,64 @@ The application also emits the `database.tenant_transaction` and
 `nabapresence.client_request_id`. Google spans additionally receive
 `nabapresence.google.attempts`. Structured logs are redacted before output.
 
+## Error tracking and correlation
+
+Page requests receive a fresh `x-request-id` in proxy. API handlers create
+their own IDs so Next does not buffer API request bodies in proxy. The API
+wrapper attaches its ID to structured logs and the Google API transport
+forwards that ID, not the caller's header. Do not use either ID as proof of
+identity. The structured logger removes email addresses, phone numbers,
+cookie headers and known credential patterns. Never log raw payloads.
+
+Sentry is server-only and opt-in. Without `SENTRY_DSN`, startup does not
+load or initialize it and error paths do not send to it. For an owner-approved
+staging trial, set the DSN at build and runtime and add `--enable-source-maps`
+to the server's `NODE_OPTIONS`. The build generates private server source
+maps and Node uses them to resolve call sites. No browser maps
+are published. A trial event should contain a mapped stack, an HTTP breadcrumb,
+the request ID and whether a session was authenticated. It should not contain
+the original error message, request body, cookies, email or user ID. Verify
+this in staging before enabling production.
+
+Browser error collection remains off. The existing GA4 opt-in is not
+consent for error collection. Before adding a browser SDK, approve a separate
+diagnostics consent and revocation flow and its disclosures. Once Sentry is
+approved, the owner can install its GitHub integration for this repository
+and test issue creation with a single synthetic staging event.
+
+## Local CPU profiling
+
+Use built-in Node 24 sampling against a disposable local standalone build:
+
+```sh
+mkdir -p .next/profiles
+node --cpu-prof --cpu-prof-dir=.next/profiles .next/standalone/server.js
+```
+
+Exercise a synthetic workload, stop the server normally and open the
+`.cpuprofile` in DevTools. Profiles stay under the ignored build directory.
+Do not use production data or attach a raw profile to an issue.
+
+## Nightly smoke
+
+On a dedicated runner, check out the intended main SHA in a clean worktree
+with no private env files. Install with `pnpm install --frozen-lockfile`
+and run `pnpm build`. Run the health and alerting infrastructure test with
+the disposable database harness:
+
+```sh
+pnpm test:integration tests/integration/routes/health-alerting.test.ts
+```
+
+Capture the build or smoke exit status. On failure, call
+`node scripts/ci/nightly-report.mjs "$(git rev-parse HEAD)" --post`, then
+preserve the original failure status. Without `--post` the reporter prints
+the planned issue locally. With it, it reuses an open matching issue or
+creates one with `bug`, `P2`, and `area:infra` labels. It does not send test
+logs to GitHub. Serialize scheduler invocations to avoid duplicate issues.
+The owner must configure the nightly schedule on the shared runner; GitHub
+Actions is off. This does not replace the PR release gate.
+
 Cardinality is bounded: `http.route` is the request path with identifier-like
 segments (numbers, UUIDs, long or digit-bearing tokens) replaced by `:id`, and
 an instance records at most 300 distinct routes before folding new ones into

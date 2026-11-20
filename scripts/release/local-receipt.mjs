@@ -61,7 +61,7 @@ export const GATE_STEPS = [
   },
   {
     id: "lint",
-    title: "Lint, zero warnings (pnpm lint)",
+    title: "Lint, zero warnings and source ratchets",
     required: true,
     needs: ["frozen-install"],
   },

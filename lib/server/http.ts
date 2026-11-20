@@ -4,6 +4,7 @@ import { trace } from "@opentelemetry/api"
 import { NextResponse } from "next/server"
 import { ZodError, type ZodIssue, type ZodType } from "zod"
 
+import { REQUEST_ID_HEADER } from "@/lib/domain/request-id"
 import { log } from "@/lib/server/logger"
 
 export type ApiErrorOptions = {
@@ -45,7 +46,7 @@ function errorBody(input: {
   }
 }
 
-export const REQUEST_ID_HEADER = "x-request-id"
+export { REQUEST_ID_HEADER }
 
 /**
  * Echoes the server request id on a response so clients and logs can be
@@ -291,7 +292,9 @@ export function serverRequestId(request: Request): {
   id: string
   clientId: string | null
 } {
-  const clientId = request.headers.get("x-request-id")
+  const incoming = request.headers.get(REQUEST_ID_HEADER)
+  const clientId =
+    incoming && /^[\w.-]{1,100}$/.test(incoming) ? incoming : null
   const id = crypto.randomUUID()
   trace.getActiveSpan()?.setAttribute("nabapresence.request_id", id)
   if (clientId) {

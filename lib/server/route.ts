@@ -20,13 +20,13 @@ import {
 import { appOrigins, getServerEnv } from "@/lib/server/env"
 import {
   ApiError,
-  apiError,
   invalidRequestError,
-  serverRequestId,
+  type serverRequestId,
   withRequestIdHeader,
 } from "@/lib/server/http"
 import { requireRecentMfa } from "@/lib/server/mfa"
-import { withRequestMetrics } from "@/lib/server/request-metrics"
+import { markRequestAuthenticated } from "@/lib/server/request-context"
+import { observeRoute, observeRouteError } from "@/lib/server/route-observation"
 import {
   parseIntentHeader,
   withMutationIntent,
@@ -403,6 +403,7 @@ async function authenticate<A extends AuthMode>(
   }
   if (auth === "public") return null
   const session = await requireSession()
+  markRequestAuthenticated()
   return roles ? requireRole(session, roles) : session
 }
 
@@ -415,15 +416,8 @@ export function route<
   const auth = (config.auth ?? "session") as A
   const origin = config.origin ?? (auth === "session" ? "same" : "any")
   return (request, context?: NextRouteContext) =>
-    // Route latency, transactions and Google calls per request, and cron
-    // tick duration (lib/server/request-metrics.ts).
-    withRequestMetrics(
-      {
-        method: request.method,
-        pathname: new URL(request.url).pathname,
-        cron: auth === "cron",
-      },
-      () => handleRequest(config, auth, origin, request, context)
+    observeRoute(request, auth === "cron", (rid) =>
+      handleRequest(config, auth, origin, request, context, rid)
     )
 }
 
@@ -432,13 +426,13 @@ async function handleRequest<A extends AuthMode, P, Q, B>(
   auth: A,
   origin: "same" | "any",
   request: Request,
-  context: NextRouteContext | undefined
+  context: NextRouteContext | undefined,
+  rid: ReturnType<typeof serverRequestId>
 ): Promise<Response> {
   const deadline = requestDeadline(
     Date.now(),
     config.maxDuration ?? DEFAULT_MAX_DURATION_SECONDS
   )
-  const rid = serverRequestId(request)
   try {
     if (origin === "same") assertSameOrigin(request)
     const session = await authenticate(request, auth, config.roles)
@@ -512,6 +506,6 @@ async function handleRequest<A extends AuthMode, P, Q, B>(
       : run())
     return withRequestIdHeader(toResponse(result), rid.id)
   } catch (error) {
-    return apiError(error, rid.id)
+    return observeRouteError(error, rid.id, request.method)
   }
 }

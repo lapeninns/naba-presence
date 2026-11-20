@@ -8,6 +8,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 
@@ -79,7 +80,7 @@ describe("docs-only fast path: which files", () => {
     // A doc that code, a test or a config names as a path (as a string) may
     // be read by it, so a change to it must run the full gate. Fixture names
     // in tests (docs/specs/plan.md) are not tracked files and do not count.
-    const repo = join(dirname(new URL(import.meta.url).pathname), "../..")
+    const repo = fileURLToPath(new URL("../../", import.meta.url))
     const tracked = new Set(
       execFileSync("git", ["ls-files"], { cwd: repo, encoding: "utf8" })
         .trim()

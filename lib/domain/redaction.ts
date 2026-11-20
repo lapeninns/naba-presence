@@ -38,12 +38,30 @@ function decodeParamName(name: string): string {
   }
 }
 
-export function redactForLog(value: unknown, depth = 0): unknown {
+function redactLogText(value: string): string {
+  return value
+    .replace(/\b(?:set-cookie|cookie)\s*:[^\r\n]*/gi, "cookie: [REDACTED]")
+    .replace(
+      /[\w.+%'-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/gi,
+      "[REDACTED_EMAIL]"
+    )
+    .replace(
+      /(?<![\w-])\+?\d(?:[ ().-]{0,3}\d){9,14}(?![\w-])/g,
+      "[REDACTED_PHONE]"
+    )
+}
+
+export function redactForLog(
+  value: unknown,
+  depth = 0,
+  redactContact = false
+): unknown {
   if (depth > 6) return "[TRUNCATED]"
   if (typeof value === "string") {
-    return redactUrls(value)
+    const scrubbed = redactUrls(value)
       .replace(bearerPattern, "Bearer [REDACTED]")
       .replace(jwtPattern, "[REDACTED_JWT]")
+    return redactContact ? redactLogText(scrubbed) : scrubbed
   }
   if (
     value === null ||
@@ -54,14 +72,20 @@ export function redactForLog(value: unknown, depth = 0): unknown {
     return value
   }
   if (Array.isArray(value)) {
-    return value.map((item) => redactForLog(item, depth + 1))
+    return value.map((item) => redactForLog(item, depth + 1, redactContact))
   }
   if (value instanceof Error) {
     return {
       name: value.name,
-      message: redactForLog(value.message, depth + 1),
+      message: redactForLog(value.message, depth + 1, redactContact),
       ...("code" in value
-        ? { code: redactForLog((value as { code?: unknown }).code, depth + 1) }
+        ? {
+            code: redactForLog(
+              (value as { code?: unknown }).code,
+              depth + 1,
+              redactContact
+            ),
+          }
         : {}),
     }
   }
@@ -71,7 +95,7 @@ export function redactForLog(value: unknown, depth = 0): unknown {
         key,
         sensitiveKey.test(key) || verificationPinKey.test(key)
           ? "[REDACTED]"
-          : redactForLog(item, depth + 1),
+          : redactForLog(item, depth + 1, redactContact),
       ])
     )
   }

@@ -1,0 +1,6543 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NabaPresence internal HTTP API",
+    "version": "1.0.0",
+    "description": "Route and authentication inventory for app/api. Core session and review responses include shared Zod schemas. Other payloads are defined in the linked handlers and lib/contracts. An empty security array means no session or cron authentication in the wrapper; a webhook may verify its provider in the handler."
+  },
+  "paths": {
+    "/api/ai/credits/daily": {
+      "get": {
+        "x-source": "app/api/ai/credits/daily/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/ai/credits": {
+      "get": {
+        "x-source": "app/api/ai/credits/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/analytics/overview": {
+      "get": {
+        "x-source": "app/api/analytics/overview/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/analytics/presence/keywords": {
+      "get": {
+        "x-source": "app/api/analytics/presence/keywords/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/analytics/presence": {
+      "get": {
+        "x-source": "app/api/analytics/presence/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/analytics/review-topics": {
+      "get": {
+        "x-source": "app/api/analytics/review-topics/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/analytics/review-topics/status": {
+      "get": {
+        "x-source": "app/api/analytics/review-topics/status/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/assets/{id}/finalise": {
+      "post": {
+        "x-source": "app/api/assets/[id]/finalise/route.ts",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/assets": {
+      "get": {
+        "x-source": "app/api/assets/route.ts",
+        "x-query-validator": "assetListQuerySchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/assets/route.ts",
+        "x-body-validator": "assetCreateRequestSchema",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/audit-log": {
+      "get": {
+        "x-source": "app/api/audit-log/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/callback/google": {
+      "get": {
+        "x-source": "app/api/auth/callback/google/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/auth/callback/google/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/mfa/enroll": {
+      "post": {
+        "x-source": "app/api/auth/mfa/enroll/route.ts",
+        "x-body-validator": "mfaEnrollSchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/mfa/factors": {
+      "get": {
+        "x-source": "app/api/auth/mfa/factors/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/mfa/step-up": {
+      "post": {
+        "x-source": "app/api/auth/mfa/step-up/route.ts",
+        "x-body-validator": "mfaStepUpSchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/mfa/verify": {
+      "post": {
+        "x-source": "app/api/auth/mfa/verify/route.ts",
+        "x-body-validator": "mfaVerifySchema",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/auth/mfa/verify/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/password/login": {
+      "post": {
+        "x-source": "app/api/auth/password/login/route.ts",
+        "x-body-validator": "loginSchema",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/password/register": {
+      "post": {
+        "x-source": "app/api/auth/password/register/route.ts",
+        "x-body-validator": "registerSchema",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/password/resend": {
+      "post": {
+        "x-source": "app/api/auth/password/resend/route.ts",
+        "x-body-validator": "resendConfirmationSchema",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/password/reset/complete": {
+      "post": {
+        "x-source": "app/api/auth/password/reset/complete/route.ts",
+        "x-body-validator": "resetPasswordSchema",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/auth/password/reset/request": {
+      "post": {
+        "x-source": "app/api/auth/password/reset/request/route.ts",
+        "x-body-validator": "resetRequestSchema",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/billing/cancel": {
+      "post": {
+        "x-source": "app/api/billing/cancel/route.ts",
+        "x-body-validator": "cancelInputSchema",
+        "x-role-check": "[\"owner\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/billing/checkout": {
+      "post": {
+        "x-source": "app/api/billing/checkout/route.ts",
+        "x-body-validator": "checkoutInputSchema",
+        "x-role-check": "[\"owner\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/billing/plan-change": {
+      "post": {
+        "x-source": "app/api/billing/plan-change/route.ts",
+        "x-body-validator": "planChangeInputSchema",
+        "x-role-check": "[\"owner\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/billing/portal": {
+      "post": {
+        "x-source": "app/api/billing/portal/route.ts",
+        "x-role-check": "[\"owner\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/billing/reconcile": {
+      "get": {
+        "x-source": "app/api/billing/reconcile/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/billing": {
+      "get": {
+        "x-source": "app/api/billing/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/connections": {
+      "post": {
+        "x-source": "app/api/clients/[clientId]/connections/route.ts",
+        "x-body-validator": "clientAttachConnectionSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/locations": {
+      "post": {
+        "x-source": "app/api/clients/[clientId]/locations/route.ts",
+        "x-body-validator": "clientAssignLocationsSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/clients/[clientId]/locations/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/report-shares/{shareId}": {
+      "delete": {
+        "x-source": "app/api/clients/[clientId]/report-shares/[shareId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "shareId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/report-shares": {
+      "get": {
+        "x-source": "app/api/clients/[clientId]/report-shares/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/clients/[clientId]/report-shares/route.ts",
+        "x-body-validator": "reportShareCreateSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}": {
+      "get": {
+        "x-source": "app/api/clients/[clientId]/route.ts",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/clients/[clientId]/route.ts",
+        "x-body-validator": "clientUpdateSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/clients/{clientId}/setup": {
+      "get": {
+        "x-source": "app/api/clients/[clientId]/setup/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/clients": {
+      "get": {
+        "x-source": "app/api/clients/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/clients/route.ts",
+        "x-body-validator": "clientCreateSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/cron/health": {
+      "post": {
+        "x-source": "app/api/cron/health/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/cron/health/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/cron/retention": {
+      "post": {
+        "x-source": "app/api/cron/retention/route.ts",
+        "x-query-validator": "retentionPostQuery",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/cron/retention/route.ts",
+        "x-query-validator": "retentionQuery",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/drafts/{id}/verify": {
+      "post": {
+        "x-source": "app/api/drafts/[id]/verify/route.ts",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/categories": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/categories/route.ts",
+        "x-query-validator": "onboardingCategoryQuerySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/accessible-matches": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/accessible-matches/route.ts",
+        "x-query-validator": "onboardingAccessibleMatchesQuerySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/chains": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/chains/route.ts",
+        "x-query-validator": "onboardingChainsQuerySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/creation/link": {
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/creation/link/route.ts",
+        "x-body-validator": "googleOnboardingLinkSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/creation": {
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/creation/route.ts",
+        "x-body-validator": "googleOnboardingSubmitSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/creation/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/match-link-reviews/{reviewId}": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/match-link-reviews/[reviewId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/match-link-reviews/[reviewId]/route.ts",
+        "x-body-validator": "onboardingMatchLinkApproveSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/match-link-reviews": {
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/match-link-reviews/route.ts",
+        "x-body-validator": "onboardingMatchLinkInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/match-link": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/match-link/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/match-link/route.ts",
+        "x-body-validator": "onboardingMatchLinkSubmitSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/matches": {
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/matches/route.ts",
+        "x-body-validator": "googleOnboardingDraftMatchSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/reviews/{reviewId}": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/reviews/[reviewId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/reviews/[reviewId]/route.ts",
+        "x-body-validator": "googleOnboardingApproveInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/reviews": {
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/reviews/route.ts",
+        "x-body-validator": "googleOnboardingReviewInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/route.ts",
+        "x-body-validator": "googleOnboardingDraftSaveSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts/{draftId}/services": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/[draftId]/services/route.ts",
+        "x-query-validator": "onboardingServicesQuerySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "draftId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/drafts": {
+      "get": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/route.ts",
+        "x-query-validator": "googleOnboardingDraftListInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/drafts/route.ts",
+        "x-body-validator": "googleOnboardingDraftCreateSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts/{accountId}/matches": {
+      "post": {
+        "x-source": "app/api/google/accounts/[accountId]/matches/route.ts",
+        "x-body-validator": "googleAccountMatchInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/accounts": {
+      "get": {
+        "x-source": "app/api/google/accounts/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/google/accounts/route.ts",
+        "x-body-validator": "accountSelectionSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/connect/start": {
+      "post": {
+        "x-source": "app/api/google/connect/start/route.ts",
+        "x-body-validator": "connectStartBodySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/connections/{id}/disconnect": {
+      "post": {
+        "x-source": "app/api/google/connections/[id]/disconnect/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/connections": {
+      "get": {
+        "x-source": "app/api/google/connections/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/locations": {
+      "get": {
+        "x-source": "app/api/google/locations/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/google/notifications": {
+      "get": {
+        "x-source": "app/api/google/notifications/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/google/notifications/route.ts",
+        "x-body-validator": "notificationPatchSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/import-review/counts": {
+      "get": {
+        "x-source": "app/api/import-review/counts/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/invitations/{token}/resend": {
+      "post": {
+        "x-source": "app/api/invitations/[token]/resend/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/invitations/{token}": {
+      "get": {
+        "x-source": "app/api/invitations/[token]/route.ts",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/invitations/[token]/route.ts",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/invitations/[token]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/invitations": {
+      "get": {
+        "x-source": "app/api/invitations/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/invitations/route.ts",
+        "x-body-validator": "invitationCreateSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/jobs/run": {
+      "post": {
+        "x-source": "app/api/jobs/run/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/jobs/run/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/legal-holds": {
+      "get": {
+        "x-source": "app/api/legal-holds/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/legal-holds/route.ts",
+        "x-body-validator": "legalHoldCreateSchema",
+        "x-role-check": "[\"owner\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/legal-holds/route.ts",
+        "x-body-validator": "legalHoldReleaseSchema",
+        "x-role-check": "[\"owner\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/listings/bulk/{id}/approve": {
+      "post": {
+        "x-source": "app/api/listings/bulk/[id]/approve/route.ts",
+        "x-body-validator": "bulkApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/listings/bulk/{id}/cancel": {
+      "post": {
+        "x-source": "app/api/listings/bulk/[id]/cancel/route.ts",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/listings/bulk/{id}/execute": {
+      "post": {
+        "x-source": "app/api/listings/bulk/[id]/execute/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/listings/bulk/{id}/retry": {
+      "post": {
+        "x-source": "app/api/listings/bulk/[id]/retry/route.ts",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/listings/bulk/{id}": {
+      "get": {
+        "x-source": "app/api/listings/bulk/[id]/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/listings/bulk/preview": {
+      "post": {
+        "x-source": "app/api/listings/bulk/preview/route.ts",
+        "x-body-validator": "bulkPreviewRequestSchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/listings/bulk": {
+      "get": {
+        "x-source": "app/api/listings/bulk/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/listings/summary": {
+      "get": {
+        "x-source": "app/api/listings/summary/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/location-links": {
+      "get": {
+        "x-source": "app/api/location-links/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/location-links/route.ts",
+        "x-body-validator": "linkLocationRequestSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/location-links/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/activity": {
+      "get": {
+        "x-source": "app/api/locations/[id]/activity/route.ts",
+        "x-query-validator": "locationActivityQuerySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/administration-access-reviews/{reviewId}/execute": {
+      "get": {
+        "x-source": "app/api/locations/[id]/administration-access-reviews/[reviewId]/execute/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/administration-access-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "administrationAccessApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/administration-access-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/administration-access-reviews/{reviewId}": {
+      "get": {
+        "x-source": "app/api/locations/[id]/administration-access-reviews/[reviewId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/administration-access-reviews/[reviewId]/route.ts",
+        "x-body-validator": "administrationAccessApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/administration-access-reviews": {
+      "get": {
+        "x-source": "app/api/locations/[id]/administration-access-reviews/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/administration-access-reviews/route.ts",
+        "x-body-validator": "administrationAccessRequestSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/administration-access-workflows": {
+      "get": {
+        "x-source": "app/api/locations/[id]/administration-access-workflows/route.ts",
+        "x-query-validator": "administrationWorkflowsQuerySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/administration-lifecycle-reviews/{reviewId}/execute": {
+      "get": {
+        "x-source": "app/api/locations/[id]/administration-lifecycle-reviews/[reviewId]/execute/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/administration-lifecycle-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "lifecycleApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/administration-lifecycle-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/administration-lifecycle-reviews/{reviewId}": {
+      "get": {
+        "x-source": "app/api/locations/[id]/administration-lifecycle-reviews/[reviewId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/administration-lifecycle-reviews/[reviewId]/route.ts",
+        "x-body-validator": "lifecycleApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/administration-lifecycle-reviews": {
+      "get": {
+        "x-source": "app/api/locations/[id]/administration-lifecycle-reviews/route.ts",
+        "x-query-validator": "lifecycleWorkflowsQuerySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/administration-lifecycle-reviews/route.ts",
+        "x-body-validator": "googleLifecycleRequestSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/administration": {
+      "get": {
+        "x-source": "app/api/locations/[id]/administration/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/administration/route.ts",
+        "x-body-validator": "administrationMatchSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/administration/route.ts",
+        "x-body-validator": "administrationMutationSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/business-information": {
+      "get": {
+        "x-source": "app/api/locations/[id]/business-information/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/business-information/route.ts",
+        "x-body-validator": "businessInformationPatchSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/locations/[id]/business-information/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/business-information/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/capabilities": {
+      "get": {
+        "x-source": "app/api/locations/[id]/capabilities/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/change-requests/{changeId}": {
+      "post": {
+        "x-source": "app/api/locations/[id]/change-requests/[changeId]/route.ts",
+        "x-body-validator": "listingChangeDecisionBodySchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "changeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/change-requests": {
+      "get": {
+        "x-source": "app/api/locations/[id]/change-requests/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/completeness-skips": {
+      "get": {
+        "x-source": "app/api/locations/[id]/completeness-skips/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/completeness-skips/route.ts",
+        "x-body-validator": "completenessSkipInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/locations/[id]/completeness-skips/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/food-menus": {
+      "get": {
+        "x-source": "app/api/locations/[id]/food-menus/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/locations/[id]/food-menus/route.ts",
+        "x-body-validator": "saveFoodMenusSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/food-menus/route.ts",
+        "x-body-validator": "publishFoodMenusSchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/google-changes/{changeId}": {
+      "post": {
+        "x-source": "app/api/locations/[id]/google-changes/[changeId]/route.ts",
+        "x-body-validator": "googleChangeDecisionSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "changeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/google-changes/check": {
+      "post": {
+        "x-source": "app/api/locations/[id]/google-changes/check/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/google-changes": {
+      "get": {
+        "x-source": "app/api/locations/[id]/google-changes/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/google-watch": {
+      "get": {
+        "x-source": "app/api/locations/[id]/google-watch/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/locations/[id]/google-watch/route.ts",
+        "x-body-validator": "googleWatchSettingsInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/hours": {
+      "get": {
+        "x-source": "app/api/locations/[id]/hours/route.ts",
+        "x-query-validator": "editorRefreshQuerySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/locations/[id]/hours/route.ts",
+        "x-body-validator": "saveHoursBodySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/hours/route.ts",
+        "x-body-validator": "publishHoursBodySchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/import-review/{proposalId}/decision": {
+      "post": {
+        "x-source": "app/api/locations/[id]/import-review/[proposalId]/decision/route.ts",
+        "x-body-validator": "importReviewDecisionRequestSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "proposalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/import-review/refresh": {
+      "post": {
+        "x-source": "app/api/locations/[id]/import-review/refresh/route.ts",
+        "x-body-validator": "importReviewRefreshRequestSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/import-review": {
+      "get": {
+        "x-source": "app/api/locations/[id]/import-review/route.ts",
+        "x-query-validator": "importReviewListQuerySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/industry": {
+      "post": {
+        "x-source": "app/api/locations/[id]/industry/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/locations/[id]/industry/route.ts",
+        "x-body-validator": "lodgingPreviewRequestSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/locations/[id]/industry/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/industry/route.ts",
+        "x-body-validator": "industryMutationSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/legacy-post-schedules/{legacyId}": {
+      "patch": {
+        "x-source": "app/api/locations/[id]/legacy-post-schedules/[legacyId]/route.ts",
+        "x-body-validator": "legacyScheduleActionSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "legacyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/legacy-post-schedules": {
+      "get": {
+        "x-source": "app/api/locations/[id]/legacy-post-schedules/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/media/{mediaId}": {
+      "patch": {
+        "x-source": "app/api/locations/[id]/media/[mediaId]/route.ts",
+        "x-body-validator": "mediaUpdateRequestSchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mediaId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/locations/[id]/media/[mediaId]/route.ts",
+        "x-body-validator": "mediaDeleteRequestSchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mediaId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/media/resolutions/{attemptId}": {
+      "post": {
+        "x-source": "app/api/locations/[id]/media/resolutions/[attemptId]/route.ts",
+        "x-body-validator": "mediaResolveRequestSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attemptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/media": {
+      "get": {
+        "x-source": "app/api/locations/[id]/media/route.ts",
+        "x-query-validator": "mediaListQuerySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/media/route.ts",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/place-action-reviews/{reviewId}/execute": {
+      "get": {
+        "x-source": "app/api/locations/[id]/place-action-reviews/[reviewId]/execute/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/place-action-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "placeActionApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/place-action-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/place-action-reviews/{reviewId}": {
+      "get": {
+        "x-source": "app/api/locations/[id]/place-action-reviews/[reviewId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/place-action-reviews/[reviewId]/route.ts",
+        "x-body-validator": "placeActionApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/place-action-reviews": {
+      "get": {
+        "x-source": "app/api/locations/[id]/place-action-reviews/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/place-action-reviews/route.ts",
+        "x-body-validator": "placeActionRequestSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/place-actions/{linkId}": {
+      "patch": {
+        "x-source": "app/api/locations/[id]/place-actions/[linkId]/route.ts",
+        "x-body-validator": "placeActionUpdateRequestSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "linkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/locations/[id]/place-actions/[linkId]/route.ts",
+        "x-body-validator": "placeActionDeleteRequestSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "linkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/place-actions": {
+      "get": {
+        "x-source": "app/api/locations/[id]/place-actions/route.ts",
+        "x-query-validator": "editorRefreshQuerySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/place-actions/route.ts",
+        "x-body-validator": "placeActionCreateRequestSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/post-schedules/{scheduleId}/approve": {
+      "post": {
+        "x-source": "app/api/locations/[id]/post-schedules/[scheduleId]/approve/route.ts",
+        "x-body-validator": "scheduleApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/post-schedules/{scheduleId}": {
+      "put": {
+        "x-source": "app/api/locations/[id]/post-schedules/[scheduleId]/route.ts",
+        "x-body-validator": "scheduleRevisionSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/post-schedules/[scheduleId]/route.ts",
+        "x-body-validator": "scheduleActionSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/post-schedules": {
+      "get": {
+        "x-source": "app/api/locations/[id]/post-schedules/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/post-schedules/route.ts",
+        "x-body-validator": "scheduleDraftSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/posts/{postId}/approval": {
+      "post": {
+        "x-source": "app/api/locations/[id]/posts/[postId]/approval/route.ts",
+        "x-body-validator": "postApprovalDecisionSchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "postId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/posts/{postId}/publish": {
+      "post": {
+        "x-source": "app/api/locations/[id]/posts/[postId]/publish/route.ts",
+        "x-body-validator": "postPublishBodySchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "postId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/posts/{postId}": {
+      "patch": {
+        "x-source": "app/api/locations/[id]/posts/[postId]/route.ts",
+        "x-body-validator": "updateBodySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "postId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/locations/[id]/posts/[postId]/route.ts",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "postId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/posts": {
+      "get": {
+        "x-source": "app/api/locations/[id]/posts/route.ts",
+        "x-query-validator": "postsListQuerySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/posts/route.ts",
+        "x-body-validator": "localPostInputSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/profile": {
+      "get": {
+        "x-source": "app/api/locations/[id]/profile/route.ts",
+        "x-query-validator": "editorRefreshQuerySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/locations/[id]/profile/route.ts",
+        "x-body-validator": "saveProfileBodySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/profile/route.ts",
+        "x-body-validator": "profileOperationBodySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/review-link": {
+      "get": {
+        "x-source": "app/api/locations/[id]/review-link/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/review-link/route.ts",
+        "x-body-validator": "reviewLinkCreateSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/review-link/route.ts",
+        "x-body-validator": "reviewLinkActionSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/review-link/stats": {
+      "get": {
+        "x-source": "app/api/locations/[id]/review-link/stats/route.ts",
+        "x-query-validator": "reviewLinkStatsQuerySchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/summary": {
+      "get": {
+        "x-source": "app/api/locations/[id]/summary/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-completion-reviews/{reviewId}/execute": {
+      "get": {
+        "x-source": "app/api/locations/[id]/verification-completion-reviews/[reviewId]/execute/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/verification-completion-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "verificationCompletionExecuteSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/verification-completion-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-completion-reviews/{reviewId}": {
+      "get": {
+        "x-source": "app/api/locations/[id]/verification-completion-reviews/[reviewId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/verification-completion-reviews/[reviewId]/route.ts",
+        "x-body-validator": "verificationReviewApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-completion-reviews": {
+      "post": {
+        "x-source": "app/api/locations/[id]/verification-completion-reviews/route.ts",
+        "x-body-validator": "verificationCompletionInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-options": {
+      "get": {
+        "x-source": "app/api/locations/[id]/verification-options/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/verification-options/route.ts",
+        "x-body-validator": "verificationOptionsInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-reviews/{reviewId}/execute": {
+      "get": {
+        "x-source": "app/api/locations/[id]/verification-reviews/[reviewId]/execute/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/verification-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "verificationExecuteSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/locations/[id]/verification-reviews/[reviewId]/execute/route.ts",
+        "x-body-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-reviews/{reviewId}": {
+      "get": {
+        "x-source": "app/api/locations/[id]/verification-reviews/[reviewId]/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/locations/[id]/verification-reviews/[reviewId]/route.ts",
+        "x-body-validator": "verificationReviewApprovalSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reviewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-reviews": {
+      "post": {
+        "x-source": "app/api/locations/[id]/verification-reviews/route.ts",
+        "x-body-validator": "verificationReviewInputSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-state": {
+      "get": {
+        "x-source": "app/api/locations/[id]/verification-state/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/locations/{id}/verification-workflows": {
+      "get": {
+        "x-source": "app/api/locations/[id]/verification-workflows/route.ts",
+        "x-query-validator": "verificationWorkflowQuerySchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/members/{userId}/client-access": {
+      "get": {
+        "x-source": "app/api/members/[userId]/client-access/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/members/[userId]/client-access/route.ts",
+        "x-body-validator": "clientAccessUpdateSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/members": {
+      "get": {
+        "x-source": "app/api/members/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/members/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/members/route.ts",
+        "x-body-validator": "memberUpdateSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/members/route.ts",
+        "x-body-validator": "memberRemoveSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/mutations/{operationId}": {
+      "get": {
+        "x-source": "app/api/mutations/[operationId]/route.ts",
+        "parameters": [
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/notifications/{incidentId}/resolve": {
+      "post": {
+        "x-source": "app/api/notifications/[incidentId]/resolve/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/notifications/preferences": {
+      "get": {
+        "x-source": "app/api/notifications/preferences/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/notifications/preferences/route.ts",
+        "x-body-validator": "notificationPreferencesUpdateSchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/notifications/read": {
+      "post": {
+        "x-source": "app/api/notifications/read/route.ts",
+        "x-body-validator": "notificationReadRequestSchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "x-source": "app/api/notifications/route.ts",
+        "x-query-validator": "notificationListQuerySchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/operations/health": {
+      "get": {
+        "x-source": "app/api/operations/health/route.ts",
+        "x-query-validator": "inline",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/operations/notification-deliveries/retry": {
+      "post": {
+        "x-source": "app/api/operations/notification-deliveries/retry/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/operations/organisations/{id}/ai-credits": {
+      "get": {
+        "x-source": "app/api/operations/organisations/[id]/ai-credits/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/operations/organisations/[id]/ai-credits/route.ts",
+        "x-body-validator": "aiCreditAdjustmentInputSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "put": {
+        "x-source": "app/api/operations/organisations/[id]/ai-credits/route.ts",
+        "x-body-validator": "aiCreditsOverrideInputSchema",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/operations/readiness": {
+      "get": {
+        "x-source": "app/api/operations/readiness/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/operations/reencrypt": {
+      "post": {
+        "x-source": "app/api/operations/reencrypt/route.ts",
+        "x-body-validator": "bodySchema",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/organisations": {
+      "get": {
+        "x-source": "app/api/organisations/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/organisations/route.ts",
+        "x-body-validator": "organisationUpdateSchema",
+        "x-role-check": "[\"owner\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/outbox/counts": {
+      "get": {
+        "x-source": "app/api/outbox/counts/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/outbox": {
+      "get": {
+        "x-source": "app/api/outbox/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/post-schedules/occurrences": {
+      "get": {
+        "x-source": "app/api/post-schedules/occurrences/route.ts",
+        "x-query-validator": "occurrencesQuerySchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/privacy/export": {
+      "post": {
+        "x-source": "app/api/privacy/export/route.ts",
+        "x-body-validator": "privacyExportBodySchema",
+        "x-role-check": "[\"owner\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/privacy/requests/{id}/preview": {
+      "get": {
+        "x-source": "app/api/privacy/requests/[id]/preview/route.ts",
+        "x-role-check": "[\"owner\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/privacy/requests": {
+      "get": {
+        "x-source": "app/api/privacy/requests/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/privacy/requests/route.ts",
+        "x-body-validator": "privacyRequestCreateSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/privacy/requests/route.ts",
+        "x-body-validator": "privacyRequestUpdateSchema",
+        "x-role-check": "[\"owner\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/privacy/retention-status": {
+      "get": {
+        "x-source": "app/api/privacy/retention-status/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/reviews/{id}/approval": {
+      "post": {
+        "x-source": "app/api/reviews/[id]/approval/route.ts",
+        "x-body-validator": "approvalInputSchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/reviews/{id}/drafts": {
+      "post": {
+        "x-source": "app/api/reviews/[id]/drafts/route.ts",
+        "x-body-validator": "draftInputSchema",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/reviews/{id}/publish": {
+      "post": {
+        "x-source": "app/api/reviews/[id]/publish/route.ts",
+        "x-body-validator": "publishInputSchema",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/reviews/{id}/reply": {
+      "delete": {
+        "x-source": "app/api/reviews/[id]/reply/route.ts",
+        "x-mfa-step-up": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/reviews/{id}": {
+      "get": {
+        "x-source": "app/api/reviews/[id]/route.ts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/reviews/bulk": {
+      "post": {
+        "x-source": "app/api/reviews/bulk/route.ts",
+        "x-body-validator": "bulkReviewActionSchema",
+        "x-role-check": "[\"owner\",\"admin\",\"member\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/reviews/counts": {
+      "get": {
+        "x-source": "app/api/reviews/counts/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/reviews": {
+      "get": {
+        "x-source": "app/api/reviews/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "location": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "clientId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "clientName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "clientId",
+                              "clientName"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "reviewer": {
+                            "type": "object",
+                            "properties": {
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "isAnonymous": {
+                                "type": "boolean"
+                              },
+                              "profilePhotoUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "displayName",
+                              "isAnonymous",
+                              "profilePhotoUrl"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "rating": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "text": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "detectedLanguageCode": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "languageConfidence": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "createTime": {
+                            "type": "string"
+                          },
+                          "updateTime": {
+                            "type": "string"
+                          },
+                          "hasMedia": {
+                            "type": "boolean"
+                          },
+                          "workflowStatus": {
+                            "type": "string"
+                          },
+                          "draftId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "draftBody": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "verificationStatus": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "pendingDraftId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "canApprove": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "replyStatus": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "googleReplyState": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "googlePolicyViolation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "replyBody": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "syncStatus": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "capabilities": {
+                            "type": "object",
+                            "properties": {
+                              "canPublish": {
+                                "type": "boolean"
+                              },
+                              "canEdit": {
+                                "type": "boolean"
+                              },
+                              "canRequestApproval": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "canPublish",
+                              "canEdit",
+                              "canRequestApproval"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "location",
+                          "reviewer",
+                          "rating",
+                          "text",
+                          "detectedLanguageCode",
+                          "languageConfidence",
+                          "createTime",
+                          "updateTime",
+                          "hasMedia",
+                          "workflowStatus",
+                          "draftId",
+                          "draftBody",
+                          "verificationStatus",
+                          "replyStatus",
+                          "googleReplyState",
+                          "googlePolicyViolation",
+                          "replyBody",
+                          "syncStatus",
+                          "capabilities"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/session": {
+      "get": {
+        "x-source": "app/api/session/route.ts",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "userId": {
+                              "type": "string"
+                            },
+                            "organisationId": {
+                              "type": "string"
+                            },
+                            "organisationName": {
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "email": {
+                              "type": "string"
+                            },
+                            "role": {
+                              "type": "string",
+                              "enum": [
+                                "owner",
+                                "admin",
+                                "member",
+                                "viewer"
+                              ]
+                            },
+                            "canPublish": {
+                              "type": "boolean"
+                            },
+                            "workspaceMode": {
+                              "type": "string",
+                              "enum": [
+                                "business",
+                                "agency"
+                              ]
+                            },
+                            "supportActor": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "impersonationReason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "scopeFingerprint": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "userId",
+                            "organisationId",
+                            "organisationName",
+                            "displayName",
+                            "email",
+                            "role",
+                            "canPublish",
+                            "workspaceMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "session"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/session/route.ts",
+        "x-query-validator": "inline",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/session/switch": {
+      "post": {
+        "x-source": "app/api/session/switch/route.ts",
+        "x-body-validator": "sessionSwitchSchema",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "userId": {
+                              "type": "string"
+                            },
+                            "organisationId": {
+                              "type": "string"
+                            },
+                            "organisationName": {
+                              "type": "string"
+                            },
+                            "displayName": {
+                              "type": "string"
+                            },
+                            "email": {
+                              "type": "string"
+                            },
+                            "role": {
+                              "type": "string",
+                              "enum": [
+                                "owner",
+                                "admin",
+                                "member",
+                                "viewer"
+                              ]
+                            },
+                            "canPublish": {
+                              "type": "boolean"
+                            },
+                            "workspaceMode": {
+                              "type": "string",
+                              "enum": [
+                                "business",
+                                "agency"
+                              ]
+                            },
+                            "supportActor": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "impersonationReason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "scopeFingerprint": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "userId",
+                            "organisationId",
+                            "organisationName",
+                            "displayName",
+                            "email",
+                            "role",
+                            "canPublish",
+                            "workspaceMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "session"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "organisationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "organisationId"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/capabilities": {
+      "get": {
+        "x-source": "app/api/settings/capabilities/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "x-source": "app/api/settings/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "patch": {
+        "x-source": "app/api/settings/route.ts",
+        "x-body-validator": "settingsPatchSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "x-mfa-step-up": true,
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/shell-status": {
+      "get": {
+        "x-source": "app/api/shell-status/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/support/impersonation": {
+      "post": {
+        "x-source": "app/api/support/impersonation/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/support/impersonation/route.ts",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/sync/backfill": {
+      "get": {
+        "x-source": "app/api/sync/backfill/route.ts",
+        "x-query-validator": "inline",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "post": {
+        "x-source": "app/api/sync/backfill/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "delete": {
+        "x-source": "app/api/sync/backfill/route.ts",
+        "x-body-validator": "backfillCancelSchema",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/sync/keywords": {
+      "post": {
+        "x-source": "app/api/sync/keywords/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/sync/keywords/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/sync/performance": {
+      "post": {
+        "x-source": "app/api/sync/performance/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/sync/performance/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/sync/presence-resources": {
+      "post": {
+        "x-source": "app/api/sync/presence-resources/route.ts",
+        "x-body-validator": "presenceResourcesSyncSchema",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/sync/presence-resources/route.ts",
+        "x-query-validator": "inline",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/sync/reconcile": {
+      "post": {
+        "x-source": "app/api/sync/reconcile/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/sync/reconcile/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/sync/sweep": {
+      "post": {
+        "x-source": "app/api/sync/sweep/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      },
+      "get": {
+        "x-source": "app/api/sync/sweep/route.ts",
+        "security": [
+          {
+            "cron": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/webhooks/email": {
+      "post": {
+        "x-source": "app/api/webhooks/email/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/webhooks/google/pubsub/failures": {
+      "get": {
+        "x-source": "app/api/webhooks/google/pubsub/failures/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/webhooks/google/pubsub/replay": {
+      "post": {
+        "x-source": "app/api/webhooks/google/pubsub/replay/route.ts",
+        "x-role-check": "[\"owner\",\"admin\"]",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/webhooks/google/pubsub": {
+      "post": {
+        "x-source": "app/api/webhooks/google/pubsub/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/webhooks/google/risc": {
+      "post": {
+        "x-source": "app/api/webhooks/google/risc/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    },
+    "/api/webhooks/stripe": {
+      "post": {
+        "x-source": "app/api/webhooks/stripe/route.ts",
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "See the linked route and its wire contracts for the response."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "naba_session"
+      },
+      "cron": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

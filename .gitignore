@@ -29,6 +29,8 @@
 # misc
 .DS_Store
 *.pem
+.idea/
+.vscode/
 
 # debug
 npm-debug.log*
@@ -36,9 +38,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# Local environment files; only the example is intended for version control.
 .env*
 !.env.example
+.dev.vars
+.dev.vars.*
 
 # typescript
 *.tsbuildinfo

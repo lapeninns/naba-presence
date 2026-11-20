@@ -511,6 +511,14 @@ For a PR that adds a migration:
 
 ## 7. Deploys (Vercel)
 
+Dependabot waits at least seven days before proposing a newly published npm
+dependency or GitHub Action version (`.github/dependabot.yml`).
+
+The static gate generates Markdown release notes for each candidate commit
+range. To print the complete notes since a promotion, run `pnpm release:notes
+<previous-release-sha>` from the qualified checkout. This does not tag, push,
+create a GitHub release or promote the site.
+
 **Production ships from the operator's machine, not from a merge.** Merging
 to `main` does not deploy production: the operator runs
 `vercel deploy --prod` from a clean worktree of `origin/main`, through

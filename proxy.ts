@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server"
 
 import { REQUEST_PATH_HEADER } from "@/lib/api/next-path"
+import {
+  INTERNAL_REQUEST_ID_HEADER,
+  REQUEST_ID_HEADER,
+} from "@/lib/domain/request-id"
 
 /**
  * Hands the requested path to server components. A layout cannot read the
@@ -14,17 +18,21 @@ import { REQUEST_PATH_HEADER } from "@/lib/api/next-path"
  */
 export function proxy(request: NextRequest) {
   const headers = new Headers(request.headers)
+  const requestId = crypto.randomUUID()
+  headers.set(INTERNAL_REQUEST_ID_HEADER, requestId)
   headers.set(
     REQUEST_PATH_HEADER,
     request.nextUrl.pathname + request.nextUrl.search
   )
-  return NextResponse.next({ request: { headers } })
+  const response = NextResponse.next({ request: { headers } })
+  response.headers.set(REQUEST_ID_HEADER, requestId)
+  return response
 }
 
 export const config = {
   matcher: [
-    // Pages only: API routes, Next internals and files with an extension
-    // never render the dashboard layout.
+    // Keep API requests out of proxy so Next does not buffer their bodies.
+    // The route wrapper creates and propagates an independent ID for them.
     "/((?!api/|_next/|.*\\.[\\w]+$).*)",
   ],
 }

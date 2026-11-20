@@ -17,6 +17,7 @@ import {
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import { requestFetch } from "@/lib/server/request-context"
 import { countGoogleCall } from "@/lib/server/request-metrics"
 import {
   googleTokenUnavailableError,
@@ -48,8 +49,7 @@ const googleRequestCount = googleMeter.createCounter(
 
 /**
  * Smooths bursts inside one process. It is NOT the fleet limit: that is the
- * shared Postgres budget (rate-budget.ts), which every instance draws from
- * before this pacer runs.
+ * shared Postgres budget (rate-budget.ts), drawn before this pacer runs.
  */
 async function paceGoogleRequest(connectionKey?: string) {
   const interval = 1000 / getServerEnv().GOOGLE_REQUESTS_PER_SECOND
@@ -437,7 +437,7 @@ export async function googleRequest<T>(
           if (remainingMs <= 0) throw googleTimeoutError()
           let response: Response
           try {
-            response = await fetch(googleApiTarget(url), {
+            response = await requestFetch(googleApiTarget(url), {
               ...init,
               headers: {
                 accept: "application/json",

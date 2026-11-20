@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "instrumentation.ts",
+    "proxy.ts",
+    "scripts/**/*.{mjs,sh}",
+    "tests/{perf,visual}/**/*.mjs"
+  ],
+  "ignore": [".design-sync/**", "docs/archive/**"],
+  "ignoreBinaries": ["actionlint", "gitleaks", "zizmor"]
+}
