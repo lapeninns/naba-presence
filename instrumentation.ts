@@ -65,6 +65,11 @@ export const onRequestError: Instrumentation.onRequestError = async (
       : undefined
   const details = {
     error,
+    // The error boundaries display this digest as a support reference.
+    digest:
+      error && typeof error === "object" && "digest" in error
+        ? error.digest
+        : undefined,
     requestId,
     method: request.method,
     routePath: context.routePath,
