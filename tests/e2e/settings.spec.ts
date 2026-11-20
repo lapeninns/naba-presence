@@ -5,6 +5,7 @@ import { readJourneyState } from "./helpers/stub-bridge"
 import { pageSettled, trackRequests } from "./helpers/settled"
 import { seedTeamTenant } from "./helpers/team-tenant"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
+import { hydrated } from "./helpers/hydrated"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 const STRUCTURE_RULES = [
@@ -410,9 +411,11 @@ test.describe("team roles", () => {
     await page.goto("/team")
     // SET-10: the role chip opens Change role in one tap (chip, role,
     // confirm: 3 taps, where ⋯, Change role…, role, confirm took 4).
-    await page
-      .getByRole("button", { name: "Member: change Ben Member’s role" })
-      .click()
+    const chip = page.getByRole("button", {
+      name: "Member: change Ben Member’s role",
+    })
+    await hydrated(chip)
+    await chip.click()
     const dialog = page.getByRole("dialog", { name: "Change role" })
     await expect(dialog).toBeVisible()
 

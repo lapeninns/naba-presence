@@ -3,6 +3,7 @@ import { startAdministrationBackend } from "./helpers/administration-backend"
 import { captureVerificationSection } from "./helpers/verification-capture"
 import { captureAccessSheet } from "./helpers/administration-capture"
 import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
+import { hydrated } from "./helpers/hydrated"
 
 let backend: Awaited<ReturnType<typeof startAdministrationBackend>>
 test.beforeAll(async () => {
@@ -162,12 +163,13 @@ async function inviteAndRestore(
 async function changeRole(page: Page, info: TestInfo) {
   const fixture = await backend.accessFixture(page)
   await fixture.open()
-  await page
-    .getByRole("combobox", {
-      name: "Role for manager@example.test",
-      exact: true,
-    })
-    .click()
+  const role = page.getByRole("combobox", {
+    name: "Role for manager@example.test",
+    exact: true,
+  })
+  // Server-rendered: a press before hydration opens nothing.
+  await hydrated(role)
+  await role.click()
   // Choosing the role saves the review: one action.
   await page.getByRole("option", { name: "Owner", exact: true }).click()
   await expect(
@@ -220,9 +222,12 @@ test.describe(`Reviewed access journeys at ${JOURNEY_WIDTH}px`, () => {
   }, info) => {
     const fixture = await backend.accessFixture(page)
     await fixture.open()
-    await page
-      .getByRole("button", { name: "Remove manager@example.test", exact: true })
-      .click()
+    const remove = page.getByRole("button", {
+      name: "Remove manager@example.test",
+      exact: true,
+    })
+    await hydrated(remove)
+    await remove.click()
     await expect(
       panel(page).getByRole("heading", { name: "Review access request" })
     ).toBeFocused()
@@ -243,12 +248,12 @@ test.describe(`Reviewed access journeys at ${JOURNEY_WIDTH}px`, () => {
     }, info) => {
       const fixture = await backend.accessFixture(page)
       await fixture.open()
-      await page
-        .getByRole("button", {
-          name: action === "accept" ? "Review acceptance" : "Review decline",
-          exact: true,
-        })
-        .click()
+      const review = page.getByRole("button", {
+        name: action === "accept" ? "Review acceptance" : "Review decline",
+        exact: true,
+      })
+      await hydrated(review)
+      await review.click()
       expect(fixture.writes()).toHaveLength(0)
       await expect(
         panel(page).getByText(

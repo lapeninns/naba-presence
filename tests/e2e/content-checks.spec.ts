@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 import { startOperationsBackend } from "./helpers/operations-backend"
+import { hydrated } from "./helpers/hydrated"
 
 let backend: Awaited<ReturnType<typeof startOperationsBackend>>
 test.beforeAll(async () => {
@@ -23,7 +24,9 @@ test("a blocked post stays unsaved and a warning needs explicit acknowledgement"
         : route.abort("blockedbyclient")
     )
   await f.goto(`/listings/${f.linked[0].locationId}/posts`)
-  await page.getByRole("button", { name: "New post", exact: true }).click()
+  const newPost = page.getByRole("button", { name: "New post", exact: true })
+  await hydrated(newPost)
+  await newPost.click()
   const composer = page.getByRole("dialog", { name: "New post", exact: true })
   const summary = composer.getByRole("textbox", { name: "Post summary" })
   await summary.fill("Visit https://example.com for our menu.")

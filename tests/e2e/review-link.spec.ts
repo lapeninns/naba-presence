@@ -14,6 +14,7 @@ import {
   trackRequests,
 } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
+import { hydrated } from "./helpers/hydrated"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 const STRUCTURE_RULES = [
@@ -92,12 +93,15 @@ async function ensureLiveLink(page: Page, locationId: string) {
   if (await missing.isVisible()) {
     // The Business Information read, against the stub, which stores Google's
     // review form with the listing's details.
-    await page
-      .getByRole("button", { name: "Check for a new review form" })
-      .click()
+    const check = page.getByRole("button", {
+      name: "Check for a new review form",
+    })
+    await hydrated(check)
+    await check.click()
     await expect(create).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
   }
   if (await create.isVisible()) {
+    await hydrated(create)
     await create.click()
     await expect(card).toBeVisible()
   }
