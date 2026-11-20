@@ -538,7 +538,18 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(sheet).toBeVisible()
     // Let the sheet finish rising before the finger lands on it.
     await settle(page, sheet)
-    await swipeDown(page, sheet.getByRole("heading", { name: "More" }))
+    // The drawer closes on a release faster than 0.5 px/ms or after more
+    // than half its height (Base UI DrawerViewport). The sheet is 814 px
+    // tall, so the old 400 px drag closed it only by speed: ten animation
+    // frames within ~800 ms, which a loaded gate does not always give
+    // (failed at load ~65, 2026-11-20). Drag past half the measured height,
+    // so the outcome does not depend on the frame rate.
+    const height = (await sheet.boundingBox())!.height
+    await swipeDown(
+      page,
+      sheet.getByRole("heading", { name: "More" }),
+      Math.ceil(height / 2) + 40
+    )
     await expect(sheet).toBeHidden()
     await expect(more).toBeFocused()
   })
