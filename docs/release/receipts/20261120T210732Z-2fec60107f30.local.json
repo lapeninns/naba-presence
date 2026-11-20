@@ -1,0 +1,178 @@
+{
+  "kind": "naba-local-release-gate",
+  "version": 3,
+  "sha": "2fec60107f305dbbc3b789876804a06c12cc1be1",
+  "mode": "worktree",
+  "base": {
+    "ref": "2f0bb5b0f19970d5b2457fcc3b1bdebea37b6aa3",
+    "sha": "2f0bb5b0f19970d5b2457fcc3b1bdebea37b6aa3",
+    "mergeBase": "2f0bb5b0f19970d5b2457fcc3b1bdebea37b6aa3",
+    "source": "promotion-receipt"
+  },
+  "gateSource": {
+    "clean": true,
+    "changed": []
+  },
+  "toolchain": {
+    "node": "v24.18.0",
+    "pnpm": "10.34.5",
+    "postgres": "psql (PostgreSQL) 17.11 (Homebrew)",
+    "gitleaks": "8.30.1",
+    "actionlint": "1.7.12",
+    "zizmor": "zizmor 1.30.1",
+    "playwright": "Version 1.64.0",
+    "platform": "darwin-arm64"
+  },
+  "options": {
+    "skip": [],
+    "failFast": true,
+    "serial": true,
+    "integrationShards": 1,
+    "e2eLanes": 1,
+    "cpuBudget": null,
+    "gatePath": "full",
+    "gatePathReason": "not a pull request run (no --base-ref): releases take the full gate"
+  },
+  "ok": true,
+  "steps": [
+    {
+      "id": "frozen-install",
+      "title": "Frozen install (pnpm install --frozen-lockfile)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 5015
+    },
+    {
+      "id": "typecheck",
+      "title": "Typecheck (pnpm typecheck)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 20481
+    },
+    {
+      "id": "lint",
+      "title": "Lint, zero warnings and source ratchets",
+      "required": true,
+      "status": "passed",
+      "durationMs": 41907,
+      "summary": [
+        "Test Files 1 passed (1)",
+        "Tests 12 passed (12)"
+      ]
+    },
+    {
+      "id": "unit",
+      "title": "Unit and component tests (pnpm test)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 147217,
+      "summary": [
+        "Test Files 726 passed | 2 skipped (728)",
+        "Tests 10911 passed | 2 skipped (10913)"
+      ]
+    },
+    {
+      "id": "format",
+      "title": "Formatting of changed files (scripts/format-changed.mjs)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 460
+    },
+    {
+      "id": "design",
+      "title": "Design ratchet and contrast (check:design --ratchet, check:contrast)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 1691
+    },
+    {
+      "id": "build",
+      "title": "Standalone build (pnpm build, webpack)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 101587
+    },
+    {
+      "id": "bundle-budget",
+      "title": "First-load JS ceilings (tests/perf/route-js.mjs)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 328
+    },
+    {
+      "id": "migration-policy",
+      "title": "Migration policy against the base (append-only history)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 95
+    },
+    {
+      "id": "migrate-fresh",
+      "title": "Migrate from scratch, no-op re-run, runtime role, db:status",
+      "required": true,
+      "status": "passed",
+      "durationMs": 4948
+    },
+    {
+      "id": "migrate-upgrade",
+      "title": "Upgrade from the merge base matches from scratch",
+      "required": true,
+      "status": "passed",
+      "durationMs": 4585,
+      "note": "upgraded from 2f0bb5b0f199"
+    },
+    {
+      "id": "migrate-concurrent",
+      "title": "Concurrent migrate runs serialise on the lock",
+      "required": true,
+      "status": "passed",
+      "durationMs": 3250,
+      "note": "files=157 rows=157 distinct=157"
+    },
+    {
+      "id": "integration",
+      "title": "Integration tests (pnpm test:integration), sharded",
+      "required": true,
+      "status": "passed",
+      "durationMs": 713577,
+      "summary": [
+        "Test Files 183 passed (183)",
+        "Tests 1705 passed (1705)"
+      ]
+    },
+    {
+      "id": "e2e",
+      "title": "Browser journeys (pnpm test:e2e --forbid-only)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 1082184,
+      "summary": [
+        "629 passed"
+      ],
+      "note": "1 lane(s), one cluster each"
+    },
+    {
+      "id": "audit",
+      "title": "Production dependency audit (pnpm audit --prod --audit-level high)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 525
+    },
+    {
+      "id": "workflow-lint",
+      "title": "Workflow lint (actionlint, zizmor --offline)",
+      "required": false,
+      "status": "passed",
+      "durationMs": 184
+    },
+    {
+      "id": "secret-scan",
+      "title": "Secret scan (gitleaks, full history)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 1906
+    }
+  ],
+  "startedAt": "2026-11-20T20:27:06.365Z",
+  "finishedAt": "2026-11-20T21:02:45.780Z"
+}
