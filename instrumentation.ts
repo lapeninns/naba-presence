@@ -51,6 +51,20 @@ export async function register() {
   registerOTel({ serviceName: "nabapresence" })
 }
 
+function supportDigest(error: unknown, routeType: string) {
+  if (!error || typeof error !== "object" || !("digest" in error)) return
+  const { digest } = error
+  if (typeof digest !== "string") return
+  // Next render errors use a uint32 hash in canonical decimal notation.
+  // Log that hash as a number so the string scrubber does not mistake it
+  // for a phone number. Nonstandard digests still go through redaction.
+  if (routeType === "render" && /^(0|[1-9]\d{0,9})$/.test(digest)) {
+    const hash = Number(digest)
+    if (hash <= 0xffffffff && String(hash) === digest) return hash
+  }
+  return digest
+}
+
 export const onRequestError: Instrumentation.onRequestError = async (
   error,
   request,
@@ -66,10 +80,7 @@ export const onRequestError: Instrumentation.onRequestError = async (
   const details = {
     error,
     // The error boundaries display this digest as a support reference.
-    digest:
-      error && typeof error === "object" && "digest" in error
-        ? error.digest
-        : undefined,
+    digest: supportDigest(error, context.routeType),
     requestId,
     method: request.method,
     routePath: context.routePath,
