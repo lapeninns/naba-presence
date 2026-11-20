@@ -216,6 +216,24 @@ Each step starts as soon as the steps it needs (`GATE_STEPS` in
 side by side; every step that needs a database gets its own throwaway
 PostgreSQL 17 cluster, started one at a time:
 
+**Docs-only fast path** (owner decision 2026-11-20,
+`scripts/release/fast-path.mjs`). A pull-request run (local-ci passes
+`--base-ref`) whose every changed file, both names of a rename, is inert
+documentation runs only `frozen-install`, `format`, `secret-scan` and
+`workflow-lint`; every other step is recorded as `skipped` with the note
+`docs-only fast path: not run`. Inert documentation is `docs/**` or `*.md`
+by the docs-only rule of `scripts/vercel-ignore-build.mjs` (so not
+`AGENTS.md`, the docs tests read, `docs/release/`, `.github/`, `scripts/` or
+`supabase/`), with no dot-folder in the path and a text or image file type.
+Anything else, an empty diff, a diff git cannot list, a run without
+`--base-ref` (a release), `--full` or `NABA_GATE_FULL=1` runs the full gate.
+The run prints `DOCS-ONLY FAST PATH, not a full pass`; its receipt records
+`gatePath: "docs-only"`, is never `ok`, and promotion refuses it.
+`tests/server/release-fast-path.test.ts` holds the controlled cases (a code
+file among docs, a receipt, a rename out of code, all on real commits) and
+checks that no tracked doc a source file names in quotes can take the fast
+path.
+
 | Step                 | Needs          | What runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | -------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `frozen-install`     |                | `pnpm install --frozen-lockfile`                                                                                                                                                                                                                                                                                                                                                                                                                                             |

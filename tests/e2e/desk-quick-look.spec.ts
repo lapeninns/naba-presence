@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, type Locator, type Page, test } from "@playwright/test"
 
 import { readJourneyState } from "./helpers/stub-bridge"
+import { hydrated } from "./helpers/hydrated"
 
 /**
  * The desk quick look (DSK-23, P23): from `lg`, a plain click on a Clients
@@ -195,6 +196,7 @@ test.describe("desk quick look", () => {
       await expect(
         row.getByText(/Nothing waiting|to publish|Google change/)
       ).toBeVisible()
+      await hydrated(row)
 
       await row.click()
       const panel = page.getByRole("dialog", { name: listing })

@@ -10,6 +10,7 @@ import {
   trackRequests,
 } from "./helpers/settled"
 import { readJourneyState } from "./helpers/stub-bridge"
+import { hydrated } from "./helpers/hydrated"
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 const STRUCTURE_RULES = [
@@ -237,7 +238,9 @@ test.describe("listings", () => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.cookie)
     await page.goto(`/listings/${state.primaryLocationId}/photos`)
-    await page.getByRole("button", { name: "Add photos" }).click()
+    const addPhotos = page.getByRole("button", { name: "Add photos" })
+    await hydrated(addPhotos)
+    await addPhotos.click()
     await expect(
       page.getByRole("heading", { name: "Add photos" })
     ).toBeVisible()
@@ -281,6 +284,7 @@ test.describe("listings", () => {
         const name = page.getByRole("textbox", { name: "Business name" })
         await expect(name).toBeEnabled()
         await expect(review).toHaveCount(0)
+        await hydrated(name)
         await name.fill(`${await name.inputValue()} edited`)
         await expect(review).toBeVisible()
       } else {
@@ -424,6 +428,7 @@ test.describe("listings", () => {
     // when they land, so "Review changes" never appears. Edit once they have.
     await profileLoadedFromGoogle(page)
     await requests.idle()
+    await hydrated(name)
     await name.fill("Riverside Rooms & Spa")
 
     // Nothing reaches Google until the diff has been seen: the review sheet
@@ -454,6 +459,7 @@ test.describe("listings", () => {
     await expect(name).toBeVisible()
     // Google's half of the profile arrives after the NabaPresence copy.
     await profileLoadedFromGoogle(page)
+    await hydrated(name)
     await name.fill("Riverside Rooms & Suites")
     // Save the change in NabaPresence only, so Review & publish has it waiting.
     // "Save here" is a secondary of the editor's bar: inline from `md`, and on
@@ -601,6 +607,7 @@ test.describe("listings", () => {
     // textbox unambiguously.
     const link = page.getByRole("textbox", { name: "Link", exact: true })
     await expect(link).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
+    await hydrated(link)
     await link.fill("https://book.e2e/reserve")
     // A link change is reviewed, approved, then sent as a separate step.
     await page
@@ -657,6 +664,7 @@ test.describe("listings", () => {
     const storeCode = page.getByRole("textbox", { name: "Store code" })
     await expect(storeCode).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
     await requests.idle()
+    await hydrated(storeCode)
     await storeCode.fill("RIVERSIDE-2")
     await page.getByRole("button", { name: "Review changes" }).click()
     // Hash-pinned: the PATCH carries `expectedGoogleHash` from the page's own
@@ -692,9 +700,11 @@ test.describe("listings", () => {
       exact: true,
     })
     await expect(lodging).toBeVisible({ timeout: GOOGLE_READS_TIMEOUT })
-    await lodging
-      .getByRole("searchbox", { name: "Find a lodging detail" })
-      .fill("Checkin time")
+    const find = lodging.getByRole("searchbox", {
+      name: "Find a lodging detail",
+    })
+    await hydrated(find)
+    await find.fill("Checkin time")
     const checkin = lodging.getByLabel("Check-in time", { exact: true })
     await expect(checkin).toBeVisible()
     await checkin.fill("16:00")

@@ -868,6 +868,9 @@ describe("ListingsBoard", () => {
     render(<ListingsBoard role="owner" bulkEnabled />)
     // One role query for all rows, not one per click: 50 name lookups over
     // 51 rows took ~2 s alone and 20 s on a loaded gate (2026-11-19).
+    // Each click still renders the 51-row board (a discrete event, so act()
+    // cannot batch them): ~0.5-1 s idle, 18.7 s in a gate at load average
+    // ~28 on 18 cores (2026-11-20), hence the 45 s bound below.
     const rows = screen.getAllByRole("checkbox", {
       name: /^Select Listing \d\d for a bulk change$/,
     })
@@ -885,7 +888,7 @@ describe("ListingsBoard", () => {
       name: "Select Listing 00 for a bulk change",
     })
     expect(ticked).not.toHaveAccessibleDescription(/the most/)
-  })
+  }, 45_000)
 
   it("refuses to select all shown past 50 listings instead of trimming", () => {
     const many = Array.from({ length: 51 }, (_, index) => ({

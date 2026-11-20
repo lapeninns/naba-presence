@@ -3,6 +3,7 @@ import { startLifecycleBackend } from "./helpers/lifecycle-backend"
 import { captureVerificationSection } from "./helpers/verification-capture"
 import { captureAccessDialog } from "./helpers/administration-capture"
 import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
+import { hydrated } from "./helpers/hydrated"
 
 let backend: Awaited<ReturnType<typeof startLifecycleBackend>>
 test.beforeAll(async () => {
@@ -32,12 +33,13 @@ async function prepare(
   await expect(
     page.getByText("Fixture Account Owner", { exact: true })
   ).toBeVisible()
-  await page
-    .getByRole("button", {
-      name: transfer ? "Transfer this location" : "Request deletion",
-      exact: true,
-    })
-    .click()
+  const start = page.getByRole("button", {
+    name: transfer ? "Transfer this location" : "Request deletion",
+    exact: true,
+  })
+  // Server-rendered: a press before hydration opens nothing.
+  await hydrated(start)
+  await start.click()
   if (transfer)
     await page
       .getByLabel("Destination Google account")

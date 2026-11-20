@@ -30,6 +30,8 @@ const PROMOTION_RECEIPT_NAME = /^\d{8}T\d{6}Z-[0-9a-f]{12}\.json$/
 export const GATE_SOURCE_PATHS = [
   "scripts/release/",
   "scripts/ci/",
+  // The docs-only rule the gate's fast path reuses.
+  "scripts/vercel-ignore-build.mjs",
   "lib/domain/redaction.ts",
   "package.json",
   ".nvmrc",
@@ -501,6 +503,11 @@ export function localReceiptProblems(
   if (!receiptNode || Number(receiptNode[1]) !== nodeMajor) {
     problems.push(
       `the local gate ran on Node ${value.toolchain?.node ?? "unknown"}, not Node ${nodeMajor}`
+    )
+  }
+  if (value.options?.gatePath && value.options.gatePath !== "full") {
+    problems.push(
+      `the local gate took the ${value.options.gatePath} fast path (${value.options.gatePathReason ?? "no reason recorded"}); a release needs the full gate`
     )
   }
   if (Array.isArray(value.options?.skip) && value.options.skip.length > 0) {

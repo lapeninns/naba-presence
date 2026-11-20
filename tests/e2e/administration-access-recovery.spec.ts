@@ -3,6 +3,7 @@ import { seedMemberUser } from "../integration/helpers/tenant"
 import { startAdministrationBackend } from "./helpers/administration-backend"
 import { captureVerificationSection } from "./helpers/verification-capture"
 import { JOURNEY_WIDTH, LAYOUT_WIDTHS, viewportAt } from "./helpers/widths"
+import { hydrated } from "./helpers/hydrated"
 
 let backend: Awaited<ReturnType<typeof startAdministrationBackend>>
 test.beforeAll(async () => {
@@ -21,12 +22,13 @@ test.beforeEach(async ({ context }) => {
 const panel = (page: Page) =>
   page.locator('section[aria-labelledby="access-review-workspace"]')
 async function reviewRole(page: Page) {
-  await page
-    .getByRole("combobox", {
-      name: "Role for manager@example.test",
-      exact: true,
-    })
-    .click()
+  const role = page.getByRole("combobox", {
+    name: "Role for manager@example.test",
+    exact: true,
+  })
+  // Server-rendered: a press before hydration opens nothing.
+  await hydrated(role)
+  await role.click()
   await page.getByRole("option", { name: "Owner", exact: true }).click()
   await expect(
     panel(page).getByRole("button", { name: "Approve access request" })
@@ -183,12 +185,12 @@ test.describe(`Administration recovery journeys at ${JOURNEY_WIDTH}px`, () => {
     })
     await backend.admin`update member set role = 'admin' where organisation_id = ${fixture.owner.organisationId} and user_id = ${manager.userId}`
     await fixture.open()
-    await page
-      .getByRole("combobox", {
-        name: "Role for manager@example.test",
-        exact: true,
-      })
-      .click()
+    const role = page.getByRole("combobox", {
+      name: "Role for manager@example.test",
+      exact: true,
+    })
+    await hydrated(role)
+    await role.click()
     await page.getByRole("option", { name: "Owner", exact: true }).click()
     await expect(
       panel(page).getByRole("button", { name: "Approve access request" })
