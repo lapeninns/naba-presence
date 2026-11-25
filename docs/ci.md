@@ -318,8 +318,8 @@ not delete them. For a full-document navigation inside the app, use
   protect nothing. Use the direct URL or the session pooler (5432).
 - Runs each file in its own transaction. Every file carries its own
   `begin;`/`commit;`, which the runner strips so its transaction owns the
-  file. A file whose first line is `-- migrate:no-transaction` runs as-is;
-  none currently do.
+  file. A file whose first line is `-- migrate:no-transaction` runs as-is,
+  statement by statement with no surrounding transaction (0133–0140 do).
 - Environment variables:
 
 | Variable                                             | Default               | Purpose                                                                                                              |
@@ -430,8 +430,15 @@ For a PR that adds a migration:
    anything else touches production.
 4. Merge does not deploy. The next promotion (§7) runs
    `db:status --expect-current` again and refuses while anything is pending.
-5. If a migration fails, it rolls back on its own (each file runs in one
-   transaction); stop and report. Never run ad-hoc down migrations. For a
+5. If a migration fails, stop and report; do not re-run or repair it
+   without the owner. A transactional file rolls back on its own. A
+   `-- migrate:no-transaction` file (`create index concurrently`, as in
+   0133–0140) does not: its statements run one by one, so a failure can
+   leave an invalid index or other partial change. Report which statement
+   failed and the state it left (for an index,
+   `select indexrelid::regclass from pg_index where not indisvalid`); the
+   owner decides whether to drop it and re-run. Never run ad-hoc down
+   migrations. For a
    migration the owner runs that is not expand-only, the owner first takes a
    restorable database snapshot and notes the current production deployment
    (the rollback unit in `docs/runbook.md`).
