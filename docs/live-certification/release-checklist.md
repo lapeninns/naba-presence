@@ -6,7 +6,25 @@
 > updated on 2026-10-09 for Vercel (no container images, no Compose stack, no
 > separate scheduler process).
 
-## Latest production promotion — 5 November 2026
+## Latest production promotion — 25 November 2026
+
+- Production: [nabapresence.com](https://nabapresence.com).
+- Deployed commit: `44e5f4f7f2350669ca284b674c52d388fb059cec`, shipping
+  [PR #291](https://github.com/lapeninns/naba-presence/pull/291).
+- Vercel deployment: `dpl_8JfWrHA7ZundfKD1LDnKNASeZPbW`.
+- Promotion receipt timestamp: `2026-11-25T08:12:43.937Z` (08:12 Europe/London).
+- [Production receipt](../release/receipts/20261125T081243Z-44e5f4f7f235.json)
+  and its byte-pinned [local gate receipt](../release/receipts/20261125T081243Z-44e5f4f7f235.local.json).
+- All 17 release steps passed on merged main, including 10,897 unit and
+  component tests (two existing skips), 1,705 integration tests, and 629
+  Playwright tests. The full run with an eight-CPU gate budget passed after
+  the initial run recorded two listing browser timeouts.
+- No migrations shipped. The schema check found all 157 migrations current.
+  Staged readiness and the production probe verified the deployed SHA.
+  The production probe returned HTTP 200 with a compatible schema and the
+  existing `telemetry_disabled` advisory.
+
+## Prior recorded production promotion — 5 November 2026
 
 - Production: [nabapresence.com](https://nabapresence.com).
 - Deployed commit: `f003430cfd92f324743faf527ebfce46b9e8f515`, shipping
