@@ -18,8 +18,8 @@ separate checkout. That baseline has 4,727 tracked paths and tree
 `fe9ff858d7d62d49b939ff38922481c8cc0e5503761d83c40af5368e1c6fa083`.
 
 The change allowlist is the Actions CI and CodeQL workflows, their package
-manager setup composite, the local release-gate driver, the opt-in pre-push
-hook, tests of those engineering contracts, removal of the old CI aggregate, the engineering sections of
+manager setup composite, the local release-gate driver and its base resolver, the opt-in pre-push
+hook, tests of those engineering contracts, removal of the old CI aggregate, the tightening of its quality ratchet, the engineering sections of
 `AGENTS.md` and `docs/ci.md`, and this `docs/engineering/` directory. All other
 tracked paths are protected by default. The application build and its
 standalone packaging, Next.js and TypeScript config, runtime and development
@@ -157,6 +157,24 @@ show an empty local queue before the pilot and Actions disabled. A historical
 Actions PR failure on 22 October had a one-second start delay and a five-second
 run. Its Gate and Secret scan were skipped, so it has no usable full-job timing.
 Hosted cost and billing data were unavailable.
+
+A fresh full baseline on `4ef72a80` against its parent `2fec6010` passed in
+552.84 seconds (one warm-store run). Build took 142.8 seconds, integration
+292.8 seconds and Chromium e2e 292.5 seconds. The suite passed 10,911 unit
+and component cases (2 existing skips), 1,705 integration cases and 629
+Playwright cases. The baseline's frozen install used its warm store and
+took 7.4 seconds. Concurrent host work makes timing variation material.
+
+A dependency-only cold/warm pair used the same frozen manifests, pnpm 10.34.5
+and the same ARM64 host. An isolated empty store took 8.16 seconds
+(752 downloaded). A fresh offline install from that store took 4.52 seconds
+(752 reused). These are single observations, excluding queue time. The
+frozen lock still validates on either path. Hosted cache and stale-store
+behavior remain unqualified.
+GitHub also reported 25 open Dependabot alerts: 1 high, 8 moderate and 2
+low development alerts, plus 14 moderate runtime alerts. The existing
+high-severity production audit passed. These scopes explain the different
+signals. Dependency changes require individual review outside this pilot.
 
 Acceptance for an authorized cutover requires an equal test and security
 scope, one full gate per up-to-date candidate, one frozen install and

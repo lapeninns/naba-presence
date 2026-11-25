@@ -263,25 +263,6 @@ describe("verify:release steps", () => {
     expect(() => parseArgs(["--skip", "deploy"])).toThrow(/Unknown step/)
     expect(() => parseArgs(["--base-ref"])).toThrow(/needs a ref/)
     expect(parseArgs(["--base-ref", PROD_SHA]).baseRef).toBe(PROD_SHA)
-    expect(() => parseArgs(["--merge-candidate"])).toThrow(/target SHA/)
-    expect(() =>
-      parseArgs(["--base-ref", "origin/main"], {
-        GITHUB_EVENT_NAME: "pull_request",
-      })
-    ).toThrow(/target SHA/)
-    expect(() =>
-      parseArgs(["--base-ref", PROD_SHA], {
-        GITHUB_EVENT_NAME: "pull_request",
-        CI_BASE_SHA: SHA,
-      })
-    ).toThrow(/must match/)
-    expect(
-      parseArgs(["--base-ref", PROD_SHA], {
-        GITHUB_EVENT_NAME: "pull_request",
-        CI_BASE_SHA: PROD_SHA,
-      }).mergeCandidate
-    ).toBe(true)
-
     expect(() => parseArgs(["--nope"])).toThrow(/Unknown argument/)
   })
 

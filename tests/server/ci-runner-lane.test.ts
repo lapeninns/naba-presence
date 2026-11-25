@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
+import { resolveGateBase } from "../../scripts/release/gate-base.mjs"
+import { parseArgs } from "../../scripts/release/verify-local.mjs"
 import { readRepoText } from "../helpers/repo-text"
 
 describe("hosted runner and candidate identity", () => {
@@ -20,6 +22,15 @@ describe("hosted runner and candidate identity", () => {
     ])
     expect(workflow).toContain("permissions:\n  contents: read")
     expect(workflow).not.toMatch(/secrets\.|environment:|self-hosted/)
+  })
+
+  it("requires the exact target SHA for locally or remotely supplied PRs", () => {
+    const head = "a".repeat(40)
+    const base = "b".repeat(40)
+    const localCI = { GITHUB_EVENT_NAME: "pull_request", CI_BASE_SHA: base }
+    expect(() => parseArgs(["--merge-candidate"])).toThrow(/target SHA/)
+    expect(() => parseArgs(["--base-ref", head], localCI)).toThrow(/must match/)
+    expect(parseArgs(["--base-ref", base], localCI).mergeCandidate).toBe(true)
   })
 
   it("rejects a changed base, changed head, or a non-merge checkout", () => {
@@ -50,6 +61,18 @@ describe("hosted runner and candidate identity", () => {
       git("switch", "-q", "feature")
       expect(verify(base, head)).toBe(1)
       expect(verify("", "", "workflow_dispatch")).toBe(0)
+
+      const options = { baseRef: base, mergeCandidate: true }
+      expect(resolveGateBase(dir, head, options).mergeBase).toBe(base)
+      expect(() => resolveGateBase(dir, base, options)).toThrow(
+        /strict ancestor/
+      )
+      git("switch", "-q", "main")
+      git("commit", "-q", "--allow-empty", "-m", "advance target")
+      const advanced = git("rev-parse", "HEAD")
+      expect(() =>
+        resolveGateBase(dir, head, { ...options, baseRef: advanced })
+      ).toThrow(/strict ancestor/)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
