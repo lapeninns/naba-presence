@@ -1,19 +1,22 @@
 # CI and deployment
 
 The authoritative merge check is `local-ci/release-gate` on the final, up-to-date
-PR head. The GitHub Actions permissions API reported `enabled=false` and no repo
+PR head. The owner is a solo developer (owner decision 2026-11-25): no human
+review, approval or multi-signature release is required anywhere; the Codex
+review that `lci merge` enforces is the reviewer. The GitHub Actions permissions API reported `enabled=false` and no repo
 runners on 25 November 2026. The [infrastructure pilot](engineering/pilot.md)
 records the installed setup, inventory and proposal.
 
 ## 1. What runs when
 
-| Event | Verification |
-| --- | --- |
-| Edit and push | Run a focused check while iterating. The opt-in pre-push hook scans pushed commits for secrets. |
-| Final branch head | Rebase onto current `origin/main`, open a draft and run `pnpm verify` before one `lci run naba-presence --pr <N> --post --comment --wait`. |
-| Merge | GitHub requires the strict local gate. `lci merge` also checks the reviewed head and other applicable gates. |
-| Production release | Run the full gate for the exact main SHA against the serving release, then follow §6–7. |
-| Hosted recovery | When explicitly enabled, one GitHub-hosted candidate job runs on PR open, synchronize and reopen. CodeQL is a separate advisory workflow. |
+| Event              | Verification                                                                                                                                                                                                                                             |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Edit and push      | Run a focused check while iterating. The opt-in pre-push hook scans pushed commits for secrets.                                                                                                                                                          |
+| Final branch head  | Rebase onto current `origin/main`, open a draft and run `pnpm verify` before one `lci run naba-presence --pr <N> --post --comment --wait`. naba-presence is not on the release train.                                                                    |
+| New migrations     | Applied to production before merge, expand-only, then the `migrations-applied` label (§6).                                                                                                                                                               |
+| Merge              | `lci merge naba-presence --pr <N>`, the only merge path. GitHub requires the strict local gate; `lci merge` also checks the Codex review, the migration label and other applicable gates, and posts `local-ci/merge-admission`. Merging does not deploy. |
+| Production release | When the owner asks: run the full gate for the exact main SHA against the serving release, then follow §7. Not during quiet hours (22:30–08:00 London) unless the owner starts it.                                                                       |
+| Hosted recovery    | When explicitly enabled, one GitHub-hosted candidate job runs on PR open, synchronize and reopen. CodeQL is a separate advisory workflow.                                                                                                                |
 
 No persistent Mac runner should execute fork or Dependabot code. See the
 [trust boundary and cutover steps](engineering/operations.md).
@@ -35,7 +38,9 @@ same native gate. It has no push or deployment trigger.
 
 Main ruleset `23895031` requires an up-to-date PR head and
 `local-ci/release-gate`. The installed profile also issues
-`local-ci/summary`; `lci merge` checks the PR head's Codex review.
+`local-ci/summary`; `lci merge` checks the PR head's Codex review and posts
+`local-ci/merge-admission`, which the ruleset is to require so that
+`lci merge` stays the only merge path. No human approval is required.
 Use the exact current base and the squash path. If the base advances,
 qualify the updated head. Check the live rules with:
 
@@ -67,10 +72,28 @@ The testing policy (which lane when, and when to run the browser suites) is
 in `AGENTS.md`. In short: `check` while iterating, `verify` before handing a
 branch to local-ci, the integration and
 browser suites only for the files a change affects, and local-ci once on the
-rebased final head. local-ci's `gate` job *is* `verify:release`, so do not
+rebased final head. local-ci's `gate` job _is_ `verify:release`, so do not
 also run it locally before a merge; run it yourself only for a release
 receipt (§7) or to reproduce a gate failure. How the suites are organised and
 the rules they follow: [docs/testing.md](testing.md).
+
+**One-PR flow.** naba-presence is not on the scheduled release train (no
+`train` label or windows): each piece of work is one PR, merged on its own
+once its checks pass.
+
+1. `pnpm verify` passes on the branch.
+2. Rebase onto `origin/main` and push the final head.
+3. `lci run naba-presence --pr <N> --post --comment --wait`, once.
+4. If the PR adds migrations, and only after step 3 posted a passing
+   `local-ci/release-gate` (the only check that they apply from scratch and
+   from production's schema), apply them to production (§6) and add the
+   `migrations-applied` label. A label does not change the tree, so this
+   needs no second run.
+5. `lci merge naba-presence --pr <N>`. No human review is needed; the Codex
+   review `lci merge` enforces is the reviewer.
+
+Merging does not deploy production; a release is a separate promotion (§7)
+that the owner asks for.
 
 ### Local release gate (`pnpm verify:release`)
 
@@ -99,24 +122,24 @@ file among docs, a receipt, a rename out of code, all on real commits) and
 checks that no tracked doc a source file names in quotes can take the fast
 path.
 
-| Step                 | Needs          | What runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `frozen-install`     |                | `pnpm install --frozen-lockfile`                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `typecheck`, `lint`  | install        | `pnpm typecheck`, `pnpm lint` (zero warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `unit`               | install        | `pnpm test`: the unit and component projects, files in parallel                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `format`             | install        | `scripts/format-changed.mjs --check --base origin/main`: the files the change touches are Prettier-formatted (a ratchet: about 775 older files are not; on `main` itself nothing is new)                                                                                                                                                                                                                                                                                     |
-| `design`             | install        | `pnpm check:design --ratchet` and `pnpm check:contrast`                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `build`              | install        | `pnpm build` (webpack standalone)                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `bundle-budget`      | build          | `tests/perf/route-js.mjs` with the ceilings from `tests/perf/budgets-baseline.json` (gzip KB: chunk 70, shared 400, route 560)                                                                                                                                                                                                                                                                                                                                               |
-| `migration-policy`   |                | `node scripts/ci/migration-policy.mjs` against the base (see below)                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `migrate-fresh`      | install        | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current`                                                                                                                                                                                                                                                                                                                                                                                  |
-| `migrate-upgrade`    | migrate-fresh  | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one                                                                                                                                                                                                                                                                                                                                                                                          |
-| `migrate-concurrent` | install        | two `db:migrate` runs at once on a fresh cluster; each version recorded exactly once                                                                                                                                                                                                                                                                                                                                                                                         |
-| `integration`        | install, build | `pnpm test:integration` in `--integration-shards` vitest shards (default 4, `NABA_GATE_INTEGRATION_SHARDS`), each on its own migrated cluster; the shards' counts are added up, and the step passes only if more than 0 passed and none skipped                                                                                                                                                                                                                              |
+| Step                 | Needs          | What runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frozen-install`     |                | `pnpm install --frozen-lockfile`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `typecheck`, `lint`  | install        | `pnpm typecheck`, `pnpm lint` (zero warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `unit`               | install        | `pnpm test`: the unit and component projects, files in parallel                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `format`             | install        | `scripts/format-changed.mjs --check --base origin/main`: the files the change touches are Prettier-formatted (a ratchet: about 775 older files are not; on `main` itself nothing is new)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `design`             | install        | `pnpm check:design --ratchet` and `pnpm check:contrast`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `build`              | install        | `pnpm build` (webpack standalone)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `bundle-budget`      | build          | `tests/perf/route-js.mjs` with the ceilings from `tests/perf/budgets-baseline.json` (gzip KB: chunk 70, shared 400, route 560)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `migration-policy`   |                | `node scripts/ci/migration-policy.mjs` against the base (see below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `migrate-fresh`      | install        | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `migrate-upgrade`    | migrate-fresh  | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `migrate-concurrent` | install        | two `db:migrate` runs at once on a fresh cluster; each version recorded exactly once                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `integration`        | install, build | `pnpm test:integration` in `--integration-shards` vitest shards (default 4, `NABA_GATE_INTEGRATION_SHARDS`), each on its own migrated cluster; the shards' counts are added up, and the step passes only if more than 0 passed and none skipped                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `e2e`                | install, build | installs Playwright's pinned Chromium (a no-op when present), lists the suite (`playwright test --list`) and splits it by spec file into `--e2e-lanes` lanes (default 6, `NABA_GATE_E2E_LANES`; 1 with `--serial`), balanced by `tests/e2e/lane-weights.json` (`scripts/ci/e2e-lanes.mjs`). Each lane is one `pnpm test:e2e --forbid-only <files>` run with its own migrated cluster, app server and Google stub (3100/3101, 3110/3111, … or a free pair), journey tenant and output folder. A lane must account for exactly the tests planned for it; the counts are added up, and the step passes only if more than 0 passed and none skipped. Failing fast, the first red lane stops the others |
-| `audit`              |                | `pnpm audit --prod --audit-level high`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `workflow-lint`      |                | `actionlint` and `zizmor --offline .github/`. Optional: skipped with a note where the tools are not installed (`brew install actionlint zizmor`); a finding fails the gate                                                                                                                                                                                                                                                                                                   |
-| `secret-scan`        |                | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see). **Required**: without gitleaks installed the step is skipped with a note and the gate fails (SEC-13 follow-up)                                                                                                                                                                                                                          |
+| `audit`              |                | `pnpm audit --prod --audit-level high`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `workflow-lint`      |                | `actionlint` and `zizmor --offline .github/`. Optional: skipped with a note where the tools are not installed (`brew install actionlint zizmor`); a finding fails the gate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `secret-scan`        |                | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see). **Required**: without gitleaks installed the step is skipped with a note and the gate fails (SEC-13 follow-up)                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 On an M-series Mac the integration shards and e2e dominate: before this
 change the same steps ran one after another in 54-74 minutes, integration
@@ -220,7 +243,6 @@ force-pushes and tags. An unknown remote base falls back to that ref's complete
 reachable history. Set `NABA_PRE_PUSH_VERIFY=1` to also run `pnpm verify` for
 one push affecting code. The hook does not run on dependency installation.
 
-
 `tsconfig.json` excludes `.claude`, `.design-sync`, `.ds-sync`, `ds-bundle`
 and `.worktrees`, matching ESLint's ignores. TypeScript already skips
 dot-directories under `**` wildcards, but the gitignored `ds-bundle/` output
@@ -261,7 +283,8 @@ not delete them. For a full-document navigation inside the app, use
   - Contract (a later PR, once no deployed code uses the object): drop or
     rename columns and tables, add `NOT NULL` without a default, and tighten
     constraints or RLS.
-  - Reviewers hold PRs to this rule. A PR that needs both halves is split.
+  - The gate's migration policy and the Codex review hold PRs to this rule.
+    A PR that needs both halves is split.
 - **Migration safety** (`scripts/migration-rules.mjs`, enforced on new files
   by `migration-policy.mjs`, so in the gate's `migration-policy` step and the
   Migrations job):
@@ -295,8 +318,8 @@ not delete them. For a full-document navigation inside the app, use
   protect nothing. Use the direct URL or the session pooler (5432).
 - Runs each file in its own transaction. Every file carries its own
   `begin;`/`commit;`, which the runner strips so its transaction owns the
-  file. A file whose first line is `-- migrate:no-transaction` runs as-is;
-  none currently do.
+  file. A file whose first line is `-- migrate:no-transaction` runs as-is,
+  statement by statement with no surrounding transaction (0133–0140 do).
 - Environment variables:
 
 | Variable                                             | Default               | Purpose                                                                                                              |
@@ -339,7 +362,7 @@ allowed, so expand-only migrations can run ahead of the code.
 `tests/integration/startup-assertion.test.ts` checks both directions against
 the migrated CI database through the runtime role.
 
-### Production: manual, from the operator's machine
+### Production: before the code, from this Mac
 
 Vercel does **not** run migrations. The project has no Build Command
 override, production build logs show a plain `next build --webpack`, and
@@ -347,28 +370,78 @@ Production has no `DIRECT_DATABASE_URL` (Preview does). Checked on
 2026-09-25 while building this pipeline; there is no `vercel-build` script on
 purpose.
 
+**Migrations reach production before the code that needs them** (owner
+decision 2026-11-25). `lci merge` enforces this: it refuses a PR that adds
+files under `supabase/migrations` unless the PR carries the
+`migrations-applied` label. For this repo the check is label-only (lci
+cannot read production's `schema_migration`), so the label is the author's
+statement that `db:status --expect-current` passed against production for
+the PR head; add it only then.
+
+**Who may apply them.** An agent may apply an expand-only migration
+(additive: new tables, nullable or defaulted columns, new indexes, new
+functions, widened constraints) through the repository's own scripts below.
+A file with `-- migrate:contract`, anything that drops, renames, rewrites or
+backfills existing data, and any restore wait for the owner.
+
+**Credentials** come from the macOS keychain inside the command and are never
+printed, echoed, logged, written to a file or passed on a visible command
+line. Do not run these with `set -x`. Items:
+
+| Keychain item (service)         | Variable                | Used by                                                |
+| ------------------------------- | ----------------------- | ------------------------------------------------------ |
+| `naba-presence-prod-db-url`     | `DIRECT_DATABASE_URL`   | `db:status`, `db:migrate`, `release:promote`           |
+| `naba-presence-readiness-token` | `READINESS_PROBE_TOKEN` | `release:promote`, `release:rollback`, `ops:readiness` |
+
+If an item is missing, stop and ask the owner to add it
+(`security add-generic-password -s <item> -a "$USER" -w`, which prompts for
+the value). Never fall back to `.env*` or `vercel env pull`.
+
 For a PR that adds a migration:
 
-1. `pnpm verify:release` has passed for the commit whose migrations you are
-   applying (the branch head when migrating before merge), and the migration
-   is expand-only. Never run `db:migrate` against production before the gate
-   has passed: it is the only check that the migrations apply from scratch
-   and from production's schema.
-2. Take a restorable database snapshot, and note the current production
-   deployment (the rollback unit in `docs/runbook.md`).
-3. From your machine, with the admin URL (direct, or session pooler on 5432):
-   `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
-   `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`
-   (exits 1 while anything is pending; check that the printed `target` is the
-   production host).
-   Run this **before merging** when the new code depends on the new schema:
-   the live code tolerates an expand-only migration, but the new code would
-   fail against the old schema.
-4. Merge, then promote with `pnpm release:promote` (§7). Merging does not
-   deploy production; the promotion script runs `db:status --expect-current`
-   again and refuses while anything is pending.
-5. On failure, restore the snapshot and promote the noted deployment
-   together. Never run ad-hoc down migrations.
+1. **Plan.** `local-ci/release-gate` has passed on the PR head (its `gate`
+   job is `pnpm verify:release`, the only check that the migrations apply
+   from scratch and from production's schema; migrations never take the
+   docs-only fast path). Then list what is pending on production:
+
+   ```bash
+   DIRECT_DATABASE_URL="$(security find-generic-password -s naba-presence-prod-db-url -w)" pnpm db:status
+   ```
+
+   Check that the printed `target` is the production host and that the
+   pending versions are exactly the PR's new files. Put the plan in the PR:
+   the files, what each adds, why each is expand-only, and the `db:status`
+   output.
+
+2. **Apply** (not during quiet hours, 22:30–08:00 London, unless the owner
+   started it):
+
+   ```bash
+   DIRECT_DATABASE_URL="$(security find-generic-password -s naba-presence-prod-db-url -w)" pnpm db:migrate
+   DIRECT_DATABASE_URL="$(security find-generic-password -s naba-presence-prod-db-url -w)" pnpm db:status --expect-current
+   ```
+
+   Use the direct or session-pooler (5432) URL; `db:migrate` refuses port 6543. The live code tolerates an expand-only migration, and the new code
+   would fail against the old schema, so this always happens before merge.
+
+3. **Label.** Paste the `db:status --expect-current` result into the PR and
+   add the `migrations-applied` label, then `lci merge` (§5). The head must
+   not change after the gate passed; a new push means a new gate run before
+   anything else touches production.
+4. Merge does not deploy. The next promotion (§7) runs
+   `db:status --expect-current` again and refuses while anything is pending.
+5. If a migration fails, stop and report; do not re-run or repair it
+   without the owner. A transactional file rolls back on its own. A
+   `-- migrate:no-transaction` file (`create index concurrently`, as in
+   0133–0140) does not: its statements run one by one, so a failure can
+   leave an invalid index or other partial change. Report which statement
+   failed and the state it left (for an index,
+   `select indexrelid::regclass from pg_index where not indisvalid`); the
+   owner decides whether to drop it and re-run. Never run ad-hoc down
+   migrations. For a
+   migration the owner runs that is not expand-only, the owner first takes a
+   restorable database snapshot and notes the current production deployment
+   (the rollback unit in `docs/runbook.md`).
 
 ## 7. Deploys (Vercel)
 
@@ -380,23 +453,43 @@ range. To print the complete notes since a promotion, run `pnpm release:notes
 <previous-release-sha>` from the qualified checkout. This does not tag, push,
 create a GitHub release or promote the site.
 
-**Production ships from the operator's machine.** The Vercel project
-reported no connected Git repository on 25 November 2026. Merging does not
-deploy. Follow the staged promotion below from a clean worktree of
-`origin/main`. If project linking is proposed, revalidate the trigger and
-approval setup in the [cutover plan](engineering/operations.md).
+**Production ships from this Mac.** The Vercel project reported no
+connected Git repository on 25 November 2026. Merging does not deploy.
+Follow the staged promotion below from a clean worktree of `origin/main`. If
+project linking is proposed, revalidate the trigger setup in the
+[cutover plan](engineering/operations.md).
+
+**Release policy** (solo developer, owner decision 2026-11-25):
+
+- An agent runs `pnpm release:promote` when the owner asks for a release, and
+  `pnpm release:rollback` when a release it promoted fails its checks. There
+  is no multi-signature sign-off; the owner's request is the decision.
+- There are no release windows for this repo. A `hotfix` label means promote
+  as soon as the checks pass. Quiet hours: no promotion 22:30–08:00 London
+  unless the owner starts it.
+- Staging first is required only for database changes, payments,
+  sign-in/auth and email/SMS sending. There is no separate staging project:
+  check those journeys on a Vercel Preview deployment before the promotion.
+  Other changes go local-ci, merge, promotion; the promotion's own staged
+  deployment and probe (below) still run for every release.
+- Credentials come from the keychain inside the command (§6), never printed.
+- After every promotion run the post-release checks at the end of this
+  section, and roll back at once if they fail.
 
 ### Promotion (`pnpm release:promote`)
 
-First run the local release gate (§5) on the `origin/main` commit and keep
-the receipt path it prints; production migrations (§6) come after it has
-passed, never before. Then, from a fresh worktree of `origin/main`
-(`git worktree add`), with `pnpm install --frozen-lockfile` run, the project
-linked (`vercel link`) and the production admin URL in the environment:
+First run the local release gate (§5) on the `origin/main` commit (through
+`lci slot --`, it is a heavy command) and keep the receipt path it prints.
+Any migrations the release ships were applied before their PR merged (§6);
+the promotion refuses if one is still pending. Then, from a fresh worktree
+of `origin/main` (`git worktree add`), with
+`pnpm install --frozen-lockfile` run and the project linked (`vercel link`):
 
 ```bash
-DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --production-url https://<production origin> --dry-run
-DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --production-url https://<production origin>
+DIRECT_DATABASE_URL="$(security find-generic-password -s naba-presence-prod-db-url -w)" \
+READINESS_PROBE_TOKEN="$(security find-generic-password -s naba-presence-readiness-token -w)" \
+  pnpm release:promote --local-receipt <receipt> --production-url https://nabapresence.com --dry-run
+# then the same command without --dry-run
 ```
 
 The script refuses, before deploying anything, unless every gate holds
@@ -474,22 +567,38 @@ as the deploy returns. If the first receipt write fails, roll back or write
 the receipt by hand from the printed values. Commit the receipt and
 its `.local.json` copy; the next release's gate takes its base from it.
 
-Smoke check after the receipt: its `productionProbe.ok` is `true`, and
-`GET /api/operations/health?scope=platform` with the cron bearer returns
-`release.sha` (equal to the receipt's `sha`, with `source`
-`naba_release_sha`) and `schema.compatible: true`. Only the platform scope
-reports these; the session scope does not.
+### After every promotion
+
+1. **Served commit.** The receipt's `productionProbe.ok` is `true`. Confirm
+   again with
+   `READINESS_PROBE_TOKEN="$(security find-generic-password -s naba-presence-readiness-token -w)" pnpm ops:readiness --url https://nabapresence.com --expect-sha <sha>`:
+   `GET /api/operations/health?scope=platform` with the cron bearer returns
+   `release.sha` (equal to the receipt's `sha`, with `source`
+   `naba_release_sha`) and `schema.compatible: true`. Only the platform
+   scope reports these; the session scope does not.
+2. **Smoke.** Load the public pages, sign in and load the dashboard.
+3. **Error logs** for about 10 minutes: the deployment's Vercel runtime
+   errors and logs (Vercel MCP `get_runtime_errors`, or `vercel logs`), for
+   new 5xx responses, `startup.schema_incompatible` or a rise in errors.
+4. **On failure, roll back at once** (below), then report what failed, the
+   rollback and its receipt to the owner.
+5. Commit the receipt files and record the release in
+   `docs/live-certification/release-checklist.md`.
 
 ### Rollback (`pnpm release:rollback`)
 
 From a checkout holding every promotion receipt (fetch `origin/main`; include
-an uncommitted receipt if the release just failed), with the project linked
-and `READINESS_PROBE_TOKEN` set:
+an uncommitted receipt if the release just failed), with the project linked:
 
 ```bash
-pnpm release:rollback --production-url https://<production origin>          # dry run: prints the plan, runs nothing
-pnpm release:rollback --production-url https://<production origin> --yes    # acts
+READINESS_PROBE_TOKEN="$(security find-generic-password -s naba-presence-readiness-token -w)" \
+  pnpm release:rollback --production-url https://nabapresence.com          # dry run: prints the plan, runs nothing
+READINESS_PROBE_TOKEN="$(security find-generic-password -s naba-presence-readiness-token -w)" \
+  pnpm release:rollback --production-url https://nabapresence.com --yes    # acts
 ```
+
+An agent rolls back without waiting for the owner when a release fails its
+post-release checks, then reports.
 
 The dry run prints what production serves according to the receipts, the
 deployment it would return to (the release production served before the
@@ -506,9 +615,14 @@ rerun the rollback to retry.
 
 It refuses when the target ships different migrations from production:
 migrations are roll-forward-only and a deployment rollback cannot undo one.
-Restore the snapshot taken before the migration (`docs/runbook.md`), confirm
-`db:status`, then rerun with `--database-restored`, which the receipt
-records. Afterwards read the deployed cron list back against the target's
+Never pass `--database-restored` unless the database really was restored.
+When the failing release shipped expand-only migrations, the previous
+deployment still runs against the expanded schema (startup accepts a
+database ahead of the code): roll the code back immediately with Vercel's
+rollback to the previous `deploymentId` (`vercel rollback <deploymentId>`),
+confirm production serves the previous SHA with `pnpm ops:readiness`, and
+report to the owner, who records it. Restoring a snapshot and rerunning with
+`--database-restored` is an owner step. Afterwards read the deployed cron list back against the target's
 `vercel.json` (ledger OPS-09). The script trusts the receipts for what
 production serves; compare its dry run with `vercel promote status`. It has
 not been drilled on a staging project yet (owner, OPS-09). After a

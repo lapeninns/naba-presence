@@ -7,21 +7,32 @@ tests, the build, migrations (append-only policy, from scratch, upgrade from
 the last promoted commit, concurrent runs), integration and e2e, plus the
 production audit and, when installed, gitleaks, on a fresh worktree and a
 throwaway PostgreSQL 17 through the runtime test role, and writes the receipt
-promotion requires (`docs/ci.md` §5). The GitHub workflows (`CI result`) run
-the same graph but are not a gate and are not needed for a release; nothing
-here waits on them. `pnpm verify` (typecheck, lint, unit and component tests,
-design ratchet; no database) is the quick check before a push.
+promotion requires (`docs/ci.md` §5). On a PR, local-ci's `gate` job runs
+that command and posts `local-ci/release-gate`. GitHub Actions is disabled:
+`.github/workflows/ci.yml` is a dormant "Candidate verification" recovery
+job, there is no `CI result` check, and nothing here waits on GitHub
+workflows. `pnpm verify` (typecheck, lint, unit and component tests, design
+ratchet; no database) is the quick check before a push.
 
-Production migrations are **manual**: Vercel's build runs only
-`next build --webpack`, and Production has no `DIRECT_DATABASE_URL`. The
-operator runs `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` and
-`pnpm db:status` from their own machine, using the direct or session-pooler
-(5432) URL; `db:migrate` refuses port 6543. Migrations must be expand-only
-(backward compatible with the live deployment). When the new code needs the
-new schema, migrate before promoting (verify, snapshot, migrate, promote,
-below); keep each migration expand-only. Destructive changes go in a later
-release. The
-full procedure is in `docs/ci.md`, "Migrations".
+Release policy (solo developer, owner decision 2026-11-25; `docs/ci.md` §6–7):
+no human review or multi-signature release; `lci merge` is the only merge
+path and merging does not deploy; an agent promotes when the owner asks and
+rolls back at once when a release fails its checks; no production migration
+or promotion 22:30–08:00 London unless the owner starts it.
+
+Production migrations run from this Mac, **before the code that needs
+them**: Vercel's build runs only `next build --webpack`, and Production has
+no `DIRECT_DATABASE_URL`. An agent may apply an expand-only migration once
+the PR's `local-ci/release-gate` has passed: plan with `pnpm db:status`, show
+the plan in the PR, run `pnpm db:migrate` and
+`pnpm db:status --expect-current`, then add the `migrations-applied` label,
+without which `lci merge` refuses a PR that adds migrations. The production
+URL comes from the keychain item `naba-presence-prod-db-url` inside the
+command and is never printed (command forms in `docs/ci.md` §6). Use the
+direct or session-pooler (5432) URL; `db:migrate` refuses port 6543.
+Destructive or data-rewriting changes (`-- migrate:contract`) go in a later
+release and wait for the owner. The full procedure is in `docs/ci.md`,
+"Migrations".
 
 Each build ships the list of migrations its code needs
 (`lib/server/schema-manifest.ts`). In production, startup reads
@@ -29,7 +40,7 @@ Each build ships the list of migrations its code needs
 them is missing (`startup.schema_incompatible`, then the boot fails); a
 database ahead of the code is accepted. Before promoting a deployment, run
 `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current` from the
-commit being deployed: it lists `pending` (in the repository, not applied)
+commit being deployed (credentials as in `docs/ci.md` §6): it lists `pending` (in the repository, not applied)
 and `unknown` (applied, not in this checkout) versions and exits 1 when
 anything is pending. `DIRECT_DATABASE_URL` takes precedence over a local
 `DATABASE_URL`, as in `db:migrate`; confirm the printed `target`
@@ -37,8 +48,11 @@ anything is pending. `DIRECT_DATABASE_URL` takes precedence over a local
 running `pnpm db:migrate`, not by rolling the code back.
 
 Production is promoted only through `pnpm release:promote`
-(`scripts/release/promote.mjs`; full procedure in `docs/ci.md` §7). Merging
-does not deploy. In order:
+(`scripts/release/promote.mjs`; full procedure in `docs/ci.md` §7), by an
+agent when the owner asks for a release. Merging does not deploy.
+`DIRECT_DATABASE_URL` and `READINESS_PROBE_TOKEN` come from the keychain
+items `naba-presence-prod-db-url` and `naba-presence-readiness-token` inside
+the command (`docs/ci.md` §6–7). In order:
 
 1. Run `pnpm verify:release` on the `origin/main` commit and keep the receipt
    path it prints. Its base is the release production serves according to
@@ -48,19 +62,20 @@ does not deploy. In order:
    health check). Do not touch the production database until it has passed:
    it is what proves the migrations apply from scratch and from production's
    schema.
-2. Snapshot the database and note the current production deployment (the
-   rollback unit below).
-3. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
-   `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`.
+2. Note the current production deployment (the rollback unit below).
+3. Migrations the release ships were applied before their PRs merged
+   (`migrations-applied`); `pnpm db:status --expect-current` must show none
+   pending. An owner-run migration that is not expand-only also needs a
+   restorable database snapshot first.
 4. From a fresh worktree of `origin/main`:
-   `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --production-url https://<production origin> --dry-run`,
+   `pnpm release:promote --local-receipt <receipt> --production-url https://nabapresence.com --dry-run`,
    then without `--dry-run`. It refuses a dirty worktree, a commit other than
    `origin/main`, a local receipt that is missing, for another commit, run
    with `--skip`, from a base other than the last promoted commit, or with
    any required step not passed, and pending migrations. Set
    `READINESS_PROBE_TOKEN` (production's `CRON_SECRET`) and, if the project
    uses Deployment Protection, `VERCEL_AUTOMATION_BYPASS_SECRET` in the
-   shell first. It deploys with `NABA_RELEASE_SHA=<sha>` and
+   environment of the command. It deploys with `NABA_RELEASE_SHA=<sha>` and
    `--skip-domain`, runs the readiness probe against the new deployment's
    URL, and only when that passes runs `vercel promote`. A failed probe
    exits 1 with production still on the previous deployment: nothing to roll
@@ -69,10 +84,13 @@ does not deploy. In order:
    recording that probe, with the local receipt's bytes copied beside it as
    `<receipt>.local.json`. Exit 3 means production does not serve the SHA:
    commit the receipt and roll back with `pnpm release:rollback` (below).
-5. Smoke: the receipt's `productionProbe.ok` is `true`, and
+5. Post-release checks (`docs/ci.md` §7, "After every promotion"): the
+   receipt's `productionProbe.ok` is `true`, and
    `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
-   `schema.compatible: true`. Then sign in and load the dashboard.
+   `schema.compatible: true`. Sign in and load the dashboard. Watch the
+   deployment's Vercel runtime errors for about 10 minutes. On failure roll
+   back at once (below) and report to the owner.
 6. Commit both receipt files and copy the receipt's `sha` and
    `deploymentId` into `docs/live-certification/release-checklist.md`. The
    next release's gate reads that committed `sha` as its base.
@@ -93,18 +111,22 @@ ingestion itself is unsafe. `OPENAI_TIMEOUT_MS` is capped at 55000; a larger
 value fails environment validation at startup, because the database kills a
 connection left idle in a transaction for 60 seconds and the caller would see an
 opaque 500 rather than a provider timeout.
-Database migrations are roll-forward-only. Before a migration rollout, capture
-a restorable database snapshot and note the currently deployed Vercel
-deployment. If the migration or post-migration verification fails, restore the
-snapshot and promote that exact previous deployment as one rollback unit; do
+Database migrations are roll-forward-only. Expand-only migrations are applied
+before their code and the live deployment tolerates them, so rolling the
+code back does not need a restore. Before an owner-run migration that is not
+expand-only, capture a restorable database snapshot and note the currently
+deployed Vercel deployment; if it or its verification fails, restore the
+snapshot and promote that exact previous deployment as one rollback unit. Do
 not run ad-hoc down migrations. The previous deployment is the `deploymentId`
 (and `sha`) of the release production served before this one (the
 dry run of `pnpm release:rollback` prints it). `pnpm release:rollback --production-url
 https://<production origin>` prints that plan without acting; `--yes`
 promotes the previous deployment, probes production for its SHA and writes a
 rollback receipt. It refuses while the database still has this release's
-migrations: restore the snapshot first, then pass `--database-restored`
-(`docs/ci.md` §7). After a rollback, read the deployed cron list back
+migrations. For expand-only migrations, roll the code back with
+`vercel rollback <previous deploymentId>`, confirm the previous SHA with
+`pnpm ops:readiness`, and report; `--database-restored` is only for after a
+real restore, an owner step (`docs/ci.md` §7). After a rollback, read the deployed cron list back
 against that commit's `vercel.json`: Instant Rollback is not known to restore
 cron configuration (ledger OPS-09).
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
@@ -215,20 +237,20 @@ Interactive routes keep serving while it is down, and `schedulerHeartbeatAt`
 plus every entry in `schedulerTicks` goes stale and pages: silence those alerts
 deliberately.
 
-| Flag                        | Off means                                                                                                                                                                                                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DRAFTS_ENABLED`            | The drafts route returns 503 `drafts_paused`.                                                                                                                                                                                                        |
-| `SEMANTIC_VERIFY_ENABLED`   | Verification runs its deterministic checks alone. Use this, not `DRAFTS_ENABLED`, during an OpenAI incident: a hand-written reply is still saved and still faces the human boundary.                                                                 |
-| `PUBLISH_ENABLED`           | No reply or post reaches Google, from the interactive routes or from the runner's publish work.                                                                                                                                                      |
-| `SYNC_ENABLED`              | No review ingestion, from the push route or from the runner's webhook and checkpoint work.                                                                                                                                                           |
-| `WEBHOOKS_ENABLED`          | The Pub/Sub push route stops accepting deliveries. Google retries, then dead-letters.                                                                                                                                                                |
-| `JOBS_ENABLED`              | The background runner claims nothing at all. Due work accumulates and drains when it is turned back on. `PUBLISH_ENABLED` and `SYNC_ENABLED` narrow the same claim by job kind rather than stopping it.                                              |
-| `RETENTION_ENABLED`         | The retention sweep returns 503 `retention_paused` and deletes nothing. On Vercel the retention cron still fires and receives 503 every five minutes, so expect failing fires for the length of the pause (the tick reports as paused, not stale); only the local `scripts/scheduler.mjs` skips registering the tick.                                                                |
-| `RETENTION_DELETES_ENABLED` | Retention keeps redacting expired provider content but performs no irreversible delete of tenant data (ended abuse-limit counters, which hold none, are still purged). Prefer this to `RETENTION_ENABLED` when the concern is a suspect delete predicate rather than the sweep itself, so the redaction obligation keeps being met. |
-| `NOTIFICATIONS_ENABLED`     | The health tick returns 503 `notifications_paused`: no incidents are evaluated and no alert email is sent. |
-| `GOOGLE_RATE_BUDGET_ENABLED` | Google calls stop drawing from the shared Postgres budget and fall back to per-process pacing only. For a suspected budget fault, not a quota incident. |
-| `ABUSE_LIMITS_ENABLED`      | Sign-in, registration, recovery, invitation, shared-report, support-impersonation and AI-draft requests stop counting against the Postgres abuse limits, so none answers 429 `auth_rate_limited` / `draft_rate_limited`. For a suspected limiter fault, not an attack. |
-| `RISC_ENABLED`              | The RISC receiver answers 404. Revocations are then detected only at the next refresh or API call. |
+| Flag                         | Off means                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DRAFTS_ENABLED`             | The drafts route returns 503 `drafts_paused`.                                                                                                                                                                                                                                                                                       |
+| `SEMANTIC_VERIFY_ENABLED`    | Verification runs its deterministic checks alone. Use this, not `DRAFTS_ENABLED`, during an OpenAI incident: a hand-written reply is still saved and still faces the human boundary.                                                                                                                                                |
+| `PUBLISH_ENABLED`            | No reply or post reaches Google, from the interactive routes or from the runner's publish work.                                                                                                                                                                                                                                     |
+| `SYNC_ENABLED`               | No review ingestion, from the push route or from the runner's webhook and checkpoint work.                                                                                                                                                                                                                                          |
+| `WEBHOOKS_ENABLED`           | The Pub/Sub push route stops accepting deliveries. Google retries, then dead-letters.                                                                                                                                                                                                                                               |
+| `JOBS_ENABLED`               | The background runner claims nothing at all. Due work accumulates and drains when it is turned back on. `PUBLISH_ENABLED` and `SYNC_ENABLED` narrow the same claim by job kind rather than stopping it.                                                                                                                             |
+| `RETENTION_ENABLED`          | The retention sweep returns 503 `retention_paused` and deletes nothing. On Vercel the retention cron still fires and receives 503 every five minutes, so expect failing fires for the length of the pause (the tick reports as paused, not stale); only the local `scripts/scheduler.mjs` skips registering the tick.               |
+| `RETENTION_DELETES_ENABLED`  | Retention keeps redacting expired provider content but performs no irreversible delete of tenant data (ended abuse-limit counters, which hold none, are still purged). Prefer this to `RETENTION_ENABLED` when the concern is a suspect delete predicate rather than the sweep itself, so the redaction obligation keeps being met. |
+| `NOTIFICATIONS_ENABLED`      | The health tick returns 503 `notifications_paused`: no incidents are evaluated and no alert email is sent.                                                                                                                                                                                                                          |
+| `GOOGLE_RATE_BUDGET_ENABLED` | Google calls stop drawing from the shared Postgres budget and fall back to per-process pacing only. For a suspected budget fault, not a quota incident.                                                                                                                                                                             |
+| `ABUSE_LIMITS_ENABLED`       | Sign-in, registration, recovery, invitation, shared-report, support-impersonation and AI-draft requests stop counting against the Postgres abuse limits, so none answers 429 `auth_rate_limited` / `draft_rate_limited`. For a suspected limiter fault, not an attack.                                                              |
+| `RISC_ENABLED`               | The RISC receiver answers 404. Revocations are then detected only at the next refresh or API call.                                                                                                                                                                                                                                  |
 
 Pause the narrowest switch that covers the failure. A paused flag is not a fix:
 record why it is off and land the correction, because backlogs accrue behind
@@ -540,7 +562,7 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   enqueue, keep completing under a pause of their scope, and stay alerted.
 - Per-organisation product flags live in `organisation_feature` (off without
   a row): `pnpm ops:pause feature --organisation <uuid> --feature
-  post_scheduling --enable --operator you@example.com`. The script refuses a
+post_scheduling --enable --operator you@example.com`. The script refuses a
   feature name not listed in `lib/contracts/org-features.ts`.
 - `post_scheduling` switches on one-time scheduled posts for an
   organisation; `post_scheduling_recurring` additionally allows daily, weekly
@@ -549,8 +571,8 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   switching it back on, the schedule is changed and approved again. Repeating
   schedules quarantined by migration 0116 show as "Needs review"; find them
   with `select id, organisation_id from post_publication_schedule where
-  status = 'needs_review'`, and legacy per-post times with `select post_id
-  from gbp_local_post_legacy_schedule where status = 'needs_review'`.
+status = 'needs_review'`, and legacy per-post times with `select post_id
+from gbp_local_post_legacy_schedule where status = 'needs_review'`.
 - `listing_change_approvals` makes direct listing writes obey the
   organisation's two-person policy: with both on, a publisher's hours,
   profile, menu and media writes park as change requests that another
@@ -560,8 +582,8 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   `awaiting_approval`: the editors keep listing them, and they stay
   decidable there and through `POST /api/locations/{id}/change-requests/{id}`
   until someone approves, rejects or withdraws them. Find them with `select
-  id, location_id, change_request ->> 'kind' from mutation_operation where
-  state = 'awaiting_approval'`. Media uploads are refused (409
+id, location_id, change_request ->> 'kind' from mutation_operation where
+state = 'awaiting_approval'`. Media uploads are refused (409
   `listing_change_upload_unsupported`) while it applies. An approval killed
   before its dispatch claimed an attempt settles `failed`
   (`approval_dispatch_interrupted`) after five minutes, on its receipt read or
@@ -649,10 +671,10 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   second fire the same day, or any fire before 03:00 with nothing running,
   answers `cycle: null` and does nothing. Progress:
   `select cycle_date, status, enumerated, succeeded, failed,
-  enumeration_completed_at from retention_cycle order by cycle_date desc
-  limit 3`, and the failures:
+enumeration_completed_at from retention_cycle order by cycle_date desc
+limit 3`, and the failures:
   `select organisation_id, attempts, last_error_code from retention_cycle_org
-  where status = 'failed' and cycle_id = '<id>'`. `enumerated` counts the
+where status = 'failed' and cycle_id = '<id>'`. `enumerated` counts the
   organisations copied in; one deleted mid-cycle takes its row with it but
   stays counted (and in `failed` if it had failed), so `succeeded + failed`
   can stay below `enumerated` on a completed cycle. A failed organisation is
@@ -772,7 +794,7 @@ correct rather than merely lenient. It is bounded in time rather than attempts
 `provider_error_code = 'reconnect_abandoned'` and audited as
 `review.reply.reconnect_abandoned`.
 
-A grant the tenant *disconnected* is not parked at all: nobody is coming back
+A grant the tenant _disconnected_ is not parked at all: nobody is coming back
 to it, so the attempt is settled `failed` immediately with
 `provider_error_code = 'connection_disconnected'` and audited as
 `review.reply.connection_disconnected`.
@@ -927,12 +949,12 @@ connections should be reconnected; never ask a customer to send a refresh token.
 
 Connection states as people see them (`lib/server/google/connections.ts`):
 
-| State | Stored as | Who acts |
-|---|---|---|
-| Active | `active`, no `last_error_code` | nobody |
-| Degraded (Data delayed) | `active`/`expired` with `last_error_code`, no reconnect task | nobody: the platform retries |
-| Needs reconnect (Action needed) | `revoked`, or `expired` **with** an open reconnect task | an owner/admin, from the banner |
-| Disconnected | `disconnected`, tokens null, `purge_due_at` set | nobody |
+| State                           | Stored as                                                    | Who acts                        |
+| ------------------------------- | ------------------------------------------------------------ | ------------------------------- |
+| Active                          | `active`, no `last_error_code`                               | nobody                          |
+| Degraded (Data delayed)         | `active`/`expired` with `last_error_code`, no reconnect task | nobody: the platform retries    |
+| Needs reconnect (Action needed) | `revoked`, or `expired` **with** an open reconnect task      | an owner/admin, from the banner |
+| Disconnected                    | `disconnected`, tokens null, `purge_due_at` set              | nobody                          |
 
 A listing whose manager access was removed at Google is `external_location.
 access_state = 'access_lost'`; the connection stays active and its other
@@ -994,7 +1016,7 @@ retention cycle failures:
   tick's entry in `vercel.json` and that its cron is enabled.
 - `tick_lock_wedged`: three or more scheduled fires in a row found the
   fleet lease held. Read `select holder, acquired_at, expires_at from
-  fleet_lease where name = '<key>'` (the key is `naba:<tick>`). A lease
+fleet_lease where name = '<key>'` (the key is `naba:<tick>`). A lease
   expires 90 seconds after its holder last renewed it (every 30 seconds
   while the run is alive), so a frozen or killed holder frees it on its own;
   a lease that keeps being renewed means a run is still going. Since 0145
@@ -1369,11 +1391,11 @@ Provision in this order:
 3. Create the runtime login with a generated password — the script's defaults
    are for local tests only:
    `DIRECT_DATABASE_URL='<admin url>' RUNTIME_ROLE_NAME=naba_runtime
-   RUNTIME_ROLE_PASSWORD='<32+ random chars>' pnpm db:runtime-role`.
+RUNTIME_ROLE_PASSWORD='<32+ random chars>' pnpm db:runtime-role`.
    `DATABASE_URL` and `DATABASE_SESSION_URL` use the same pooler host with
    user `naba_runtime.<project-ref>`. Through that URL, confirm `rolsuper` and
    `rolbypassrls` are false, `row_security` is `on`, and `show
-   statement_timeout` is `30s`. The Supabase pooler drops the
+statement_timeout` is `30s`. The Supabase pooler drops the
    startup parameters in `lib/server/db.ts`, so the script pins
    `statement_timeout = 30s` and `idle_in_transaction_session_timeout = 60s`
    on the role itself. Role settings apply only to new backends: after
@@ -1473,6 +1495,7 @@ budget (`RETENTION_BUDGET_MS`); an organisation cut short is previewed again
 on the next page, and one that cannot be counted within a whole budget is
 listed in `failures` with `retention_dry_run_budget`.
 
+<!-- prettier-ignore-start -->
 <!-- retention-inventory:start -->
 | Table | Provenance | Action | Window | Mechanism | Deletes | Hold | Approval |
 | ----- | ---------- | ------ | ------ | --------- | ------- | ---- | -------- |
@@ -1579,6 +1602,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `verification_result` | customer | keep | with its draft; reason messages scrubbed by privacy erasure | cascade from `draft` | gated | yes | published |
 | `webhook_route` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |
 <!-- retention-inventory:end -->
+<!-- prettier-ignore-end -->
 
 ## Retired capabilities and service eligibility
 
@@ -2325,6 +2349,7 @@ the outcome is settled.
 ### Failed or blocked schedules
 
 A schedule shows "Needs attention" with its reason:
+
 - `approval_invalid` / `permission_revoked`: change the schedule (a new
   revision) and have a current owner or admin approve it.
 - `prior_occurrence_unresolved`: a publish was sent but its result is unknown.
@@ -2354,16 +2379,16 @@ A schedule shows "Needs attention" with its reason:
 - `source_superseded`: the post was published another way or deleted before a
   one-time slot came due. The schedule ended without sending anything; schedule
   a new draft if another publication is wanted.
-An occurrence may start only within 5 minutes of its time. One that could not
-(runner down, publishing paused, link missing) is recorded missed by the next
-tick, even while paused, and raises `schedule_missed` (`outside_dispatch_window`,
-or `paused_when_due` when its schedule was paused); one with ended event/offer
-content is missed as `expired_content`. Missed occurrences are never published
-late. A one-time schedule with a missed slot shows "Needs review": resuming it
-answers `schedule_missed`, so choose a new time by editing it.
-Pausing keeps occurrences; cancelling stops every pending one. To stop all
-scheduled publishing at once, turn off `PUBLISH_ENABLED` (or `JOBS_ENABLED`):
-no new schedule or bulk child is claimed, and nothing already sent is undone.
+  An occurrence may start only within 5 minutes of its time. One that could not
+  (runner down, publishing paused, link missing) is recorded missed by the next
+  tick, even while paused, and raises `schedule_missed` (`outside_dispatch_window`,
+  or `paused_when_due` when its schedule was paused); one with ended event/offer
+  content is missed as `expired_content`. Missed occurrences are never published
+  late. A one-time schedule with a missed slot shows "Needs review": resuming it
+  answers `schedule_missed`, so choose a new time by editing it.
+  Pausing keeps occurrences; cancelling stops every pending one. To stop all
+  scheduled publishing at once, turn off `PUBLISH_ENABLED` (or `JOBS_ENABLED`):
+  no new schedule or bulk child is claimed, and nothing already sent is undone.
 
 Notifications (P08-R6): `schedule_missed` emails immediately and
 `schedule_blocked` goes in the digest, each with the reason in the Posts tab's
