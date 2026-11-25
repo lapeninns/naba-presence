@@ -4,77 +4,10 @@
 //   pnpm verify:release [--skip <id,...>] [--keep-going] [--base-ref <ref>]
 //                       [--receipts-dir <dir>] [--keep-worktree] [--list]
 //                       [--serial] [--integration-shards <n>] [--cpus <n>]
-//                       [--e2e-lanes <n>] [--full]
+//                       [--e2e-lanes <n>] [--full] [--merge-candidate]
 //
-// Hosted CI is not a release gate (docs/ci.md §5); this run is the evidence.
-// It checks HEAD out into a fresh detached git worktree (under
-// ~/Library/Caches/naba-verify on macOS, see gateRunRoot; NABA_GATE_DIR
-// overrides), so no .env file, untracked file or local build output takes
-// part, then runs every step of local-receipt.mjs GATE_STEPS:
-//
-//   frozen install, typecheck, lint, unit and component tests, formatting
-//   of the files the change touches, the design ratchet, build, first-load JS ceilings, migration policy against the
-//   base, migrate from scratch + no-op + runtime role + db:status, upgrade
-//   from the merge base (schema diff), concurrent migrate, integration, e2e
-//   (port 3100 when free), actionlint and zizmor over .github/ (optional:
-//   skipped with a note where they are not installed), pnpm audit --prod
-//   --audit-level high, and
-//   gitleaks over HEAD's full history (required: without gitleaks installed
-//   the step is skipped with a note and the gate fails). The integration and
-//   e2e steps pass only when their output shows tests ran
-//   (local-receipt.mjs `testCountProblem`).
-//
-// Each step starts as soon as the steps it `needs` have passed, so the
-// static checks run side by side and, once the build is done, the
-// integration shards and e2e run at the same time. Every step that needs a
-// database gets its own throwaway PostgreSQL 17 cluster
-// (scripts/ci/postgres.mjs). The migrations, concurrent-migration and
-// integration clusters stop once their last step is done and no session is
-// left (releaseGateCluster); e2e's, and any that cannot be released, stop
-// at the end of the run. Integration is split into
-// --integration-shards (default 4, or NABA_GATE_INTEGRATION_SHARDS) vitest
-// shards, each on its own cluster; their counts are added up for the
-// receipt. The browser suite is split by spec file into --e2e-lanes
-// (default 6, or NABA_GATE_E2E_LANES) Playwright runs, each with its own
-// cluster, app server, Google stub and journey tenant (scripts/ci/
-// e2e-lanes.mjs); every lane must run exactly the tests planned for it. The CPU-heavy steps (build, e2e, integration, unit, typecheck,
-// lint) share a budget of three quarters of the cores (--cpus or
-// NABA_GATE_CPUS), served in that order, so the machine is not
-// oversubscribed. --serial runs one step at a time, in receipt order, for a
-// busy or small machine.
-//
-// It writes a receipt (scripts/release/local-receipt.mjs) to
-// docs/release/receipts/local/ in the invoking checkout (gitignored), with
-// the SHA, base, toolchain versions and each step's result, and exits 0
-// only when the gate passed. `pnpm release:promote --local-receipt <file>`
-// accepts only a passing receipt for the commit it deploys. Each step's full
-// output goes to logs/<step>.log in the run directory, and all of it to
-// verify.log there, whose path is printed; a failed step's tail is printed.
-//
-// The base is the release the committed receipts say production serves
-// (docs/release/receipts/, local-receipt.mjs servingRelease), or --base-ref <production SHA>
-// before the first promotion. Promotion refuses a receipt whose base is not
-// the last promoted commit, or whose merge base is HEAD itself (the policy
-// and upgrade steps would compare HEAD with itself). Without either, the
-// base falls back to origin/main, which suits a branch but not a release.
-//
-// Docs-only fast path (scripts/release/fast-path.mjs): with --base-ref (a
-// pull request run under local-ci), when every file the diff from the merge
-// base touches is documentation nothing in the gate reads, only install,
-// format, secret scan and workflow lint run; the other steps are recorded as
-// skipped, the output says "docs-only fast path", and the receipt is never a
-// release receipt. --full (or NABA_GATE_FULL=1) runs the full gate anyway.
-//
-// The first step that fails stops the run: steps still running are
-// terminated and, with those not yet started, recorded as not-run, so a red
-// unit test does not hold the shared runner for the rest of the integration
-// and browser suites. --keep-going runs every step anyway, to see all the
-// failures at once. A run that passes is the same either way.
-//
-// --skip is for iterating: a receipt with a requested skip or a step that
-// did not run never passes promotion. Nor does one written
-// while the invoking checkout has uncommitted edits to the gate's own code
-// (GATE_SOURCE_PATHS), since that code, not the commit's, ran the gate.
+// A fresh detached checkout runs the selected gate steps. See docs/ci.md
+// for scheduling, disposable database ownership, diagnostics and receipts.
 
 import { execFileSync, spawn, spawnSync } from "node:child_process"
 import {
@@ -112,23 +45,18 @@ import {
   fastPathProblems,
 } from "./fast-path.mjs"
 
+import { git, resolveGateBase, validateCandidateBase } from "./gate-base.mjs"
 import {
   BUNDLE_BUDGET_ARGS,
   GATE_STEPS,
   LOCAL_RECEIPTS_DIR,
-  PROMOTION_RECEIPTS_DIR,
   buildLocalReceipt,
   gateProblems,
   gateSourceChanges,
-  latestPromotedRelease,
   localReceiptFileName,
 } from "./local-receipt.mjs"
 
-/**
- * The placeholder values from ci.yml's top-level `env:`. CI needs no real
- * secrets; the e2e server's instrumentation refuses to boot without these.
- * tests/server/release-verify-local.test.ts keeps them equal to ci.yml.
- */
+// Standalone and test processes receive fixture values from childEnv.
 export const CI_PLACEHOLDER_ENV = {
   NEXTAUTH_SECRET: "ci-only-secret-value-with-at-least-32-characters",
   TOKEN_ENCRYPTION_KEY: "ci-only-token-key-with-at-least-32-characters",
@@ -654,6 +582,7 @@ export function parseArgs(argv, env = {}) {
     skip: /** @type {string[]} */ ([]),
     failFast: true,
     baseRef: /** @type {string | null} */ (null),
+    mergeCandidate: env.GITHUB_EVENT_NAME === "pull_request",
     receiptsDir: /** @type {string | null} */ (null),
     keepWorktree: false,
     list: false,
@@ -683,6 +612,7 @@ export function parseArgs(argv, env = {}) {
     else if (arg === "--fail-fast") options.failFast = true
     else if (arg === "--base-ref") options.baseRef = argv[++index] ?? ""
     else if (arg === "--receipts-dir") options.receiptsDir = argv[++index] ?? ""
+    else if (arg === "--merge-candidate") options.mergeCandidate = true
     else if (arg === "--keep-worktree") options.keepWorktree = true
     else if (arg === "--full") options.full = true
     else if (arg === "--list") options.list = true
@@ -703,6 +633,7 @@ export function parseArgs(argv, env = {}) {
     throw new Error(`Unknown step(s) for --skip: ${unknown.join(", ")}`)
   }
   if (options.baseRef === "") throw new Error("--base-ref needs a ref")
+  validateCandidateBase(options, env.CI_BASE_SHA)
   if (options.receiptsDir === "") throw new Error("--receipts-dir needs a path")
   const shards = Number(options.integrationShards)
   if (!Number.isInteger(shards) || shards < 1 || shards > 16) {
@@ -890,25 +821,6 @@ const FAILED_TAIL_LINES = 80
 /** Raised by a step that cannot run because something it needs failed. */
 class NotRun extends Error {}
 
-function git(root, ...args) {
-  return execFileSync("git", args, {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim()
-}
-
-/** Committed promotion receipts at `sha`, as `{ name, content }`. */
-function promotionReceiptsAt(root, sha) {
-  return git(root, "ls-tree", "--name-only", sha, `${PROMOTION_RECEIPTS_DIR}/`)
-    .split("\n")
-    .filter((path) => path.endsWith(".json"))
-    .map((path) => ({
-      name: path,
-      content: git(root, "show", `${sha}:${path}`),
-    }))
-}
-
 function toolVersion(command, args, env, cwd) {
   const result = spawnSync(command, args, { encoding: "utf8", env, cwd })
   if (result.error || result.status !== 0) return null
@@ -964,43 +876,14 @@ async function main() {
   }
 
   const sha = git(root, "rev-parse", "HEAD")
-  let baseRef = options.baseRef
-  let baseSource = "flag"
-  if (!baseRef) {
-    let previous
-    try {
-      previous = latestPromotedRelease(promotionReceiptsAt(root, sha))
-    } catch (error) {
-      console.error(`verify:release: ${error.message}`)
-      return 2
-    }
-    if (previous) {
-      baseRef = previous.sha
-      baseSource = "promotion-receipt"
-    } else {
-      baseRef = "origin/main"
-      baseSource = "default"
-      console.warn(
-        "verify:release: no promotion receipt is committed, so the base is origin/main. For a release, pass --base-ref <the SHA production runs>."
-      )
-    }
-  }
-  let baseSha
-  let mergeBase
+  let base
   try {
-    baseSha = git(root, "rev-parse", "--verify", `${baseRef}^{commit}`)
-    mergeBase = git(root, "merge-base", baseSha, sha)
-  } catch {
-    console.error(
-      `verify:release: ${baseRef} is not a commit with a merge base with HEAD; fetch it first.`
-    )
+    base = resolveGateBase(root, sha, options)
+  } catch (error) {
+    console.error(`verify:release: ${error.message}`)
     return 2
   }
-  if (mergeBase === sha) {
-    console.warn(
-      `verify:release: the merge base with ${baseRef} is HEAD itself, so migration-policy and migrate-upgrade compare HEAD with itself; promotion refuses this receipt.`
-    )
-  }
+  const { baseRef, baseSha, mergeBase, baseSource } = base
   const changedFiles = changedFilesBetween(root, mergeBase, sha)
   const gatePath = chooseGatePath({
     baseRefGiven: options.baseRef !== null,
@@ -1040,6 +923,7 @@ async function main() {
     options.e2eLanes
   )
   let worktreeAdded = false
+  let playwrightVersion = null
 
   let interrupted = false
   /** Progress lines: the terminal and verify.log. */
@@ -1343,8 +1227,19 @@ async function main() {
    *   skipped?: boolean } | void>>}
    */
   const steps = {
-    "frozen-install": (sink) =>
-      must(sink, "pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]),
+    "frozen-install": async (sink) => {
+      await must(sink, "pnpm", [
+        "install",
+        "--frozen-lockfile",
+        "--prefer-offline",
+      ])
+      playwrightVersion = toolVersion(
+        join(worktree, "node_modules/.bin/playwright"),
+        ["--version"],
+        env,
+        worktree
+      )
+    },
     typecheck: (sink) => must(sink, "pnpm", ["typecheck"]),
     lint: (sink) => must(sink, "pnpm", ["lint:gate"]),
     unit: (sink) =>
@@ -1356,7 +1251,7 @@ async function main() {
         "scripts/format-changed.mjs",
         "--check",
         "--base",
-        "origin/main",
+        options.mergeCandidate ? baseSha : "origin/main",
       ]),
     design: async (sink) => {
       await must(sink, "pnpm", ["check:design", "--ratchet"])
@@ -1519,7 +1414,14 @@ async function main() {
     },
     e2e: async (sink) => {
       // The pinned browser for this Playwright version; a no-op when present.
-      await must(sink, "pnpm", ["exec", "playwright", "install", "chromium"])
+      const install = ["exec", "playwright", "install"]
+      if (
+        process.platform === "linux" &&
+        process.env.GITHUB_ACTIONS === "true"
+      ) {
+        install.push("--with-deps")
+      }
+      await must(sink, "pnpm", [...install, "chromium"])
       // Playwright's own list of what `pnpm test:e2e` runs (both suites and
       // the touch project), split by spec file into lanes. Each lane is one
       // Playwright invocation with every suite enabled: its own cluster, app
@@ -1658,6 +1560,11 @@ async function main() {
         (tool) => !toolVersion(tool, ["--version"], env)
       )
       if (missing.length > 0) {
+        if (options.mergeCandidate) {
+          throw new Error(
+            `Candidate workflow lint requires: ${missing.join(", ")}`
+          )
+        }
         return {
           skipped: true,
           note: `${missing.join(" and ")} not installed (brew install actionlint zizmor); workflows not linted`,
@@ -1862,12 +1769,7 @@ async function main() {
     gitleaks: toolVersion("gitleaks", ["version"], env),
     actionlint: toolVersion("actionlint", ["--version"], env),
     zizmor: toolVersion("zizmor", ["--version"], env),
-    playwright: toolVersion(
-      join(root, "node_modules/.bin/playwright"),
-      ["--version"],
-      env,
-      root
-    ),
+    playwright: playwrightVersion,
     platform: `${process.platform}-${process.arch}`,
   }
   const receipt = buildLocalReceipt({

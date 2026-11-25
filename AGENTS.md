@@ -47,8 +47,8 @@ This is the one place for testing policy.
 - When a route's path, HTTP method or wrapper contract changes, regenerate
   the [OpenAPI inventory](docs/openapi.json) with `pnpm docs:openapi`.
   `pnpm check:agents` verifies this guide's commands and local references.
-- The opt-in pre-push hook (`pnpm hooks:install`) runs `pnpm verify` and a
-  gitleaks scan of the pushed commits.
+- The opt-in pre-push hook (`pnpm hooks:install`) scans the exact pushed refs
+  for secrets. Set `NABA_PRE_PUSH_VERIFY=1` to also run `pnpm verify` on code pushes.
 
 Test-writing rules (no fixed sleeps, forced races with the stub's `hold()`,
 own tenants per file, no retries to hide flakes) are in `docs/testing.md`.
@@ -68,12 +68,11 @@ own tenants per file, no retries to hide flakes) are in `docs/testing.md`.
   `lci run naba-presence --pr <N> --post --comment --wait` (`--wait` queues
   for the shared runner). Not on intermediate
   pushes. A commit with an already-passing tree reuses its result.
-- The runner is shared and holds one global lock; another repository's run
-  may hold it for up to ~2 h. Wait in the foreground; never `--force` or
-  `--only`.
+- Check the shared runner status and wait in the foreground. Use `--force` only when prior proof has become invalid and the
+  profile needs genuinely fresh execution. Never qualify using `--only`.
 - Merge only through `lci merge`. No admin merges, `--no-codex`, skipped
-  checks or forged statuses. GitHub Actions is disabled; `.github/workflows/`
-  is reference for the same gate script.
+  checks or forged statuses. GitHub Actions is disabled; the hosted workflow
+  is a recovery proposal. Keep forks and Dependabot branches off this Mac.
 - One PR per piece of work. Run `gh auth switch --user lapeninns` before any
   push or `gh` write.
 

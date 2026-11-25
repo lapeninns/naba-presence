@@ -60,7 +60,9 @@ describe("toolchain parity", () => {
     )
     const paths = blocks.map(({ path }) => path)
     expect(paths).toContain(".github/actions/setup/action.yml")
-    expect(paths).toContain(".github/workflows/ci.yml")
+    expect(readRepoText(".github/workflows/ci.yml")).toContain(
+      "uses: ./.github/actions/setup"
+    )
     for (const { path, block } of blocks) {
       expect(block, path).toMatch(/node-version-file:\s*\.nvmrc\s*$/m)
       expect(block, path).not.toMatch(/^\s*node-version:/m)

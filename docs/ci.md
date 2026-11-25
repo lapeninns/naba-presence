@@ -1,190 +1,55 @@
 # CI and deployment
 
-How changes are checked before they reach production: what the gate runs,
-where it runs, what is required to merge, and how to debug a red run.
-
-**One gate, two places to run it.** Every check lives in
-`scripts/release/verify-local.mjs` (`pnpm verify:release`, §5): the same
-steps, rules and receipt whether it runs on the owner's Mac or in GitHub
-Actions. `.github/workflows/ci.yml` only chooses a runner, skips docs-only
-pull requests, installs the tools the gate needs and calls the script, so the
-two cannot drift (they did, before 2026-10-21: see
-[the audit](audits/2026-10-21-test-ci-modernization/AUDIT_REPORT.md)).
-
-**Current execution is local-ci.** The live Actions permissions API reports
-`enabled=false` (checked 2026-10-30). The separately installed sibling
-`local-ci` project runs the profile `profiles/naba-presence.json` on the Mac,
-checks out an exact commit in a disposable worktree, and publishes
-`local-ci/<job>` commit statuses. Its global lock permits one full run at a
-time across repositories. Keep Actions disabled; the workflow and the Mac
-Actions-runner instructions below are retained reference, not the active
-executor. The historical hosted failures were budget failures; restoring a
-budget alone would not enable a disabled repository.
-
-`pnpm verify:release` and its exact-revision receipt remain what
-`pnpm release:promote` (§7) requires. A passing status is not production
-promotion, and no application deployment is needed for CI-only configuration.
-Keep the summary in the PR (`.github/pull_request_template.md`).
-
-### Approved local-ci merge check, live cut-over pending validation
-
-The live main ruleset still requires Actions' `CI result`, pinned to the
-GitHub Actions integration (15368). Local-ci cannot publish that check under
-that identity. Do not forge it, use an admin bypass, or disable required checks.
-
-The proposed local profile adds `local-ci/release-gate`, requiring successful
-`gate`, `secret-scan` and `quick-verify` jobs for the current candidate.
-It retains every existing job and the complete native release gate; the
-`quick-verify` status depends on that gate rather than repeating its identical
-type/lint/format/unit/design subset. The last successful local-ci run on
-2026-10-30 spent another 215.688 seconds on that duplicate subset after its
-966.333-second full gate. New end-to-end timing is not yet measured. The profile uses the
-PR's exact base SHA for upgrade checks, and allows 100 minutes for the
-90-minute gate plus browser installation. The owner approved replacing
-`CI result` with `local-ci/release-gate` after the complete profile passes on the
-up-to-date PR head. Keep strict up-to-date and PR requirements.
-
-This also changes the publisher trust boundary: the existing local-ci transport
-posts as the repository owner's authenticated `gh` account, not GitHub Actions.
-A status context alone does not pin that account in a ruleset. On 2026-10-30 the
-owner explicitly accepted owner-account statuses, matching NabaPerks. The
-checked-in ruleset records that approved target; the live ruleset must remain
-unchanged until exact-head validation and review complete. A dedicated publisher
-GitHub App with a pinned integration remains a future hardening option.
-
-- Workflows: `.github/workflows/ci.yml` (the required `CI result`) and
-  `codeql.yml` (dormant: code scanning is unavailable on this private
-  repository); Dependabot: `.github/dependabot.yml`.
-- Shared install step: `.github/actions/setup` (pnpm from `packageManager`,
-  Node from `.nvmrc`, `pnpm install --frozen-lockfile`).
-- Node runtime: Node 24 everywhere. `.nvmrc` (`24`) drives local nvm and CI;
-  `package.json` `engines.node` (`>=24 <25`) drives Vercel and, with
-  `engineStrict: true` in `pnpm-workspace.yaml`, makes `pnpm install` refuse
-  another major. `tests/server/toolchain-parity.test.ts` fails on any drift.
-- CI scripts: `scripts/ci/` (throwaway Postgres, migration policy, PG client,
-  result aggregation, runner-hook reference copies), `scripts/db-migrate.mjs`,
-  `scripts/vercel-ignore-build.mjs`; the gate:
-  `scripts/release/verify-local.mjs` (§5); production promotion and
-  rollback: `scripts/release/promote.mjs`, `scripts/release/rollback.mjs`
-  (§7). How tests are organised: [docs/testing.md](testing.md).
+The authoritative merge check is `local-ci/release-gate` on the final, up-to-date
+PR head. The GitHub Actions permissions API reported `enabled=false` and no repo
+runners on 25 November 2026. The [infrastructure pilot](engineering/pilot.md)
+records the installed setup, inventory and proposal.
 
 ## 1. What runs when
 
-| Situation                            | What runs                                                                                                                                                                                                                    | Where                       |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| Before a push                        | `pnpm verify` (typecheck, lint, format check of changed files, unit and component tests, design ratchet) and gitleaks over the pushed commits, through the opt-in pre-push hook; documentation-only pushes get gitleaks only | your machine                |
-| Before a merge, and before a release | `pnpm verify:release` on the head commit; paste its summary into the PR                                                                                                                                                      | your machine (the evidence) |
-| Same-repo PR                         | `ci.yml`: Plan, Gate (the whole of `verify:release`), Secret scan, `CI result`                                                                                                                                               | hosted; Mac when enabled    |
-| Same-repo PR, docs-only              | Plan, Secret scan, `CI result`; Gate skipped                                                                                                                                                                                 | as above                    |
-| Fork or Dependabot PR                | as a same-repo PR, a fork **after a maintainer approves the run**                                                                                                                                                            | always hosted               |
-| Push to `main`                       | as a same-repo PR, never cancelled; the upgrade test starts from the last promotion                                                                                                                                          | hosted; Mac when enabled    |
-| Release                              | `pnpm verify:release`, then `pnpm release:promote` (§7)                                                                                                                                                                      | operator's Mac              |
+| Event | Verification |
+| --- | --- |
+| Edit and push | Run a focused check while iterating. The opt-in pre-push hook scans pushed commits for secrets. |
+| Final branch head | Rebase onto current `origin/main`, open a draft and run `pnpm verify` before one `lci run naba-presence --pr <N> --post --comment --wait`. |
+| Merge | GitHub requires the strict local gate. `lci merge` also checks the reviewed head and other applicable gates. |
+| Production release | Run the full gate for the exact main SHA against the serving release, then follow §6–7. |
+| Hosted recovery | When explicitly enabled, one GitHub-hosted candidate job runs on PR open, synchronize and reopen. CodeQL is a separate advisory workflow. |
 
-"Docs-only" means every changed file (both names of a rename) is under
-`docs/` or ends in `.md`, except any `AGENTS.md` and the documentation tests
-read: `README.md`, `docs/runbook.md`, `docs/ci.md`, `docs/architecture.md`,
-`docs/frontend-backend-feature-map.md` and everything under `docs/release/`
-(`TEST_INPUT_DOCS` in `scripts/vercel-ignore-build.mjs`). Anything under
-`.github/`, `scripts/` or `supabase/` always counts as code. `ci.yml`'s Plan,
-the pre-push hook and the Vercel ignored-build step use the same rule
-(`tests/server/vercel-ignore-build.test.ts` keeps them in step).
-
-CI needs no secrets: `ci.yml` sets placeholder `NEXTAUTH_SECRET`,
-`TOKEN_ENCRYPTION_KEY` and `CRON_SECRET` (the gate sets the same values), so
-fork and Dependabot PRs run the whole gate. No workflow reads a repository
-secret.
+No persistent Mac runner should execute fork or Dependabot code. See the
+[trust boundary and cutover steps](engineering/operations.md).
 
 ## 2. The job graph
 
-```mermaid
-flowchart LR
-  plan[Plan: lane and docs-only] --> gate["Gate: node scripts/release/verify-local.mjs"]
-  plan --> scan["Secret scan: gitleaks over the new commits"]
-  gate & scan --> result[CI result]
-```
+The installed local profile uses an outer install, the native release gate, a
+second secret scan and two status aggregations. All mandatory results feed
+`local-ci/release-gate`. The native gate runs independent static and
+security checks in parallel, builds once, and starts isolated PostgreSQL
+shards and browser lanes after their prerequisites pass. Required steps and
+their dependencies live in `scripts/release/local-receipt.mjs`.
 
-| Job         | Timeout | What it does                                                                                                                                                                                                               |
-| ----------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plan        | 5       | Picks the lane (§8) and whether the PR changes code                                                                                                                                                                        |
-| Gate        | 90      | Checkout with full history, install, pinned gitleaks and Playwright Chromium, then `verify-local.mjs` (`--base-ref` the PR's base, or the last promotion on `main`); uploads the receipt, per-step logs and browser traces |
-| Secret scan | 5       | Pinned, checksum-verified gitleaks over the PR's or push's new commits; runs on docs-only PRs too                                                                                                                          |
-| CI result   | 5       | Aggregates the three jobs (§3)                                                                                                                                                                                             |
-
-Inside the Gate, the steps run as soon as the steps they need have passed
-(§5): the static checks side by side, then integration (two shards on a
-4-vCPU hosted runner, four on the Mac, each on its own throwaway cluster) and
-e2e at the same time after the build. Before 2026-10-21 the workflow spread
-the same checks over 13 jobs (median 7 minutes wall, 33 billed minutes per run
-on hosted, n=39, 2026-09-25 to 2026-10-03) while the local gate ran them one
-after another (54-74 minutes); the workflow now calls the local gate.
+The hosted recovery workflow has one unconditional job that verifies both
+parents of the GitHub test-merge commit, sets up pinned tools, and invokes the
+same native gate. It has no push or deployment trigger.
 
 ## 3. Required checks
 
-**Local-ci:** require `local-ci/release-gate` after the approved cut-over.
-It requires the complete native release gate, separate secret scan and the
-quick-check acknowledgment described above. Missing, skipped, failed or
-cancelled required work cannot produce a successful aggregate. Before cut-over,
-the existing live `CI result` requirement continues to block merge.
-
-**Dormant Actions reference: `CI result`.** It runs with `if: always()`,
-checks out only `scripts/ci`, and runs `node scripts/ci/aggregate-results.mjs`
-with `needs`, Plan's `code` output and the event. Every job that applies must
-be `success`; `skipped`, `failure` and `cancelled` all fail, except one
-planned skip: the Gate, when Plan succeeded and reported `code=false` on a
-pull request (a docs-only PR). Anything uncertain fails closed: Plan not
-`success`, a missing or unexpected `code` output, `code=false` on an event
-other than `pull_request`, a job missing from `needs`, or a job in `needs`
-the script does not classify. The rules are unit-tested in
-`tests/server/ci-aggregate.test.ts`, which also reads `ci.yml`.
-
-To add a job, add it to `result`'s `needs` and to `REQUIRED_ALWAYS` or
-`CODE_JOBS` in `scripts/ci/aggregate-results.mjs`. A new check belongs in
-the gate (`GATE_STEPS` in `scripts/release/local-receipt.mjs`), not in a new
-job, so it runs locally too. No ruleset change is needed: the ruleset only
-knows `CI result`, and job names are the same on both lanes.
-
-**Ruleset "main protection"** (id `23895031`). The approved desired state is
-`.github/rulesets/main.json`; read back GitHub to prove the live state.
-
-- Deletion and non-fast-forward pushes are blocked.
-- A PR is required, with 0 approvals.
-- `local-ci/release-gate` is the approved target, with the branch up to date.
-  Until validation and live re-application, GitHub still requires `CI result`
-  from integration 15368.
-- The existing admin-through-PR bypass setting is preserved, but do not use
-  it for this cut-over. Earlier budget-blocked merges used that bypass;
-  they are historical evidence, not permission to skip a current check.
-
-Merges are squash merges from an up-to-date branch, so the tree on `main`
-is the tree the gate tested.
-
-After the complete current-head profile passes and review is complete,
-compare the current live ruleset with the reviewed baseline. Stop if any
-unapproved setting changed. Apply only the approved required-check change,
-preserving every other rule, condition and bypass actor, then read it back.
-The target JSON is an audit reference, not permission to overwrite concurrent
-settings. Readback:
+Main ruleset `23895031` requires an up-to-date PR head and
+`local-ci/release-gate`. The installed profile also issues
+`local-ci/summary`; `lci merge` checks the PR head's Codex review.
+Use the exact current base and the squash path. If the base advances,
+qualify the updated head. Check the live rules with:
 
 ```bash
 gh api repos/lapeninns/naba-presence/rules/branches/main
 ```
 
-Repository Actions settings, also applied 2026-09-25: fork PR runs need
-approval from all external contributors, the default `GITHUB_TOKEN` is
-read-only, and Actions cannot approve PRs. The repository is private, so
-hosted runs consume metered minutes.
-
 ## 4. Caching and artifacts
 
-| What                      | Key                                                                                                  | Lifetime                                                                  |
-| ------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| pnpm store (hosted only)  | `actions/setup-node` `cache: pnpm`, keyed on `pnpm-lock.yaml`                                        | GitHub cache (7 days unused)                                              |
-| Playwright Chromium       | `ms-playwright-<os>-<arch>-<playwright version>`                                                     | GitHub cache; on a hit Linux runs `playwright install-deps chromium` only |
-| `gate-<attempt>` artifact | the receipt, `verify.log`, per-step logs and e2e `test-results/` (the gate keeps its worktree in CI) | 7 days, uploaded always                                                   |
-
-The Mac keeps its pnpm store and browsers on disk instead of the Actions
-cache. The gate builds once and reuses the build for integration and e2e
-inside the same job, so there is no build artifact to pass between jobs.
+Use the local pnpm store and matching Chromium version. Each gate performs a
+frozen install in its own worktree and uses its standalone build for integration
+and browser tests in that run. Hosted recovery uses a disposable VM and uploads
+only revision-labelled receipts for seven days. The production deployment is
+built by Vercel and identified by its staged provider deployment ID.
 
 ## 5. Local workflow
 
@@ -200,7 +65,7 @@ pnpm verify:release    # the whole gate on a fresh worktree; writes the receipt
 
 The testing policy (which lane when, and when to run the browser suites) is
 in `AGENTS.md`. In short: `check` while iterating, `verify` before handing a
-branch to local-ci (the opt-in pre-push hook runs it), the integration and
+branch to local-ci, the integration and
 browser suites only for the files a change affects, and local-ci once on the
 rebased final head. local-ci's `gate` job *is* `verify:release`, so do not
 also run it locally before a merge; run it yourself only for a release
@@ -349,16 +214,12 @@ ends `naba:%` fleet leases and drops unused test billing plans, only on such
 a throwaway cluster.
 
 **Pre-push hook (opt-in):** `pnpm hooks:install` sets
-`core.hooksPath=.githooks`. `.githooks/pre-push` then runs `pnpm verify` and,
-if `gitleaks` is installed, scans the commits you are pushing (`@{u}..HEAD`,
-or `origin/main..HEAD` for a new branch). There is deliberately no `prepare`
-script, so CI and Vercel installs never install hooks.
+`core.hooksPath=.githooks` in the shared clone configuration. The hook scans
+each pushed ref using the supplied commit IDs, including new branches,
+force-pushes and tags. An unknown remote base falls back to that ref's complete
+reachable history. Set `NABA_PRE_PUSH_VERIFY=1` to also run `pnpm verify` for
+one push affecting code. The hook does not run on dependency installation.
 
-- `core.hooksPath` lives in the clone's shared `.git/config`, so it applies to
-  every worktree of that clone. A worktree whose branch has no `.githooks/`
-  runs no hook.
-- Skip once with `SKIP_VERIFY=1 git push` or `git push --no-verify`. Undo with
-  `git config --unset core.hooksPath`.
 
 `tsconfig.json` excludes `.claude`, `.design-sync`, `.ds-sync`, `ds-bundle`
 and `.worktrees`, matching ESLint's ignores. TypeScript already skips
@@ -519,14 +380,11 @@ range. To print the complete notes since a promotion, run `pnpm release:notes
 <previous-release-sha>` from the qualified checkout. This does not tag, push,
 create a GitHub release or promote the site.
 
-**Production ships from the operator's machine, not from a merge.** Merging
-to `main` does not deploy production: the operator runs
-`vercel deploy --prod` from a clean worktree of `origin/main`, through
-`pnpm release:promote` (`scripts/release/promote.mjs`). Whether the Vercel
-GitHub integration is still connected for previews, and whether it could
-promote production on its own, is a dashboard check recorded under D-38 in
-`docs/release/decision-log.md`; if it can, turn off automatic production
-promotion or require `CI result` through Vercel Deployment Checks.
+**Production ships from the operator's machine.** The Vercel project
+reported no connected Git repository on 25 November 2026. Merging does not
+deploy. Follow the staged promotion below from a clean worktree of
+`origin/main`. If project linking is proposed, revalidate the trigger and
+approval setup in the [cutover plan](engineering/operations.md).
 
 ### Promotion (`pnpm release:promote`)
 
@@ -669,166 +527,22 @@ confirmed rollback, the gate's default base, promotion's required base and
     SHA outside Vercel's shallow clone.
 - GitHub environment protection rules do not apply to Vercel deploys.
 
-## 8. Self-hosted runner runbook
+## 8. Runner operations
 
-Every job, Plan, Secret scan, Dependency review and `CI result` included,
-runs on the lane Plan chooses, and Plan's own `runs-on` applies the same
-trust rule, so a trusted run on the Mac uses no hosted minutes. While the
-Actions budget blocks hosted jobs, this lane is the only way `CI result`
-runs for same-repository PRs; fork and Dependabot PRs stay hosted and stay
-blocked until the budget allows them.
+The installed local-ci Mac executes reviewed same-repository heads. GitHub
+runners are dormant. See the [operations guide](engineering/operations.md)
+for queues, cleanup, trust boundaries, and the hosted recovery design.
+Legacy Mac Actions setup files remain reference material for reverting to
+the old workflow after separate authorization.
 
-Status on 2026-10-30: **dormant; Actions is disabled.** The dedicated
-`gh-runner` account and runner daemons are not installed. An unset
-`SELF_HOSTED_ENABLED` still means hosted, preserving explicit opt-in.
-Do not run the installer or enable this lane as part of the local-ci cut-over.
+## 9. Security workflows
 
-### The lane switch
-
-`plan` puts every job (Plan itself, Gate, Secret scan and `CI result`) on
-`["self-hosted","macOS","ARM64","naba-trusted"]` only when **all** of these
-hold:
-
-- repo variable `SELF_HOSTED_ENABLED` is `true` (unset means hosted);
-- the repository is `lapeninns/naba-presence`;
-- the run is a push or dispatch on `refs/heads/main`, or a same-repo pull
-  request whose author and actor are not Dependabot.
-
-Fork and Dependabot pull requests, and `codeql.yml`, always run hosted.
-
-```bash
-gh variable set SELF_HOSTED_ENABLED --body true  -R lapeninns/naba-presence   # Mac lane on
-gh variable set SELF_HOSTED_ENABLED --body false -R lapeninns/naba-presence   # back to hosted
-```
-
-**If the Mac is offline,** recover its runner services first. Switching the
-variable to `false` is useful only when hosted capacity is actually available;
-it cannot recover CI while the Actions budget is blocked. After an authorised
-lane change, cancel and re-run the affected runs. `timeout-minutes` does not count queue time, so a job
-waiting for an offline runner sits queued for up to 24 hours. The lane is
-chosen in `plan`, so a re-run of only the failed jobs keeps its old lane: use
-**Re-run all jobs**. (An automatic online-runner probe was considered and not
-built.)
-
-### Fork safety
-
-A fork PR's `pull_request` run uses the fork's own workflow file, so a fork
-can write `runs-on: self-hosted` whatever `plan` says. The layers are:
-
-1. **Fork approval:** Settings → Actions → "Require approval for all external
-   contributors". Applied (see [Required checks](#3-required-checks)). **Never approve a fork run that changes `.github/**`**;
-   read the diff before approving any run.
-2. **Pre-job hook on the Mac** (`ACTIONS_RUNNER_HOOK_JOB_STARTED`). It refuses
-   any job unless the repository is `lapeninns/naba-presence` and the event is
-   a push, schedule or dispatch on `main`, or a same-repo, non-Dependabot
-   `pull_request`. `pull_request_target`, `issue_comment`, `workflow_run` and
-   anything else are refused. The live hook lives outside any checkout, so a
-   PR cannot change it. Reference copy: `scripts/ci/runner-hooks/pre-job.sh`;
-   its behaviour is tested by `tests/server/runner-pre-job-hook.test.ts`.
-   Owner decision before switching the lane on: every MultiCA agent pushes
-   as the single admin account, so "same-repository pull request" means any
-   agent branch runs its own `ci.yml` on the Mac. The safer minimum keeps
-   pull requests hosted (proven by the local gate) and runs only pushes and
-   dispatches on `main` on the Mac (drop the `pull_request` arm in Plan's
-   `runs-on`, its lane step and `pre-job.sh`).
-3. **Least privilege:** register the runner at repo level only, with the
-   `naba-trusted` label. Run it as a dedicated non-admin macOS user
-   `gh-runner` with no SSH keys, no `gh` auth, no keychain items and no access
-   to the owner's home folder. The default workflow token is read-only
-   (applied).
-
-### Install
-
-**Use [`scripts/ci/runner-setup.sh`](../scripts/ci/runner-setup.sh).** It
-does steps 1–4 below plus a verify pass. It is idempotent and stops at the
-first error. Run it from a checkout, as the Mac's admin user; it asks for
-`sudo` itself. The registration token comes from `RUNNER_TOKEN`, or the script
-prompts for it. It passes the token to `config.sh` through stdin, never on a
-command line.
-
-```bash
-RUNNER_TOKEN="$(gh api -X POST repos/lapeninns/naba-presence/actions/runners/registration-token --jq .token)" \
-  bash scripts/ci/runner-setup.sh          # install or update, then verify
-bash scripts/ci/runner-setup.sh verify     # checks only
-```
-
-It pins actions/runner to a version and SHA256, then lets the runner update
-itself. It closes your home folder to other users (`chmod 700`), so jobs
-cannot read checkouts or `.env` files; set `NABA_KEEP_HOME_PERMS=1` to skip
-that. Re-run it after changing a hook's reference copy. The steps it
-automates:
-
-1. `brew install postgresql@17 gitleaks jq`. Create the `gh-runner` user.
-2. Two runner instances, `mac-1` and `mac-2`, in separate folders, so two
-   pull requests' gates can run at once (each Gate already runs its
-   integration shards and e2e side by side):
-   `./config.sh --url https://github.com/lapeninns/naba-presence --labels naba-trusted --name mac-N --work _work --unattended`.
-   `self-hosted`, `macOS` and `ARM64` are added automatically.
-3. Copy `scripts/ci/runner-hooks/{pre-job,post-job,job-processes}.sh` to
-   `/usr/local/libexec/naba-runner/`, owned by root and not writable by
-   `gh-runner` (both hooks source `job-processes.sh`; pre-job refuses
-   every job if it is missing). In each runner folder's `.env`, set
-   `ACTIONS_RUNNER_HOOK_JOB_STARTED` and `ACTIONS_RUNNER_HOOK_JOB_COMPLETED`
-   to those paths. Changing a reference copy in the repo does nothing until
-   you copy it again.
-4. Run each instance as a LaunchDaemon with `UserName=gh-runner`, not
-   `svc.sh`'s LaunchAgent, so it runs without anyone logged in. Disable sleep
-   on AC power (`sudo pmset -c sleep 0`). Leave runner auto-update on.
-5. The post-job hook stops any throwaway cluster under `$RUNNER_TEMP`, stops
-   this job's processes only (same user, and the command line names, or the
-   working directory lies in, this job's `$RUNNER_TEMP` or
-   `$GITHUB_WORKSPACE`), empties `$RUNNER_TEMP`, and deletes the whole
-   workspace, `.git` included, so nothing a job writes there reaches the
-   next job. `mac-1` and `mac-2` share the `gh-runner` user, so cleanup is
-   never by user: one instance's job would kill the other's. The pre-job
-   hook runs the same scoped cleanup as a backstop. The pnpm store, the
-   Playwright browsers and `gh-runner`'s home persist.
-   - Loopback is not per user: a job can reach every service on
-     `127.0.0.1`, including a local Supabase on 54322. Keep the dev stack
-     stopped, or block it from `gh-runner` with a pf rule, while the runner
-     is online.
-   - Why not `--ephemeral`: one-job registration needs an admin token stored
-     on the Mac to mint registration tokens, which is a bigger risk than a
-     persistent runner with cleanup hooks.
-
-### Before switching the lane on
-
-Run the gate on both lanes and compare. Both use Playwright's pinned
-Chromium (`playwright.config.ts` uses a system browser only with
-`PLAYWRIGHT_CHANNEL`). macOS and musl sort
-`en_US.UTF-8` differently, so fix or note any `ORDER BY` assertion that
-fails on one lane only.
-
-## 9. Removed workflows and owner decisions
-
-Removed on 2026-10-21 (restore any of them from git history if its premise
-changes):
-
-- **`claude-review.yml`.** A `pull_request` run executes the head branch's
-  copy of the workflow, so anyone who could push a branch could read the
-  repository's only secret, `CLAUDE_CODE_OAUTH_TOKEN`; and it had not
-  completed since the Actions budget block. Owner action: delete that secret
-  (Settings → Secrets and variables → Actions). Reviews now come from a
-  separate reviewer account through MultiCA.
-- **`nightly.yml`.** Failed 27 of 27 runs (the first nine were real critical
-  advisories ignored for nine days, the rest the budget). Its CI half
-  duplicated the push run and its `pnpm audit --prod` is a required gate
-  step. Dependabot alerts cover advisories between releases.
-- **`readiness-probe.yml`.** Every run was skipped (never configured), and
-  once configured it would bill at least a minute every five minutes. Schedule
-  `pnpm ops:readiness` outside Actions instead (docs/observability.md,
-  "Scheduling the probe").
-- **Dependency review job.** The dependency-graph compare API answers 403 on
-  this private repository (checked 2026-10-21), so `CI result` could never
-  pass with it.
-
-Owner decisions, not taken here: restoring hosted CI (an Actions budget, or a
-public repository, which would also bring back dependency review and code
-scanning, and with them `codeql.yml`); switching on the Mac lane (§8);
-turning Dependabot security updates on (Settings → Code security), and
-fixing Dependabot npm updates, which have failed with
-`ERR_PNPM_NO_MATURE_MATCHING_VERSION` since 2026-10-09 (cause not found in
-the repository's pnpm settings).
+Dependabot continues to propose updates. The native gate enforces production
+advisory and secret checks and reports workflow-lint results. With repository
+Actions disabled, CodeQL has no current PR or scheduled execution. The hosted
+recovery configuration retains separate PR and weekly analyses of TypeScript,
+JavaScript, and Actions. See the [pilot](engineering/pilot.md) for version
+choices and source references.
 
 ## 10. Gate maintenance
 
@@ -845,29 +559,15 @@ the repository's pnpm settings).
 
 ## 11. Debugging a red run
 
-**Start with `CI result`.** Its log lists the three jobs' results, then one
-`::error::` line per problem (for example `gate: failure (code changed)`).
+Start with `lci status` and the run directory printed by `lci`. The gate
+summary identifies each step's outcome, runtime and test counts. For a hosted
+rehearsal, inspect `Candidate verification` and its revision-labelled receipt.
+The gate is the same entry point in either case.
 
-**Gate:** its log ends with the gate's summary table, one line per step with
-its duration and counts, then `gate: <problem>` lines. Download the
-`gate-<attempt>` artifact for the receipt, `verify.log` and the per-step logs
-(`logs/<step>.log`); a failed step's last 80 lines are already in the job
-log. Browser traces are under `naba-verify-*/src/test-results/`:
-
-```bash
-gh run download <run-id> -n gate-1 -D /tmp/gate
-pnpm exec playwright show-trace /tmp/gate/<run dir>/src/test-results/<test>/trace.zip
-```
-
-**Reproduce it locally:** `pnpm verify:release` runs exactly what the Gate
-ran (`--keep-worktree` keeps the checkout; `--skip` to iterate,
-`--keep-going` to see every failing step instead of stopping at the first). One suite on its own: `pnpm test:integration [files]` or
-`pnpm build && pnpm test:e2e -g "<test name>"`.
-
-**Re-run:** Re-run all jobs (a re-run of only `CI result` re-reads the same
-results). A job skipped because Plan failed recovers only through Plan, so
-re-run all jobs. A cancelled run (superseded by a newer push to the PR) stays
-red; look at the newest run.
+Use `pnpm verify:release --keep-going --keep-worktree` to diagnose a release
+gate failure and retain the isolated checkout. `--skip` is for diagnosis.
+For a targeted check, use `pnpm test:integration <files>` after the build or
+`pnpm test:e2e -g "<test name>"` with the disposable harness.
 
 **Reproduce a CI database locally:** this uses the same script as CI.
 
@@ -916,17 +616,6 @@ gate each cluster's directory is `pg-<step or shard>` in the run directory.
 failures print the lines only in the from-scratch or only in the upgraded
 schema; for _lock_ failures both `db:migrate` logs are in the step's log.
 
-**Lane mismatch:** a job passes on hosted but fails on the Mac, or the other
-way round. Check `Plan`'s `Lane: …` line. Usual causes are collation order,
-timing and a leftover process. Setting `SELF_HOSTED_ENABLED=false` and
-re-running all jobs confirms whether it is lane-specific.
-
-**Stuck "Queued" jobs:** a self-hosted job waits for a `naba-trusted` runner.
-Check Settings → Actions → Runners. If the Mac runners are offline, flip the
-variable to `false` and re-run all jobs.
-
-**Docs-only PR shows no Gate:** expected. `Plan` printed `Gate: false`, and
-`CI result` stays green because the aggregation allows the Gate to skip on a
-docs-only pull request. If `CI result` is red with `plan output code:
-missing`, Plan failed or did not write its output: re-run all jobs; the Gate
-is then required.
+If the docs-only fast path applies, the log names the checks that ran and
+identifies the skipped steps. A full release still requires the full gate.
+See the [operations guide](engineering/operations.md) for runner failures.

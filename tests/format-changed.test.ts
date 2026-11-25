@@ -245,16 +245,18 @@ describe("pre-push hook skip rules", () => {
         PATH: `${join(dir, "bin")}:${process.env.PATH}`,
         HOME: dir,
         SKIP_VERIFY: "",
+        NABA_PRE_PUSH_VERIFY: "1",
         ...env,
       },
     })
     const ran = readFileSync(log, "utf8").split("\n").filter(Boolean)
     return { status: result.status, ran, out: result.stdout + result.stderr }
   }
-  // `pnpm verify` runs the changed-files format check itself.
-  const CHECKS = [
+  const scan = (range: string) =>
+    `gitleaks git --no-banner --redact --log-opts=${range} .`
+  const checked = (from: string, to: string) => [
+    scan(`${from}..${to}`),
     "pnpm verify",
-    "gitleaks git --no-banner --redact --log-opts=origin/main..HEAD .",
   ]
   const line = (local: string, remote: string) =>
     `refs/heads/feature ${local} refs/heads/feature ${remote}\n`
@@ -304,19 +306,19 @@ describe("pre-push hook skip rules", () => {
   it("only scans for secrets when an update touches docs and markdown", () => {
     const result = push(line(docsCommit, rootCommit))
     expect(result.status).toBe(0)
-    expect(result.ran).toEqual([CHECKS[1]])
+    expect(result.ran).toEqual([scan(`${rootCommit}..${docsCommit}`)])
     expect(result.out).toContain("only documentation")
   })
 
   it("only scans for secrets on a new branch whose commits are all documentation", () => {
     const result = push(line(docsCommit, ZERO))
-    expect(result.ran).toEqual([CHECKS[1]])
+    expect(result.ran).toEqual([scan(`${rootCommit}..${docsCommit}`)])
   })
 
   it("runs verify when code changed", () => {
     const result = push(line(codeCommit, rootCommit))
     expect(result.status).toBe(0)
-    expect(result.ran).toEqual(CHECKS)
+    expect(result.ran).toEqual(checked(rootCommit, codeCommit))
   })
 
   it("clears Git's repository environment before running checks", () => {
@@ -328,21 +330,25 @@ describe("pre-push hook skip rules", () => {
       GIT_INDEX_FILE: join(dir, ".git/index"),
     })
     expect(result.status).toBe(0)
-    expect(result.ran).toEqual(CHECKS)
+    expect(result.ran).toEqual(checked(rootCommit, codeCommit))
   })
 
   it("treats the docs that tests read as code", () => {
     for (const path of ["docs/runbook.md", "docs/release/receipts/x.json"]) {
       put(path, `${path}\n`)
       const change = commit(`touch ${path}`)
-      expect(push(line(change, docsCommit)).ran, path).toEqual(CHECKS)
+      expect(push(line(change, docsCommit)).ran, path).toEqual(
+        checked(docsCommit, change)
+      )
     }
   })
 
   it("treats moving code into docs/ as a code change", () => {
     git("mv", "lib/code.ts", "docs/archive-code.ts")
     const moved = commit("move code into docs")
-    expect(push(line(moved, codeCommit)).ran).toEqual(CHECKS)
+    expect(push(line(moved, codeCommit)).ran).toEqual(
+      checked(codeCommit, moved)
+    )
     git("mv", "docs/archive-code.ts", "lib/code.ts")
     commit("move it back")
   })
@@ -350,23 +356,35 @@ describe("pre-push hook skip rules", () => {
   it("does not treat AGENTS.md as documentation", () => {
     put("AGENTS.md", "rules\n")
     const agents = commit("agents")
-    expect(push(line(agents, codeCommit)).ran).toEqual(CHECKS)
+    expect(push(line(agents, codeCommit)).ran).toEqual(
+      checked(codeCommit, agents)
+    )
   })
 
   it("runs the checks when any one ref in the push needs them", () => {
     const result = push(
       `${line(docsCommit, rootCommit)}refs/heads/other ${codeCommit} refs/heads/other ${rootCommit}\n`
     )
-    expect(result.ran).toEqual(CHECKS)
+    expect(result.ran).toEqual([
+      scan(`${rootCommit}..${docsCommit}`),
+      ...checked(rootCommit, codeCommit),
+    ])
   })
 
   it("cannot tell what a push changes when the remote sha is unknown, so it runs", () => {
     const result = push(line(docsCommit, "1".repeat(40)))
-    expect(result.ran).toEqual(CHECKS)
+    expect(result.ran).toEqual([scan(docsCommit), "pnpm verify"])
   })
 
   it("runs the checks when git gives it nothing to read", () => {
-    expect(push("").ran).toEqual(CHECKS)
+    expect(push("").ran).toEqual([scan("HEAD"), "pnpm verify"])
+  })
+
+  it("scans pushed refs without repeating the full quick suite by default", () => {
+    const result = push(line(codeCommit, rootCommit), {
+      NABA_PRE_PUSH_VERIFY: "",
+    })
+    expect(result.ran).toEqual([scan(`${rootCommit}..${codeCommit}`)])
   })
 
   it("honours SKIP_VERIFY=1", () => {
