@@ -83,9 +83,12 @@ once its checks pass.
 
 1. `pnpm verify` passes on the branch.
 2. Rebase onto `origin/main` and push the final head.
-3. If the PR adds migrations, apply them to production now (§6) and add the
-   `migrations-applied` label.
-4. `lci run naba-presence --pr <N> --post --comment --wait`, once.
+3. `lci run naba-presence --pr <N> --post --comment --wait`, once.
+4. If the PR adds migrations, and only after step 3 posted a passing
+   `local-ci/release-gate` (the only check that they apply from scratch and
+   from production's schema), apply them to production (§6) and add the
+   `migrations-applied` label. A label does not change the tree, so this
+   needs no second run.
 5. `lci merge naba-presence --pr <N>`. No human review is needed; the Codex
    review `lci merge` enforces is the reviewer.
 
@@ -422,8 +425,9 @@ For a PR that adds a migration:
    would fail against the old schema, so this always happens before merge.
 
 3. **Label.** Paste the `db:status --expect-current` result into the PR and
-   add the `migrations-applied` label. Then run local-ci on the final head
-   and `lci merge` (§5).
+   add the `migrations-applied` label, then `lci merge` (§5). The head must
+   not change after the gate passed; a new push means a new gate run before
+   anything else touches production.
 4. Merge does not deploy. The next promotion (§7) runs
    `db:status --expect-current` again and refuses while anything is pending.
 5. If a migration fails, it rolls back on its own (each file runs in one

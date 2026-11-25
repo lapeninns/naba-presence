@@ -23,7 +23,8 @@ the Codex review.
       dropped, renamed or rewritten); otherwise the owner applies it
 - [ ] Plan: the `pnpm db:status` output against production (pending versions
       equal this PR's files) and what each file adds
-- [ ] Applied to production before merge; `pnpm db:status --expect-current`
+- [ ] Applied to production after `local-ci/release-gate` passed on this
+      head and before merge; `pnpm db:status --expect-current`
       result pasted below, then the `migrations-applied` label added
       (credentials from the keychain, never pasted)
 

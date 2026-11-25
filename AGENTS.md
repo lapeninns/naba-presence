@@ -69,7 +69,8 @@ own tenants per file, no retries to hide flakes) are in `docs/testing.md`.
   on the final head with
   `lci run naba-presence --pr <N> --post --comment --wait` (`--wait` queues
   for the shared runner; not on intermediate pushes; a commit with an
-  already-passing tree reuses its result); then merge with `lci merge`
+  already-passing tree reuses its result); apply any migrations only after
+  that run passed (below); then merge with `lci merge`
   (profile `naba-presence`, `--pr <N>`). Use `--force` only when prior proof
   has become invalid. Never qualify using `--only`.
 - No human review or approval is required (solo developer, owner decision
