@@ -175,17 +175,6 @@ describe("verify:release steps", () => {
     expect(source.match(/must\(sink, "gitleaks"/g)).toHaveLength(1)
   })
 
-  it("uses ci.yml's placeholder environment exactly", () => {
-    const ci = readRepoText(".github/workflows/ci.yml")
-    const block = /\nenv:\n((?: {2}.*\n|\n)+)/.exec(ci)?.[1] ?? ""
-    const values = Object.fromEntries(
-      [...block.matchAll(/^ {2}([A-Z_]+):\s*"?([^"\n]+?)"?\s*$/gm)].map(
-        (match) => [match[1], match[2]]
-      )
-    )
-    expect(values).toEqual(CI_PLACEHOLDER_ENV)
-  })
-
   it("passes only allowlisted variables through and adds the placeholders", () => {
     const shell = {
       PATH: "/usr/bin",
@@ -274,6 +263,25 @@ describe("verify:release steps", () => {
     expect(() => parseArgs(["--skip", "deploy"])).toThrow(/Unknown step/)
     expect(() => parseArgs(["--base-ref"])).toThrow(/needs a ref/)
     expect(parseArgs(["--base-ref", PROD_SHA]).baseRef).toBe(PROD_SHA)
+    expect(() => parseArgs(["--merge-candidate"])).toThrow(/target SHA/)
+    expect(() =>
+      parseArgs(["--base-ref", "origin/main"], {
+        GITHUB_EVENT_NAME: "pull_request",
+      })
+    ).toThrow(/target SHA/)
+    expect(() =>
+      parseArgs(["--base-ref", PROD_SHA], {
+        GITHUB_EVENT_NAME: "pull_request",
+        CI_BASE_SHA: SHA,
+      })
+    ).toThrow(/must match/)
+    expect(
+      parseArgs(["--base-ref", PROD_SHA], {
+        GITHUB_EVENT_NAME: "pull_request",
+        CI_BASE_SHA: PROD_SHA,
+      }).mergeCandidate
+    ).toBe(true)
+
     expect(() => parseArgs(["--nope"])).toThrow(/Unknown argument/)
   })
 

@@ -95,12 +95,10 @@ describe("vercel-ignore-build", () => {
     expect(isDocsOnlyFile("docs/specs/plan.md")).toBe(true)
   })
 
-  it("is the same rule as ci.yml's plan job and the pre-push hook", () => {
-    const ci = readRepoText(".github/workflows/ci.yml")
+  it("shares the protected documentation list with the opt-in pre-push quick check", () => {
     const hook = readRepoText(".githooks/pre-push")
     for (const entry of TEST_INPUT_DOCS) {
       const pattern = entry.endsWith("/") ? `${entry}*` : entry
-      expect(ci, `ci.yml: ${pattern}`).toContain(pattern)
       expect(hook, `pre-push: ${pattern}`).toContain(pattern)
     }
     // Every doc the docs-path check reads is one of them.
@@ -114,7 +112,6 @@ describe("vercel-ignore-build", () => {
       expect(isDocsOnlyFile(doc), doc).toBe(false)
     }
     // Both names of a renamed file count.
-    expect(ci).toContain(".previous_filename // empty")
     expect(hook).toContain("--no-renames")
     expect(readRepoText("scripts/vercel-ignore-build.mjs")).toContain(
       '"--no-renames"'

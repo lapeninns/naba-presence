@@ -1,300 +1,76 @@
 name: CI
 
-# One required check, `CI result`. The gate itself is one script,
-# scripts/release/verify-local.mjs (`pnpm verify:release`): the same steps,
-# rules and receipt that are the release evidence on the owner's Mac. This
-# workflow only chooses a lane, skips docs-only pull requests, installs the
-# tools the gate needs and runs it, so CI and the local gate cannot drift.
-#
-# Lanes: every job runs on the runner chosen by `plan` (GitHub-hosted unless
-# vars.SELF_HOSTED_ENABLED == 'true' and the run is trusted). While the
-# Actions budget blocks hosted jobs, the Mac lane is the only way the
-# required check can run (docs/ci.md section 8).
-
+# Repository Actions are disabled. Enable and qualify this recovery lane only
+# through the cutover in docs/engineering/operations.md.
 on:
   pull_request:
-  push:
     branches: [main]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-env:
-  # Placeholders only: CI needs no real secrets, so fork and Dependabot pull
-  # requests run the full graph. verify-local.mjs sets the same values
-  # (tests/server/release-verify-local.test.ts keeps them equal).
-  NEXTAUTH_SECRET: ci-only-secret-value-with-at-least-32-characters
-  TOKEN_ENCRYPTION_KEY: ci-only-token-key-with-at-least-32-characters
-  CRON_SECRET: ci-only-cron-secret
-  NEXT_TELEMETRY_DISABLED: "1"
+  group: ci-candidate-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  plan:
-    name: Plan
-    # The same trust rule as the "Choose runner lane" step below, as an
-    # expression, because Plan has to run somewhere before it can choose.
-    # tests/server/ci-aggregate.test.ts keeps the two in step.
-    runs-on: >-
-      ${{ (vars.SELF_HOSTED_ENABLED == 'true'
-        && github.repository == 'lapeninns/naba-presence'
-        && ((contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main')
-          || (github.event_name == 'pull_request'
-            && github.event.pull_request.head.repo.full_name == github.repository
-            && github.event.pull_request.user.login != 'dependabot[bot]'
-            && github.actor != 'dependabot[bot]')))
-        && fromJSON('["self-hosted","macOS","ARM64","naba-trusted"]')
-        || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      runner: ${{ steps.lane.outputs.runner }}
-      lane: ${{ steps.lane.outputs.lane }}
-      code: ${{ steps.changes.outputs.code }}
-    steps:
-      - name: Choose runner lane
-        id: lane
-        env:
-          SELF_HOSTED_ENABLED: ${{ vars.SELF_HOSTED_ENABLED }}
-          REPO: ${{ github.repository }}
-          EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          ACTOR: ${{ github.actor }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          trusted=false
-          if [ "$SELF_HOSTED_ENABLED" = true ] && [ "$REPO" = lapeninns/naba-presence ]; then
-            case "$EVENT" in
-              push|workflow_dispatch)
-                [ "$REF" = refs/heads/main ] && trusted=true ;;
-              pull_request)
-                if [ "$HEAD_REPO" = "$REPO" ] && [ "$PR_AUTHOR" != 'dependabot[bot]' ] \
-                  && [ "$ACTOR" != 'dependabot[bot]' ]; then
-                  trusted=true
-                fi ;;
-            esac
-          fi
-          if [ "$trusted" = true ]; then
-            echo 'runner=["self-hosted","macOS","ARM64","naba-trusted"]' >> "$GITHUB_OUTPUT"
-            echo 'lane=self-hosted' >> "$GITHUB_OUTPUT"
-          else
-            echo 'runner="ubuntu-24.04"' >> "$GITHUB_OUTPUT"
-            echo 'lane=hosted' >> "$GITHUB_OUTPUT"
-          fi
-          echo "Lane: $([ "$trusted" = true ] && echo self-hosted || echo hosted) (event $EVENT)"
-
-      - name: Detect code changes
-        id: changes
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          # Only pull requests may skip the gate; push and dispatch always run it.
-          if [ "$EVENT" != pull_request ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Both names of a renamed file: moving code into docs/ is code.
-          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
-            --jq '.[] | .filename, (.previous_filename // empty)')
-          code=false
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
-            # The same rule as scripts/vercel-ignore-build.mjs: the docs that
-            # tests read (TEST_INPUT_DOCS) are code.
-            case "$file" in
-              AGENTS.md|*/AGENTS.md) code=true ;;
-              .github/*|scripts/*|supabase/*) code=true ;;
-              README.md|docs/architecture.md|docs/ci.md|docs/frontend-backend-feature-map.md|docs/release/*|docs/runbook.md) code=true ;;
-              docs/*|*.md) ;;
-              *) code=true ;;
-            esac
-            [ "$code" = true ] && { echo "Code change: $file"; break; }
-          done <<< "$files"
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "Gate: $code"
-
-  gate:
-    # Every check of the release gate in one job: the script runs the
-    # independent steps side by side and gives each database step (and each
-    # integration shard) its own throwaway PostgreSQL.
-    name: Gate
-    needs: plan
-    if: needs.plan.outputs.code == 'true'
-    runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}
+  candidate:
+    name: Candidate verification
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
-    permissions:
-      contents: read
     env:
-      GITLEAKS_VERSION: 8.30.1
-      GITLEAKS_SHA256_LINUX_X64: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-      GITLEAKS_SHA256_DARWIN_ARM64: b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
+      NABA_GATE_INTEGRATION_SHARDS: "2"
+      NABA_GATE_E2E_LANES: "2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The migration policy, the upgrade test and the full-history
-          # secret scan need the history.
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/setup
-        with:
-          cache: ${{ needs.plan.outputs.lane == 'hosted' && 'pnpm' || '' }}
-      - name: Install gitleaks
-        run: |
-          case "$RUNNER_OS/$RUNNER_ARCH" in
-            Linux/X64) platform=linux_x64; sum="$GITLEAKS_SHA256_LINUX_X64" ;;
-            macOS/ARM64) platform=darwin_arm64; sum="$GITLEAKS_SHA256_DARWIN_ARM64" ;;
-            *) echo "::error::No pinned gitleaks for $RUNNER_OS/$RUNNER_ARCH"; exit 1 ;;
-          esac
-          archive="gitleaks_${GITLEAKS_VERSION}_${platform}.tar.gz"
-          curl -fsSL -o "$RUNNER_TEMP/$archive" \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
-          echo "$sum  $RUNNER_TEMP/$archive" | shasum -a 256 -c -
-          mkdir -p "$RUNNER_TEMP/bin"
-          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/bin" gitleaks
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Playwright version
-        id: playwright
-        run: |
-          version=$(pnpm exec playwright --version | awk '{print $2}')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [ "$RUNNER_OS" = macOS ]; then
-            echo "path=$HOME/Library/Caches/ms-playwright" >> "$GITHUB_OUTPUT"
-          else
-            echo "path=$HOME/.cache/ms-playwright" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Restore Playwright browsers
-        id: browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ steps.playwright.outputs.path }}
-          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-      - name: Install Playwright browser
+      - name: Validate PR merge commit
         env:
-          CACHE_HIT: ${{ steps.browsers.outputs.cache-hit }}
-        run: |
-          if [ "$RUNNER_OS" = macOS ]; then
-            pnpm exec playwright install chromium
-          elif [ "$CACHE_HIT" = true ]; then
-            pnpm exec playwright install-deps chromium
-          else
-            pnpm exec playwright install --with-deps chromium
-          fi
-      - name: Release gate (pnpm verify:release)
-        env:
-          # Pull requests compare migrations with their base; main compares
-          # with the last promotion (the newest committed promotion receipt).
+          EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          # A 4-vCPU hosted runner fits two integration shards; the Mac four.
-          NABA_GATE_INTEGRATION_SHARDS: ${{ needs.plan.outputs.lane == 'hosted' && '2' || '4' }}
-          # Run directory (logs, kept worktree) under RUNNER_TEMP, which the
-          # runner empties after the job.
-          TMPDIR: ${{ runner.temp }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          args=(--receipts-dir "$RUNNER_TEMP/receipts" --keep-worktree)
-          [ -n "$BASE_SHA" ] && args+=(--base-ref "$BASE_SHA")
-          node scripts/release/verify-local.mjs "${args[@]}"
-      - name: Upload receipt, logs and browser traces
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: gate-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/receipts/
-            ${{ runner.temp }}/naba-verify-*/verify.log
-            ${{ runner.temp }}/naba-verify-*/logs/
-            ${{ runner.temp }}/naba-verify-*/src/test-results*/
-          retention-days: 7
-          if-no-files-found: ignore
-
-  secret-scan:
-    # Also on docs-only pull requests, which skip the gate. The gate scans
-    # the full history of HEAD; this scans only the new commits.
-    name: Secret scan
-    needs: plan
-    runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    env:
-      GITLEAKS_VERSION: 8.30.1
-      GITLEAKS_SHA256_LINUX_X64: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-      GITLEAKS_SHA256_DARWIN_ARM64: b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install gitleaks
-        run: |
-          case "$RUNNER_OS/$RUNNER_ARCH" in
-            Linux/X64) platform=linux_x64; sum="$GITLEAKS_SHA256_LINUX_X64" ;;
-            macOS/ARM64) platform=darwin_arm64; sum="$GITLEAKS_SHA256_DARWIN_ARM64" ;;
-            *) echo "::error::No pinned gitleaks for $RUNNER_OS/$RUNNER_ARCH"; exit 1 ;;
-          esac
-          archive="gitleaks_${GITLEAKS_VERSION}_${platform}.tar.gz"
-          curl -fsSL -o "$RUNNER_TEMP/$archive" \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
-          echo "$sum  $RUNNER_TEMP/$archive" | shasum -a 256 -c -
-          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
-      - name: Scan
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          SHA: ${{ github.sha }}
-        run: |
-          # .gitleaksignore (repo root) lists historical findings by fingerprint.
-          range=""
           if [ "$EVENT" = pull_request ]; then
-            range="$PR_BASE..$PR_HEAD"
-          elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] \
-            && [ "$PUSH_BEFORE" != 0000000000000000000000000000000000000000 ]; then
-            range="$PUSH_BEFORE..$SHA"
+            test "$(git rev-parse HEAD^1)" = "$BASE_SHA"
+            test "$(git rev-parse HEAD^2)" = "$HEAD_SHA"
           fi
-          if [ -n "$range" ]; then
-            echo "Scanning $range"
-            "$RUNNER_TEMP/gitleaks" git --no-banner --redact --log-opts="$range" .
-          else
-            echo "Scanning full history"
-            "$RUNNER_TEMP/gitleaks" git --no-banner --redact .
-          fi
-
-  result:
-    name: CI result
-    if: always()
-    needs: [plan, gate, secret-scan]
-    # Hosted when Plan never reported a lane (it failed or never started).
-    runs-on: ${{ fromJSON(needs.plan.outputs.runner || '"ubuntu-24.04"') }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts/ci
-          sparse-checkout-cone-mode: true
-      # The Mac lane has no Node on the runner's PATH; cone mode keeps the
-      # root .nvmrc in the sparse checkout.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-      # Strict: every job that applies to the change must succeed. The gate
-      # may be skipped only on a docs-only PR (plan code=false). See
-      # docs/ci.md section 3.
-      - name: Aggregate job results
+      - uses: ./.github/actions/setup
+      - name: Provision verification tools
+        run: |
+          bin=$(mktemp -d "$RUNNER_TEMP/naba-tools.XXXXXX")
+          install_tool() {
+            local tool="$1" repo="$2" tag="$3" asset="$4" sha256="$5"
+            curl --fail --silent --show-error --location --retry 2 --max-time 90 \
+              "https://github.com/$repo/releases/download/$tag/$asset" -o "$bin/$asset"
+            echo "$sha256  $bin/$asset" | sha256sum --check --strict -
+            tar -xzf "$bin/$asset" -C "$bin" "$tool"
+            test -x "$bin/$tool"
+          }
+          install_tool actionlint rhysd/actionlint v1.7.12 actionlint_1.7.12_linux_amd64.tar.gz 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          install_tool zizmor zizmorcore/zizmor v1.33.1 zizmor-x86_64-unknown-linux-gnu.tar.gz 3e6a301c7a820a2501915f5a9de8c0486da82bdec7965f068477538a98743d43
+          install_tool gitleaks gitleaks/gitleaks v8.30.1 gitleaks_8.30.1_linux_x64.tar.gz 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          echo "$bin" >> "$GITHUB_PATH"
+      - name: Verify candidate
         env:
-          NEEDS: ${{ toJSON(needs) }}
-          PLAN_CODE: ${{ needs.plan.outputs.code }}
+          TMPDIR: ${{ runner.temp }}
           EVENT: ${{ github.event_name }}
-        run: node scripts/ci/aggregate-results.mjs
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          args=(--receipts-dir "$RUNNER_TEMP/naba-candidate-receipts")
+          if [ "$EVENT" = pull_request ]; then
+            args+=(--merge-candidate --base-ref "$BASE_SHA")
+          fi
+          node scripts/release/verify-local.mjs "${args[@]}"
+      - name: Retain verification receipt
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/naba-candidate-receipts/*.json
+          retention-days: 7
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'ignore' }}

@@ -4,7 +4,7 @@
 //   pnpm verify:release [--skip <id,...>] [--keep-going] [--base-ref <ref>]
 //                       [--receipts-dir <dir>] [--keep-worktree] [--list]
 //                       [--serial] [--integration-shards <n>] [--cpus <n>]
-//                       [--e2e-lanes <n>] [--full]
+//                       [--e2e-lanes <n>] [--full] [--merge-candidate]
 //
 // Hosted CI is not a release gate (docs/ci.md §5); this run is the evidence.
 // It checks HEAD out into a fresh detached git worktree (under
@@ -654,6 +654,7 @@ export function parseArgs(argv, env = {}) {
     skip: /** @type {string[]} */ ([]),
     failFast: true,
     baseRef: /** @type {string | null} */ (null),
+    mergeCandidate: env.GITHUB_EVENT_NAME === "pull_request",
     receiptsDir: /** @type {string | null} */ (null),
     keepWorktree: false,
     list: false,
@@ -683,6 +684,7 @@ export function parseArgs(argv, env = {}) {
     else if (arg === "--fail-fast") options.failFast = true
     else if (arg === "--base-ref") options.baseRef = argv[++index] ?? ""
     else if (arg === "--receipts-dir") options.receiptsDir = argv[++index] ?? ""
+    else if (arg === "--merge-candidate") options.mergeCandidate = true
     else if (arg === "--keep-worktree") options.keepWorktree = true
     else if (arg === "--full") options.full = true
     else if (arg === "--list") options.list = true
@@ -703,6 +705,18 @@ export function parseArgs(argv, env = {}) {
     throw new Error(`Unknown step(s) for --skip: ${unknown.join(", ")}`)
   }
   if (options.baseRef === "") throw new Error("--base-ref needs a ref")
+  if (options.mergeCandidate && !/^[0-9a-f]{40}$/.test(options.baseRef ?? "")) {
+    throw new Error(
+      "Merge candidate verification needs --base-ref <target SHA>"
+    )
+  }
+  if (
+    env.CI_BASE_SHA &&
+    options.mergeCandidate &&
+    options.baseRef !== env.CI_BASE_SHA
+  ) {
+    throw new Error("--base-ref must match the CI target SHA")
+  }
   if (options.receiptsDir === "") throw new Error("--receipts-dir needs a path")
   const shards = Number(options.integrationShards)
   if (!Number.isInteger(shards) || shards < 1 || shards > 16) {
@@ -996,6 +1010,12 @@ async function main() {
     )
     return 2
   }
+  if (options.mergeCandidate && (mergeBase !== baseSha || mergeBase === sha)) {
+    console.error(
+      "verify:release: target base must be a strict ancestor of the merge candidate. Update the branch and verify its new head."
+    )
+    return 2
+  }
   if (mergeBase === sha) {
     console.warn(
       `verify:release: the merge base with ${baseRef} is HEAD itself, so migration-policy and migrate-upgrade compare HEAD with itself; promotion refuses this receipt.`
@@ -1040,6 +1060,7 @@ async function main() {
     options.e2eLanes
   )
   let worktreeAdded = false
+  let playwrightVersion = null
 
   let interrupted = false
   /** Progress lines: the terminal and verify.log. */
@@ -1343,8 +1364,19 @@ async function main() {
    *   skipped?: boolean } | void>>}
    */
   const steps = {
-    "frozen-install": (sink) =>
-      must(sink, "pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]),
+    "frozen-install": async (sink) => {
+      await must(sink, "pnpm", [
+        "install",
+        "--frozen-lockfile",
+        "--prefer-offline",
+      ])
+      playwrightVersion = toolVersion(
+        join(worktree, "node_modules/.bin/playwright"),
+        ["--version"],
+        env,
+        worktree
+      )
+    },
     typecheck: (sink) => must(sink, "pnpm", ["typecheck"]),
     lint: (sink) => must(sink, "pnpm", ["lint:gate"]),
     unit: (sink) =>
@@ -1356,7 +1388,7 @@ async function main() {
         "scripts/format-changed.mjs",
         "--check",
         "--base",
-        "origin/main",
+        options.mergeCandidate ? baseSha : "origin/main",
       ]),
     design: async (sink) => {
       await must(sink, "pnpm", ["check:design", "--ratchet"])
@@ -1519,7 +1551,14 @@ async function main() {
     },
     e2e: async (sink) => {
       // The pinned browser for this Playwright version; a no-op when present.
-      await must(sink, "pnpm", ["exec", "playwright", "install", "chromium"])
+      const install = ["exec", "playwright", "install"]
+      if (
+        process.platform === "linux" &&
+        process.env.GITHUB_ACTIONS === "true"
+      ) {
+        install.push("--with-deps")
+      }
+      await must(sink, "pnpm", [...install, "chromium"])
       // Playwright's own list of what `pnpm test:e2e` runs (both suites and
       // the touch project), split by spec file into lanes. Each lane is one
       // Playwright invocation with every suite enabled: its own cluster, app
@@ -1658,6 +1697,11 @@ async function main() {
         (tool) => !toolVersion(tool, ["--version"], env)
       )
       if (missing.length > 0) {
+        if (options.mergeCandidate) {
+          throw new Error(
+            `Candidate workflow lint requires: ${missing.join(", ")}`
+          )
+        }
         return {
           skipped: true,
           note: `${missing.join(" and ")} not installed (brew install actionlint zizmor); workflows not linted`,
@@ -1862,12 +1906,7 @@ async function main() {
     gitleaks: toolVersion("gitleaks", ["version"], env),
     actionlint: toolVersion("actionlint", ["--version"], env),
     zizmor: toolVersion("zizmor", ["--version"], env),
-    playwright: toolVersion(
-      join(root, "node_modules/.bin/playwright"),
-      ["--version"],
-      env,
-      root
-    ),
+    playwright: playwrightVersion,
     platform: `${process.platform}-${process.arch}`,
   }
   const receipt = buildLocalReceipt({
