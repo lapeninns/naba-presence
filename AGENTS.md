@@ -64,17 +64,56 @@ own tenants per file, no retries to hide flakes) are in `docs/testing.md`.
   the gate's docs-only fast path: install, format, secret scan and workflow
   lint, marked "docs-only fast path" and never a release receipt
   (`docs/ci.md` §5).
-- Rebase on the latest `origin/main`, then run once on the final head:
+- naba-presence is not on the release train. One PR per piece of work, then:
+  `pnpm verify` passes; rebase on the latest `origin/main`; run local-ci once
+  on the final head with
   `lci run naba-presence --pr <N> --post --comment --wait` (`--wait` queues
-  for the shared runner). Not on intermediate
-  pushes. A commit with an already-passing tree reuses its result.
-- Check the shared runner status and wait in the foreground. Use `--force` only when prior proof has become invalid and the
-  profile needs genuinely fresh execution. Never qualify using `--only`.
-- Merge only through `lci merge`. No admin merges, `--no-codex`, skipped
-  checks or forged statuses. GitHub Actions is disabled; the hosted workflow
-  is a recovery proposal. Keep forks and Dependabot branches off this Mac.
-- One PR per piece of work. Run `gh auth switch --user lapeninns` before any
-  push or `gh` write.
+  for the shared runner; not on intermediate pushes; a commit with an
+  already-passing tree reuses its result); then merge with `lci merge`
+  (profile `naba-presence`, `--pr <N>`). Use `--force` only when prior proof
+  has become invalid. Never qualify using `--only`.
+- No human review or approval is required (solo developer, owner decision
+  2026-11-25). The Codex review that `lci merge` enforces is the reviewer.
+  `lci merge` is the only merge path: no admin merges, `--no-codex`, skipped
+  checks or forged statuses. It posts `local-ci/merge-admission`.
+- Merging does not deploy production here (`docs/ci.md` §7). GitHub Actions
+  is disabled; `.github/workflows/ci.yml` ("Candidate verification") is a
+  dormant recovery job, and no `CI result` check exists. Keep forks and
+  Dependabot branches off this Mac.
+- Run `gh auth switch --user lapeninns` before any push or `gh` write. One
+  agent session per PR at a time.
+
+## Releases and production (solo-developer policy, 2026-11-25)
+
+Full procedure: `docs/ci.md` §6–7 and `docs/runbook.md` "Deployment gate".
+
+- **Migrations go to production before the code that needs them.** An agent
+  may apply an expand-only migration itself: plan with `pnpm db:status`, put
+  the plan (files, what each adds, why it is expand-only) in the PR, wait for
+  `local-ci/release-gate` to pass on the PR head, then run `pnpm db:migrate`
+  and `pnpm db:status --expect-current` against production and add the
+  `migrations-applied` label. For this repo `lci merge`'s migration check is
+  label-only: it refuses a PR with new `supabase/migrations` files without
+  that label, and cannot read production itself, so add it only after
+  `db:status --expect-current` passed. A file with `-- migrate:contract`,
+  any destructive or data-rewriting change, or a restore waits for the owner.
+- Agents run `pnpm release:promote` and `pnpm release:rollback` when the
+  owner asks for a release (or a failed release needs rolling back). There
+  are no release windows for this repo and no multi-signature sign-off.
+- Credentials come from the macOS keychain inside the command, never
+  printed, echoed, logged or written to a file: items
+  `naba-presence-prod-db-url` (`DIRECT_DATABASE_URL`) and
+  `naba-presence-readiness-token` (`READINESS_PROBE_TOKEN`). The exact
+  command forms are in `docs/ci.md` §6. If an item is missing, stop and ask
+  the owner; never fall back to `.env*`.
+- Quiet hours: no production migration or promotion 22:30–08:00 London
+  unless the owner starts it. A `hotfix` label means release as soon as the
+  checks pass; quiet hours still apply.
+- Staging first only for database changes, payments, sign-in/auth and
+  email/SMS sending; other changes go local-ci, merge, promotion.
+- After every promotion: confirm production serves the SHA, run the smoke
+  (`docs/ci.md` §7), watch error logs for about 10 minutes, and on failure
+  roll back at once and report.
 
 ## Safety
 
@@ -82,7 +121,8 @@ own tenants per file, no retries to hide flakes) are in `docs/testing.md`.
   wrappers start throwaway PostgreSQL 17 clusters (Homebrew `postgresql@17`)
   and refuse port 54322.
 - Production migrations, `pnpm release:promote` and `pnpm release:rollback`
-  are operator steps (`docs/ci.md` §6–7). Run them only when asked.
+  follow "Releases and production" above: expand-only migrations when a PR
+  needs them, promotion and rollback when the owner asks for a release.
 - Migrations are append-only and expand-only; the gate checks both
   (`migration-policy`, `migrate-upgrade`).
 - Uncommitted edits to the gate's own code (`scripts/release/`,
