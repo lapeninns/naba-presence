@@ -371,9 +371,9 @@ Production has no `DIRECT_DATABASE_URL` (Preview does). Checked on
 purpose.
 
 **Migrations reach production before the code that needs them** (owner
-decision 2026-11-25). `lci merge` enforces this: it refuses a PR that adds
+decision 2026-11-25). `lci merge` checks this: it refuses a PR that adds
 files under `supabase/migrations` unless the PR carries the
-`migrations-applied` label. For this repo the check is label-only (lci
+`migrations-applied` label. This applied-state check is label-only (lci
 cannot read production's `schema_migration`), so the label is the author's
 statement that `db:status --expect-current` passed against production for
 the PR head; add it only then.
@@ -382,7 +382,10 @@ the PR head; add it only then.
 (additive: new tables, nullable or defaulted columns, new indexes, new
 functions, widened constraints) through the repository's own scripts below.
 A file with `-- migrate:contract`, anything that drops, renames, rewrites or
-backfills existing data, and any restore wait for the owner.
+backfills existing data, and any restore wait for the owner. Add the new
+schema first, and remove the old schema in a separate PR once no deployed
+code uses it. `lci merge` must require `destructive-migration-approved` on
+destructive migration PRs. Until that check is installed, do not merge one.
 
 **Credentials** come from the macOS keychain inside the command and are never
 printed, echoed, logged, written to a file or passed on a visible command
@@ -467,11 +470,10 @@ project linking is proposed, revalidate the trigger setup in the
 - There are no release windows for this repo. A `hotfix` label means promote
   as soon as the checks pass. Quiet hours: no promotion 22:30–08:00 London
   unless the owner starts it.
-- Staging first is required only for database changes, payments,
-  sign-in/auth and email/SMS sending. There is no separate staging project:
-  check those journeys on a Vercel Preview deployment before the promotion.
-  Other changes go local-ci, merge, promotion; the promotion's own staged
-  deployment and probe (below) still run for every release.
+- There is no staging environment. `pnpm release:promote` probes the new
+  build before switching production, using a production-target deployment
+  that has not been assigned the production domains. The probe runs for every
+  release and does not replace the integration or browser checks in local CI.
 - Credentials come from the keychain inside the command (§6), never printed.
 - After every promotion run the post-release checks at the end of this
   section, and roll back at once if they fail.
@@ -625,7 +627,7 @@ report to the owner, who records it. Restoring a snapshot and rerunning with
 `--database-restored` is an owner step. Afterwards read the deployed cron list back against the target's
 `vercel.json` (ledger OPS-09). The script trusts the receipts for what
 production serves; compare its dry run with `vercel promote status`. It has
-not been drilled on a staging project yet (owner, OPS-09). After a
+not been drilled on a separate environment (owner, OPS-09). After a
 confirmed rollback, the gate's default base, promotion's required base and
 `--expect-promoted` are the rollback target.
 

@@ -93,9 +93,9 @@ Full procedure: `docs/ci.md` §6–7 and `docs/runbook.md` "Deployment gate".
   the plan (files, what each adds, why it is expand-only) in the PR, wait for
   `local-ci/release-gate` to pass on the PR head, then run `pnpm db:migrate`
   and `pnpm db:status --expect-current` against production and add the
-  `migrations-applied` label. For this repo `lci merge`'s migration check is
+  `migrations-applied` label. The `lci merge` check for applied migrations is
   label-only: it refuses a PR with new `supabase/migrations` files without
-  that label, and cannot read production itself, so add it only after
+  that label and cannot read production itself, so add it only after
   `db:status --expect-current` passed. A file with `-- migrate:contract`,
   any destructive or data-rewriting change, or a restore waits for the owner.
 - Agents run `pnpm release:promote` and `pnpm release:rollback` when the
@@ -110,11 +110,18 @@ Full procedure: `docs/ci.md` §6–7 and `docs/runbook.md` "Deployment gate".
 - Quiet hours: no production migration or promotion 22:30–08:00 London
   unless the owner starts it. A `hotfix` label means release as soon as the
   checks pass; quiet hours still apply.
-- Staging first only for database changes, payments, sign-in/auth and
-  email/SMS sending; other changes go local-ci, merge, promotion.
+- No staging; `pnpm release:promote` probes the new build before switching
+  production.
 - After every promotion: confirm production serves the SHA, run the smoke
   (`docs/ci.md` §7), watch error logs for about 10 minutes, and on failure
   roll back at once and report.
+
+### Expand-only migrations
+
+Add new schema first; keep it compatible with the code already deployed.
+Remove old schema in a separate PR only once no deployed code uses it.
+The owner applies destructive migrations; `lci merge` must require the `destructive-migration-approved` label on those PRs.
+For expand-only changes, run `pnpm db:migrate`, then `pnpm db:status --expect-current` before adding `migrations-applied`.
 
 ## Safety
 
