@@ -42,12 +42,16 @@ import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
 import { Spinner } from "@/components/ui/spinner"
 import { ApiClientError } from "@/lib/api/client"
-import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
+import {
+  emptyCounts,
+  emptyListFilters,
+  emptyReason,
+  narrowsInboxList,
+} from "@/lib/inbox/empty-reason"
 import { useClients } from "@/lib/queries/use-clients"
 import {
   autoSelectId,
   DESKTOP_MEDIA_QUERY,
-  hasActiveFilters,
   parseInboxState,
   scopeInboxState,
   serializeInboxState,
@@ -56,10 +60,7 @@ import {
   type InboxState,
   type Queue,
 } from "@/lib/inbox/url-state"
-import {
-  DEFAULT_REVIEW_SORT,
-  REVIEW_QUEUE_LABELS,
-} from "@/lib/contracts/review-values"
+import { REVIEW_QUEUE_LABELS } from "@/lib/contracts/review-values"
 import { inboxWaiting } from "@/lib/inbox/waiting"
 import { INBOX_SPLIT_STYLE } from "@/lib/inbox/layout"
 import { adjacentReviewId, type AdjacentDirection } from "@/lib/inbox/queue-nav"
@@ -129,19 +130,6 @@ function refreshedAt(timestamp: number | undefined): string | null {
  * order. Done is history, never the next piece of work, so it is not here.
  */
 const NEXT_WORK = ["needs_reply", "failed", "approval", "publishing"] as const
-
-/**
- * Filters that hide rows. The client scope is the app bar's, and a sort only
- * orders the rows, so neither makes an empty list a filtered one (the queue
- * tabs ask the same question the same way).
- */
-function narrowsList(state: InboxState): boolean {
-  return hasActiveFilters({
-    ...state,
-    clientId: undefined,
-    sort: DEFAULT_REVIEW_SORT,
-  })
-}
 
 /**
  * Focuses the Filters button that is on screen, the control that narrows the
@@ -640,8 +628,12 @@ function InboxViewInner({
       // The counts are already scoped to the client in view, so the client
       // filter is the scope here rather than a filter hiding rows: an empty
       // queue for one client is that client's queue being clear.
+      const { hasActiveFilters, ...emptyFilters } = emptyListFilters(
+        state,
+        countsQuery.data
+      )
       const facts = {
-        hasActiveFilters: narrowsList(state),
+        hasActiveFilters,
         queue: state.queue,
         totalOutsideFilters: countsQuery.data?.total ?? 0,
         connection:
@@ -677,9 +669,8 @@ function InboxViewInner({
       // screen, so the queue is named ("All" is not a queue to name).
       const shownQueue = current && current !== "all" ? state.queue : undefined
       const filtered = {
+        ...emptyFilters,
         search: state.search || undefined,
-        searchOnly:
-          Boolean(state.search) && !narrowsList({ ...state, search: "" }),
         queueLabel: shownQueue && REVIEW_QUEUE_LABELS[shownQueue],
         queueTotal: shownQueue
           ? countsQuery.data?.byQueue[shownQueue]
@@ -695,8 +686,11 @@ function InboxViewInner({
             counts={emptyCounts(facts)}
             onClear={() => {
               // "Clear search" clears the search alone, as the search
-              // field's own clear does; anything else clears every filter.
+              // field's own clear does. The default rating scope has its own
+              // reset to all ratings; otherwise clear the explicit filters.
               if (filtered.searchOnly) onFilterChange({ search: "" })
+              else if (filtered.defaultRatingsOnly)
+                onFilterChange({ allRatings: true })
               else onClearFilters()
               focusFilters()
             }}
@@ -1021,7 +1015,7 @@ function InboxViewInner({
           data-slot="inbox-list-end"
           className="shrink-0 border-t border-line-subtle py-2.5 pl-(--np-page-pad-x) text-caption text-ink-muted outline-none"
         >
-          {narrowsList(state)
+          {narrowsInboxList(state, true)
             ? "That’s every review that matches."
             : visibleQueue(state.queue) && state.queue !== "all"
               ? `That’s every review in ${REVIEW_QUEUE_LABELS[state.queue]}.`

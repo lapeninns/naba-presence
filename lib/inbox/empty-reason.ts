@@ -1,4 +1,40 @@
 import type { ClientSummary } from "@/lib/contracts/clients"
+import { DEFAULT_REVIEW_SORT } from "@/lib/contracts/review-values"
+import type { ReviewCounts } from "@/lib/contracts/reviews"
+import {
+  defaultRatingsPressed,
+  hasActiveFilters,
+  type InboxState,
+} from "@/lib/inbox/url-state"
+
+/** Client scope and sort do not hide rows within a queue. */
+export function narrowsInboxList(
+  state: InboxState,
+  includeDefaultRatings = false
+): boolean {
+  return (
+    (includeDefaultRatings && defaultRatingsPressed(state) === true) ||
+    hasActiveFilters({
+      ...state,
+      clientId: undefined,
+      sort: DEFAULT_REVIEW_SORT,
+    })
+  )
+}
+
+export function emptyListFilters(state: InboxState, counts?: ReviewCounts) {
+  const narrowed = narrowsInboxList(state)
+  const defaultRatingsOnly =
+    !narrowed &&
+    defaultRatingsPressed(state) === true &&
+    (counts?.byQueue.needs_reply ?? 0) > 0
+  return {
+    hasActiveFilters: narrowed || defaultRatingsOnly,
+    defaultRatingsOnly,
+    searchOnly:
+      Boolean(state.search) && !narrowsInboxList({ ...state, search: "" }),
+  }
+}
 
 export type EmptyReason =
   /** Filters exclude everything; rows exist behind them. */

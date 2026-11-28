@@ -39,6 +39,8 @@ export type InboxState = {
   locationIds: string[]
   assignee?: string
   ratings: number[]
+  /** An explicit opt-out of the Needs reply rating default. */
+  allRatings?: boolean
   /** Written review or stars only; see `ReviewsQuery.written`. */
   written?: ReviewWritten
   /** S3: reviews about one topic; see `ReviewsQuery.topic`. */
@@ -61,6 +63,20 @@ function csv(value: string | null): string[] {
   return value ? value.split(",").filter(Boolean) : []
 }
 
+function parseRatingState(value: string | null) {
+  if (value === "all") return { ratings: [], allRatings: true }
+  return {
+    ratings: csv(value)
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 5),
+  }
+}
+
+function ratingParam(state: InboxState): string {
+  if (state.ratings.length) return state.ratings.join(",")
+  return state.allRatings ? "all" : ""
+}
+
 export function parseInboxState(params: URLSearchParams): InboxState {
   const rawQueue = params.get("queue")
   const queue = (REVIEW_QUEUES as readonly string[]).includes(rawQueue ?? "")
@@ -76,9 +92,7 @@ export function parseInboxState(params: URLSearchParams): InboxState {
     // Home's attention list) or a comma list from the multi-select.
     locationIds: csv(params.get("locationId")),
     assignee: params.get("assignee") ?? undefined,
-    ratings: csv(params.get("rating"))
-      .map(Number)
-      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 5),
+    ...parseRatingState(params.get("rating")),
     written: isReviewWritten(params.get("written"))
       ? (params.get("written") as ReviewWritten)
       : undefined,
@@ -104,7 +118,8 @@ export function serializeInboxState(state: InboxState): URLSearchParams {
   if (state.locationIds.length)
     params.set("locationId", state.locationIds.join(","))
   if (state.assignee) params.set("assignee", state.assignee)
-  if (state.ratings.length) params.set("rating", state.ratings.join(","))
+  const rating = ratingParam(state)
+  if (rating) params.set("rating", rating)
   if (state.written) params.set("written", state.written)
   if (state.topic) params.set("topic", state.topic)
   if (state.search) params.set("search", state.search)
@@ -191,6 +206,11 @@ function nonEmpty<T>(values: T[]): T[] | undefined {
   return values.length ? values : undefined
 }
 
+export function defaultRatingsPressed(state: InboxState): boolean | undefined {
+  if (state.queue !== DEFAULT_REVIEW_QUEUE) return undefined
+  return state.ratings.length === 0 && !state.allRatings
+}
+
 /**
  * URL state → the contract's filter set.
  *
@@ -214,7 +234,7 @@ export function toReviewsFilters(
     clientId: state.clientId,
     locationIds: nonEmpty(state.locationIds),
     assignee: state.assignee as ReviewsFilters["assignee"],
-    ratings: nonEmpty(state.ratings),
+    ratings: defaultRatingsPressed(state) ? [4, 5] : nonEmpty(state.ratings),
     written: state.written,
     topic: state.topic,
     replyState: state.replyState,

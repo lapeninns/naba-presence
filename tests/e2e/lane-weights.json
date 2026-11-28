@@ -18,6 +18,7 @@
   "gbp-management-tabs.spec.ts": 109,
   "google-change-watch-backend.spec.ts": 6,
   "google-onboarding.spec.ts": 126,
+  "inbox-defaults.spec.ts": 4,
   "inbox-history.spec.ts": 2,
   "inbox-shallow-url.spec.ts": 4,
   "inbox.spec.ts": 11,

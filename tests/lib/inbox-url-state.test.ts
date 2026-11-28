@@ -24,13 +24,33 @@ describe("inbox url state", () => {
     ).toBeUndefined()
   })
 
-  it("defaults to the needs_reply queue and updated_desc sort", () => {
+  it("defaults to needs_reply, updated_desc, and 4- and 5-star reviews", () => {
     const state = parseInboxState(new URLSearchParams())
     expect(state.queue).toBe("needs_reply")
     expect(state.sort).toBe("updated_desc")
     expect(state.ratings).toEqual([])
     expect(hasActiveFilters(state)).toBe(false)
+    expect(toReviewsFilters(state).ratings).toEqual([4, 5])
+    expect(serializeInboxState(state).has("rating")).toBe(false)
   })
+
+  it("keeps exact rating links and the all-ratings opt-out", () => {
+    const lower = parseInboxState(new URLSearchParams("rating=1,2,3"))
+    expect(toReviewsFilters(lower).ratings).toEqual([1, 2, 3])
+    expect(serializeInboxState(lower).get("rating")).toBe("1,2,3")
+
+    const all = parseInboxState(new URLSearchParams("rating=all"))
+    expect(toReviewsFilters(all).ratings).toBeUndefined()
+    expect(serializeInboxState(all).get("rating")).toBe("all")
+  })
+
+  it.each(["all", "approval", "publishing", "failed", "done"])(
+    "does not apply the default rating filter to the %s queue",
+    (queue) => {
+      const state = parseInboxState(new URLSearchParams({ queue }))
+      expect(toReviewsFilters(state).ratings).toBeUndefined()
+    }
+  )
 
   it("reads Home's ?locationId= contract as the initial location filter", () => {
     // One param, two shapes: a single id from every existing deep link, or a

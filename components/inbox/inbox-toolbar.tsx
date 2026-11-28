@@ -21,6 +21,7 @@ import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"
 import { inboxWaiting, waitingPhrase } from "@/lib/inbox/waiting"
 import {
+  defaultRatingsPressed,
   hasActiveFilters,
   type InboxState,
   type Queue,
@@ -278,6 +279,7 @@ function InboxToolbar({
 
       <QuickFilters
         ratings={state.ratings}
+        defaultRatings={defaultRatingsPressed(state)}
         written={state.written}
         onChange={onFilterChange}
       />
