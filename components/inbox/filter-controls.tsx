@@ -31,11 +31,14 @@ export function toggleRating(ratings: number[], value: number): number[] {
  */
 function QuickFilters({
   ratings,
+  defaultRatings,
   written,
   onChange,
   className,
 }: {
   ratings: number[]
+  /** Undefined outside Needs reply, where there is no default to toggle. */
+  defaultRatings?: boolean
   written: InboxState["written"]
   onChange: (partial: Partial<InboxState>) => void
   className?: string
@@ -47,6 +50,14 @@ function QuickFilters({
       data-slot="inbox-quick-filters"
       className={className}
     >
+      {defaultRatings !== undefined ? (
+        <FilterChip
+          pressed={defaultRatings}
+          onClick={() => onChange({ ratings: [], allRatings: defaultRatings })}
+        >
+          4+ stars
+        </FilterChip>
+      ) : null}
       {RATING_OPTIONS.map((option) => (
         <FilterChip
           key={option.value}

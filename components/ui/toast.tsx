@@ -14,6 +14,7 @@ import {
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useToastFooterClearance } from "@/components/ui/use-toast-footer-clearance"
 
 const baseToastManager = ToastPrimitive.createToastManager()
 
@@ -42,65 +43,6 @@ function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {
   return <ToastPrimitive.Portal data-slot="toast-portal" {...props} />
 }
 
-/** The toast column's widest extent from the right edge: 380px + 16px inset. */
-const TOAST_COLUMN = 396
-
-const MODAL_FOOTERS =
-  '[data-slot="sheet-content"] [data-slot="sheet-footer"], [data-slot="dialog-content"] [data-slot="dialog-footer"]'
-
-/**
- * How far above the viewport's bottom edge an open sheet or dialog footer
- * reaches, when that footer runs under the toast column. From 640px the
- * toasts sit bottom-right, exactly where a right-hand sheet keeps its
- * actions ("Read saved outcome", "Refresh observation"), so the stack is
- * lifted clear of the footer rather than covering the recovery action a
- * warning toast points at.
- */
-export function modalFooterClearance(
-  root: ParentNode,
-  viewport: { width: number; height: number }
-): number {
-  let top = viewport.height
-  for (const footer of root.querySelectorAll(MODAL_FOOTERS)) {
-    const rect = footer.getBoundingClientRect()
-    if (rect.width === 0 || rect.height === 0) continue
-    if (rect.right <= viewport.width - TOAST_COLUMN) continue
-    if (rect.bottom <= 0 || rect.top >= viewport.height) continue
-    top = Math.min(top, rect.top)
-  }
-  return Math.max(0, Math.ceil(viewport.height - top))
-}
-
-function useModalFooterClearance() {
-  const [clearance, setClearance] = React.useState(0)
-  React.useEffect(() => {
-    const measure = () =>
-      setClearance(
-        modalFooterClearance(document, {
-          width: window.innerWidth,
-          height: window.innerHeight,
-        })
-      )
-    const observer = new MutationObserver(measure)
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["data-open", "data-closed", "data-slot", "hidden"],
-    })
-    window.addEventListener("resize", measure)
-    // A sheet slides in: measure again once its transition settles.
-    document.addEventListener("transitionend", measure, true)
-    measure()
-    return () => {
-      observer.disconnect()
-      window.removeEventListener("resize", measure)
-      document.removeEventListener("transitionend", measure, true)
-    }
-  }, [])
-  return clearance
-}
-
 /**
  * Where the stack sits (spec: "Toasts dock to the bottom on a phone, above
  * whichever bar owns the edge"). Always the bottom edge, stacking upward:
@@ -118,8 +60,8 @@ function useModalFooterClearance() {
  *     docked bar, keyboard closed)                     home indicator
  *   phone otherwise (no bar, or the keyboard is up)    `--np-dock-bottom`
  *   from `md`                                          the safe-area inset
- * An open sheet or dialog footer lifts the stack further (see
- * `modalFooterClearance`); the larger of the two wins, plus an 8px gap on a
+ * A sheet, dialog or reply footer lifts the stack further (see
+ * `toastFooterClearance`); the larger of the two wins, plus an 8px gap on a
  * phone. A SelectionBar docks with the same `data-docked="bottom"` and
  * publishes the same measured height, so the stack clears it too. Full width
  * less the page gutters (`--np-page-pad-x`) on a phone; a 380px column at the
@@ -133,7 +75,9 @@ const VIEWPORT_CLASS = cn(
   "[--toast-edge:var(--np-dock-bottom)] md:[--toast-edge:var(--np-safe-bottom)]",
   "max-md:[html:not([data-keyboard=open])_body:has([data-slot=tab-bar]):not(:has([data-docked=bottom]))_&]:[--toast-edge:calc(var(--np-tabbar-h)+var(--np-safe-bottom))]",
   "max-md:[body:has([data-docked=bottom])_&]:[--toast-edge:var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-dock-bottom)))]",
-  "[--toast-bottom:calc(max(var(--toast-edge),var(--toast-footer-clearance))+var(--toast-gap))]"
+  "[--toast-bottom:calc(max(var(--toast-edge),var(--toast-footer-clearance))+var(--toast-gap))]",
+  // Slide in and out from above a footer, never across its controls.
+  "data-[footer-clearance]:[--toast-slide:25%]"
 )
 
 function ToastViewport({
@@ -141,7 +85,7 @@ function ToastViewport({
   style,
   ...props
 }: ToastPrimitive.Viewport.Props) {
-  const clearance = useModalFooterClearance()
+  const clearance = useToastFooterClearance()
   return (
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
@@ -176,8 +120,8 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
         // between rows.
         "after:absolute after:bottom-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",
         "data-expanded:h-(--toast-height) data-expanded:[transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]",
-        "data-limited:opacity-0 data-starting-style:[transform:translateY(calc(var(--dir)*-150%))]",
-        "[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(calc(var(--dir)*-150%))]",
+        "data-limited:opacity-0 data-starting-style:[transform:translateY(calc(var(--dir)*var(--toast-slide,-150%)))]",
+        "[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(calc(var(--dir)*var(--toast-slide,-150%)))]",
         "data-ending-style:data-[swipe-direction=down]:[transform:translateY(calc(var(--toast-swipe-movement-y)+150%))]",
         "data-ending-style:data-[swipe-direction=left]:[transform:translateX(calc(var(--toast-swipe-movement-x)-150%))_translateY(var(--offset-y))]",
         "data-ending-style:data-[swipe-direction=right]:[transform:translateX(calc(var(--toast-swipe-movement-x)+150%))_translateY(var(--offset-y))]",

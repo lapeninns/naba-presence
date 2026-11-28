@@ -76,6 +76,8 @@ export type FilteredFacts = {
   search?: string
   /** The search is the only narrowing (a sort hides nothing, so it is not one). */
   searchOnly: boolean
+  /** Only the default rating scope hides reviews in Needs reply. */
+  defaultRatingsOnly?: boolean
   /** The queue searched, by name; omitted for "All reviews". */
   queueLabel?: string
   /** The server's count for that queue in scope, filters aside. */
@@ -92,6 +94,12 @@ function queueHas(filtered: FilteredFacts): string | null {
 }
 
 function filteredContent(filtered: FilteredFacts | undefined): Content {
+  if (filtered?.defaultRatingsOnly) {
+    return {
+      title: "No 4- or 5-star reviews need a reply.",
+      description: "Lower-rated reviews still need a reply.",
+    }
+  }
   // A search alone gets its own words: it names what was looked for and
   // where, since a search runs inside the queue on screen and a review in
   // another queue is not "missing".
@@ -123,6 +131,12 @@ function filteredContent(filtered: FilteredFacts | undefined): Content {
     title: "No reviews match these filters.",
     description: "Widen or clear them to see the rest of the queue.",
   }
+}
+
+function clearFilterLabel(filtered?: FilteredFacts): string {
+  if (filtered?.searchOnly && filtered.search) return "Clear search"
+  if (filtered?.defaultRatingsOnly) return "Show all ratings"
+  return CLEAR_FILTERS_LABEL
 }
 
 /**
@@ -421,11 +435,9 @@ function EmptyState({
   const action =
     reason === "filtered" && onClear ? (
       // One name for clearing everything, as the chips and the Filters sheet
-      // say it; a search on its own is cleared by name.
+      // say it; a search or the default rating scope is cleared by name.
       <Button variant="secondary" onClick={onClear}>
-        {filtered?.searchOnly && filtered.search
-          ? "Clear search"
-          : CLEAR_FILTERS_LABEL}
+        {clearFilterLabel(filtered)}
       </Button>
     ) : approvals ? (
       <Button variant="secondary" onClick={approvals.onSelect}>
