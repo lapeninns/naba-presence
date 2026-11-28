@@ -7,6 +7,7 @@ import {
   seedGoogleConnection,
   seedLinkedReview,
 } from "../integration/helpers/tenant"
+import { hydrated } from "./helpers/hydrated"
 import { transitionsSettled } from "./helpers/settled"
 
 const REVIEW_TEXTS = [
@@ -64,6 +65,7 @@ inboxTest(
 
     const defaultRating = page.getByRole("button", { name: "4+ stars" })
     await expect(defaultRating).toHaveAttribute("aria-pressed", "true")
+    await hydrated(defaultRating)
     await page.getByRole("button", { name: "2 stars" }).click()
     await expect(rows).toHaveCount(1)
     await expect(rows.first()).toContainText("Two star stay")
@@ -94,7 +96,9 @@ inboxTest(
     await expect(
       page.getByText("No 4- or 5-star reviews need a reply.")
     ).toBeVisible()
-    await page.getByRole("button", { name: "Show all ratings" }).click()
+    const showAll = page.getByRole("button", { name: "Show all ratings" })
+    await hydrated(showAll)
+    await showAll.click()
     await expect(page.locator('[data-slot="review-row"]')).toContainText(
       "Two star stay"
     )
@@ -109,6 +113,7 @@ for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 844 })
       await page.goto(`/inbox?selected=${id}`)
       const editor = page.getByRole("textbox", { name: "Your reply" })
+      await hydrated(editor)
       await expect(editor).toBeEditable()
       // The rating-only generator takes the checked template path without AI.
       // Start with text so the same toast also has the real Undo action.
